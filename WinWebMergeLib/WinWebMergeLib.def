@@ -1,0 +1,3 @@
+EXPORTS
+	WinWebMerge_CreateWindow
+	WinWebMerge_DestroyWindow
