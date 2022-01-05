@@ -40,11 +40,24 @@ public:
 
 	bool OpenUrls(const wchar_t* url1, const wchar_t* url2) override
 	{
-		return true;
+		const wchar_t* const urls[3] = { url1, url2, nullptr };
+		return OpenUrls(2, urls);
 	}
 
 	bool OpenUrls(const wchar_t* url1, const wchar_t* url2, const wchar_t* url3) override
 	{
+		const wchar_t* const urls[3] = { url1, url2, url3 };
+		return OpenUrls(3, urls);
+	}
+
+	bool OpenUrls(int nPanes, const wchar_t* const url[3])
+	{
+		m_nPanes = nPanes;
+		if (m_hWnd)
+		{
+			for (int i = 0; i < nPanes; ++i)
+				m_webWindow[i].Create(m_hInstance, m_hWnd);
+		}
 		return true;
 	}
 
