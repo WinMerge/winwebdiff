@@ -4,6 +4,7 @@
 #include "framework.h"
 #include "WinWebMerge.h"
 #include "../WinWebMergeLib/WinWebMergeLib.h"
+#include <combaseapi.h>
 
 #define MAX_LOADSTRING 100
 
@@ -29,6 +30,7 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
     UNREFERENCED_PARAMETER(lpCmdLine);
 
     // TODO: Place code here.
+    HRESULT hr = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
 
     // Initialize global strings
     LoadStringW(hInstance, IDS_APP_TITLE, szTitle, MAX_LOADSTRING);
@@ -55,6 +57,9 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
             DispatchMessage(&msg);
         }
     }
+
+    if (SUCCEEDED(hr))
+        CoUninitialize();
 
     return (int) msg.wParam;
 }

@@ -10,8 +10,8 @@ class CWebMergeWindow : public IWebMergeWindow
 public:
 	CWebMergeWindow()
 		: m_nPanes(0)
-		, m_hWnd(NULL)
-		, m_hInstance(NULL)
+		, m_hWnd(nullptr)
+		, m_hInstance(nullptr)
 		, m_nDraggingSplitter(-1)
 		, m_bHorizontalSplit(false)
 		, m_oldSplitPosX(-4)
@@ -24,7 +24,7 @@ public:
 	{
 		m_hInstance = hInstance;
 		MyRegisterClass(hInstance);
-		m_hWnd = CreateWindowExW(0, L"WinWebMergeWindowClass", NULL, WS_CHILD | WS_VISIBLE | WS_CLIPCHILDREN,
+		m_hWnd = CreateWindowExW(0, L"WinWebMergeWindowClass", nullptr, WS_CHILD | WS_VISIBLE | WS_CLIPCHILDREN,
 			rc.left, rc.top, rc.right - rc.left, rc.bottom - rc.top, hWndParent, reinterpret_cast<HMENU>((intptr_t)nID), hInstance, this);
 		return m_hWnd ? true : false;
 	}
@@ -34,7 +34,7 @@ public:
 		BOOL bSucceeded = true;
 		if (m_hWnd)
 			bSucceeded = DestroyWindow(m_hWnd);
-		m_hWnd = NULL;
+		m_hWnd = nullptr;
 		return !!bSucceeded;
 	}
 
@@ -343,7 +343,7 @@ private:
 		wcex.cbClsExtra = 0;
 		wcex.cbWndExtra = 0;
 		wcex.hInstance = hInstance;
-		wcex.hCursor = LoadCursor(NULL, IDC_ARROW);
+		wcex.hCursor = LoadCursor(nullptr, IDC_ARROW);
 		wcex.hbrBackground = (HBRUSH)(COLOR_3DFACE + 1);
 		wcex.lpszClassName = L"WinWebMergeWindowClass";
 		return RegisterClassExW(&wcex);
