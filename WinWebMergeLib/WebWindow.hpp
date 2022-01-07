@@ -12,7 +12,6 @@ class CWebWindow
 {
 public:
 	CWebWindow()
-		: m_wBar{ SB_BOTH }
 	{
 	}
 
@@ -28,7 +27,7 @@ public:
 	bool Create(HINSTANCE hInstance, HWND hWndParent)
 	{
 		MyRegisterClass(hInstance);
-		m_hWnd = CreateWindowExW(0, L"WinWebWindowClass", nullptr, WS_CHILD | WS_HSCROLL | WS_VSCROLL | WS_VISIBLE,
+		m_hWnd = CreateWindowExW(0, L"WinWebWindowClass", nullptr, WS_CHILD | WS_VISIBLE,
 			0, 0, 0, 0, hWndParent, nullptr, hInstance, this);
 		if (m_hWnd)
 			InitializeWebView();
@@ -45,7 +44,7 @@ public:
 
 	bool Navigate(const wchar_t* url)
 	{
-		return true;
+		return SUCCEEDED(m_webview->Navigate(url));
 	}
 
 	RECT GetWindowRect() const
@@ -64,28 +63,11 @@ public:
 	void SetWindowRect(const RECT& rc)
 	{
 		MoveWindow(m_hWnd, rc.left, rc.top, rc.right - rc.left, rc.bottom - rc.top, TRUE);
-		if (m_wBar == SB_BOTH)
-			::ShowScrollBar(m_hWnd, m_wBar, true);
-		else if (m_wBar == SB_HORZ)
-		{
-			::ShowScrollBar(m_hWnd, SB_HORZ, true);
-			::ShowScrollBar(m_hWnd, SB_VERT, false);
-		}
-		else if (m_wBar == SB_VERT)
-		{
-			::ShowScrollBar(m_hWnd, SB_HORZ, false);
-			::ShowScrollBar(m_hWnd, SB_VERT, true);
-		}
 	}
 
 	void SetFocus()
 	{
 		::SetFocus(m_hWnd);
-	}
-
-	void SetScrollBar(int wBar)
-	{
-		m_wBar = wBar;
 	}
 
 private:
@@ -121,13 +103,13 @@ private:
 						[this](HRESULT result, ICoreWebView2Controller* controller) -> HRESULT {
 							if (controller != nullptr) {
 								m_webviewController = controller;
-								m_webviewController->get_CoreWebView2(&m_webviewWindow);
+								m_webviewController->get_CoreWebView2(&m_webview);
 							}
 
 							// Add a few settings for the webview
 							// The demo step is redundant since the values are the default settings
 							ICoreWebView2Settings* Settings;
-							m_webviewWindow->get_Settings(&Settings);
+							m_webview->get_Settings(&Settings);
 							Settings->put_IsScriptEnabled(TRUE);
 							Settings->put_AreDefaultScriptDialogsEnabled(TRUE);
 							Settings->put_IsWebMessageEnabled(TRUE);
@@ -138,7 +120,7 @@ private:
 							m_webviewController->put_Bounds(bounds);
 
 							// Schedule an async task to navigate to Bing
-							m_webviewWindow->Navigate(L"https://www.bing.com/");
+							m_webview->Navigate(L"https://www.bing.com/");
 
 							/*
 							// Step 4 - Navigation events
@@ -194,21 +176,26 @@ private:
 		return SUCCEEDED(hr);
 	}
 
-	LRESULT OnWndMsg(HWND hwnd, UINT iMsg, WPARAM wParam, LPARAM lParam)
+	LRESULT OnWndMsg(HWND hWnd, UINT iMsg, WPARAM wParam, LPARAM lParam)
 	{
 		switch (iMsg)
 		{
 		case WM_SIZE:
 			if (m_webviewController != nullptr) {
 				RECT bounds;
-				GetClientRect(m_hWnd, &bounds);
+				GetClientRect(hWnd, &bounds);
 				m_webviewController->put_Bounds(bounds);
 			};
 			break;
-		case WM_ERASEBKGND:
-			return TRUE;
+		case WM_PAINT:
+		{
+			PAINTSTRUCT ps;
+			HDC hdc = BeginPaint(hWnd, &ps);
+			EndPaint(hWnd, &ps);
+			return true;
+		}
 		default:
-			return DefWindowProc(hwnd, iMsg, wParam, lParam);
+			return DefWindowProc(hWnd, iMsg, wParam, lParam);
 		}
 		return 0;
 	}
@@ -223,8 +210,7 @@ private:
 	}
 
 	HWND m_hWnd;
-	int m_wBar;
 	wil::com_ptr<ICoreWebView2Controller> m_webviewController;
-	wil::com_ptr<ICoreWebView2> m_webviewWindow;
+	wil::com_ptr<ICoreWebView2> m_webview;
 };
 

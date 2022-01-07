@@ -14,8 +14,6 @@ public:
 		, m_hInstance(nullptr)
 		, m_nDraggingSplitter(-1)
 		, m_bHorizontalSplit(false)
-		, m_oldSplitPosX(-4)
-		, m_oldSplitPosY(-4)
 		, m_bDragging(false)
 	{
 	}
@@ -195,28 +193,6 @@ private:
 			m_webWindow[i].SetWindowRect(rc[i]);
 	}
 
-	void DrawXorBar(HDC hdc, int x1, int y1, int width, int height)
-	{
-		static const WORD _dotPatternBmp[8] =
-		{
-			0x00aa, 0x0055, 0x00aa, 0x0055,
-			0x00aa, 0x0055, 0x00aa, 0x0055
-		};
-
-		HBITMAP hbm = CreateBitmap(8, 8, 1, 1, _dotPatternBmp);
-		HBRUSH hbr = CreatePatternBrush(hbm);
-
-		SetBrushOrgEx(hdc, x1, y1, 0);
-		HBRUSH hbrushOld = (HBRUSH)SelectObject(hdc, hbr);
-
-		PatBlt(hdc, x1, y1, width, height, PATINVERT);
-
-		SelectObject(hdc, hbrushOld);
-
-		DeleteObject(hbr);
-		DeleteObject(hbm);
-	}
-
 	void OnCreate(HWND hWnd, LPCREATESTRUCT lpCreateStruct)
 	{
 	}
@@ -248,8 +224,6 @@ private:
 					break;
 			}
 		}
-		m_oldSplitPosX = -4;
-		m_oldSplitPosY = -4;
 		m_nDraggingSplitter = i;
 		SetCapture(m_hWnd);
 	}
@@ -259,12 +233,6 @@ private:
 		if (m_nDraggingSplitter == -1)
 			return;
 		ReleaseCapture();
-		HDC hdc = GetWindowDC(m_hWnd);
-		if (!m_bHorizontalSplit)
-			DrawXorBar(hdc, m_oldSplitPosX - 2, 1, 4, m_webWindow[0].GetWindowRect().bottom);
-		else
-			DrawXorBar(hdc, 1, m_oldSplitPosY - 2, m_webWindow[0].GetWindowRect().right, 4);
-		ReleaseDC(m_hWnd, hdc);
 		MoveSplitter(x, y);
 		m_nDraggingSplitter = -1;
 	}
@@ -275,20 +243,7 @@ private:
 			return;
 		if (m_nDraggingSplitter == -1)
 			return;
-		HDC hdc = GetWindowDC(m_hWnd);
-		if (!m_bHorizontalSplit)
-		{
-			DrawXorBar(hdc, m_oldSplitPosX - 2, 1, 4, m_webWindow[0].GetWindowRect().bottom);
-			DrawXorBar(hdc, x - 2, 1, 4, m_webWindow[0].GetWindowRect().bottom);
-		}
-		else
-		{
-			DrawXorBar(hdc, 1, m_oldSplitPosY - 2, m_webWindow[0].GetWindowRect().right, 4);
-			DrawXorBar(hdc, 1, y - 2, m_webWindow[0].GetWindowRect().right, 4);
-		}
-		m_oldSplitPosX = x;
-		m_oldSplitPosY = y;
-		ReleaseDC(m_hWnd, hdc);
+		MoveSplitter(x, y);
 	}
 
 	LRESULT OnWndMsg(HWND hwnd, UINT iMsg, WPARAM wParam, LPARAM lParam)
@@ -355,8 +310,6 @@ private:
 	CWebWindow m_webWindow[3];
 	int m_nDraggingSplitter;
 	bool m_bHorizontalSplit;
-	int m_oldSplitPosX;
-	int m_oldSplitPosY;
 	bool m_bDragging;
 	POINT m_ptOrg;
 	POINT m_ptPrev;
