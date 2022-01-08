@@ -234,6 +234,7 @@
   <ItemGroup>
     <ClInclude Include="framework.h" />
     <ClInclude Include="pch.h" />
+    <ClInclude Include="Resource.h" />
     <ClInclude Include="WebMergeWindow.hpp" />
     <ClInclude Include="WebWindow.hpp" />
     <ClInclude Include="WinWebMergeLib.h" />
