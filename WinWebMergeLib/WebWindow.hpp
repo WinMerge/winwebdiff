@@ -5,6 +5,9 @@
 #include <wrl.h>
 #include <wil/com.h>
 #include <string>
+#include <vector>
+#include <memory>
+#include <cassert>
 #include "WebView2.h"
 #include "resource.h"
 
@@ -12,6 +15,84 @@ using namespace Microsoft::WRL;
 
 class CWebWindow
 {
+	class CWebTab
+	{
+	public:
+		CWebTab(CWebWindow *parent)
+			: m_parent(parent)
+		{
+			InitializeWebView();
+		}
+
+		bool InitializeWebView()
+		{
+			// Create a CoreWebView2Controller and get the associated CoreWebView2 whose parent is the main window hWnd
+			HRESULT hr = m_parent->m_webviewEnvironment->CreateCoreWebView2Controller(m_parent->m_hWnd, Callback<ICoreWebView2CreateCoreWebView2ControllerCompletedHandler>(
+				[this](HRESULT result, ICoreWebView2Controller* controller) -> HRESULT {
+					if (controller != nullptr) {
+						m_webviewController = controller;
+						m_webviewController->get_CoreWebView2(&m_webview);
+					}
+
+					// Add a few settings for the webview
+					// The demo step is redundant since the values are the default settings
+					ICoreWebView2Settings* Settings;
+					m_webview->get_Settings(&Settings);
+					Settings->put_IsScriptEnabled(TRUE);
+					Settings->put_AreDefaultScriptDialogsEnabled(TRUE);
+					Settings->put_IsWebMessageEnabled(TRUE);
+
+					m_parent->ResizeWebView();
+
+					// Schedule an async task to navigate to Bing
+					m_webview->Navigate(L"https://www.google.com/");
+
+					EventRegistrationToken navigationStartingToken{};
+					EventRegistrationToken navigationCompletedToken{};
+					EventRegistrationToken sourceChangedToken{};
+					EventRegistrationToken historyChangedToken{};
+
+					m_webview->add_NavigationStarting(
+						Callback<ICoreWebView2NavigationStartingEventHandler>(
+							[this](ICoreWebView2* sender, ICoreWebView2NavigationStartingEventArgs* args)
+							-> HRESULT {
+								return m_parent->OnNavigationStarting(sender, args);
+							})
+						.Get(), &navigationStartingToken);
+
+					m_webview->add_HistoryChanged(
+						Callback<ICoreWebView2HistoryChangedEventHandler>(
+							[this](ICoreWebView2* sender, IUnknown* args) -> HRESULT {
+								return m_parent->OnHistoryChanged(sender, args);
+							})
+						.Get(), &historyChangedToken);
+
+					m_webview->add_SourceChanged(
+						Callback<ICoreWebView2SourceChangedEventHandler>(
+							[this](ICoreWebView2* sender, ICoreWebView2SourceChangedEventArgs* args)
+							-> HRESULT {
+								return m_parent->OnSourceChanged(sender, args);
+							})
+						.Get(), &sourceChangedToken);
+
+					m_webview->add_NavigationCompleted(
+						Callback<ICoreWebView2NavigationCompletedEventHandler>(
+							[this](ICoreWebView2* sender, ICoreWebView2NavigationCompletedEventArgs* args)
+							-> HRESULT {
+								return m_parent->OnNavigationCompleted(sender, args);
+							})
+						.Get(), &navigationCompletedToken);
+					return S_OK;
+				}).Get());
+			return SUCCEEDED(hr);
+		}
+
+		wil::com_ptr<ICoreWebView2Controller> m_webviewController;
+		wil::com_ptr<ICoreWebView2> m_webview;
+		CWebWindow* m_parent;
+	};
+
+	friend CWebTab;
 public:
 	CWebWindow()
 	{
@@ -29,14 +110,17 @@ public:
 	bool Create(HINSTANCE hInstance, HWND hWndParent)
 	{
 		MyRegisterClass(hInstance);
-		m_hWnd = CreateWindowExW(0, L"WinWebWindowClass", nullptr, WS_CHILD | WS_VISIBLE,
+		m_hWnd = CreateWindowExW(0, L"WinWebWindowClass", nullptr,
+			WS_CHILD | WS_VISIBLE,
 			0, 0, 0, 0, hWndParent, nullptr, hInstance, this);
 		if (!m_hWnd)
 			return false;
-		m_hToolbar = CreateWindowExW(0,
-			TOOLBARCLASSNAME, nullptr, WS_CHILD | TBSTYLE_FLAT | TBSTYLE_LIST | WS_VISIBLE,
-			0, 0, 0, 0, m_hWnd,
-			(HMENU)1, hInstance, nullptr);
+		m_hTabCtrl = CreateWindowEx(0, WC_TABCONTROL, nullptr,
+			WS_CHILD | WS_VISIBLE | WS_CLIPSIBLINGS | TCS_FLATBUTTONS,
+			0, 0, 4, 4, m_hWnd, (HMENU)1, hInstance, nullptr);
+		m_hToolbar = CreateWindowExW(0, TOOLBARCLASSNAME, nullptr,
+			WS_CHILD | TBSTYLE_FLAT | TBSTYLE_LIST | CCS_NOMOVEY | WS_VISIBLE,
+			0, 0, 0, 0, m_hWnd, (HMENU)2, hInstance, nullptr);
 		HDC hDC = GetDC(m_hWnd);
 		LOGFONT lfToolbar{};
 		lfToolbar.lfHeight = MulDiv(-14, GetDeviceCaps(hDC, LOGPIXELSX), 72);
@@ -60,8 +144,9 @@ public:
 			{I_IMAGENONE, ID_RELOAD,    TBSTATE_ENABLED, BTNS_BUTTON | BTNS_AUTOSIZE, {}, 0, (INT_PTR)L"\x50"},
 			{I_IMAGENONE, ID_STOP,      TBSTATE_ENABLED, BTNS_BUTTON | BTNS_AUTOSIZE, {}, 0, (INT_PTR)L"\xAC"},
 		};
-		m_hEdit = CreateWindowEx(0, TEXT("EDIT"), TEXT(""), WS_CHILD | WS_VISIBLE | WS_BORDER | ES_AUTOHSCROLL,
-			0, 0, 0, 0, m_hToolbar, (HMENU)2, hInstance, NULL);
+		m_hEdit = CreateWindowEx(0, TEXT("EDIT"), TEXT(""),
+			WS_CHILD | WS_VISIBLE | WS_BORDER | ES_AUTOHSCROLL,
+			0, 0, 0, 0, m_hToolbar, (HMENU)3, hInstance, nullptr);
 		SetWindowLongPtr(m_hEdit, GWLP_USERDATA, (LONG_PTR)this);
 		m_oldEditWndProc = (WNDPROC)SetWindowLongPtr(m_hEdit, GWLP_WNDPROC, (LONG_PTR)EditWndProc);
 		SendMessage(m_hEdit, WM_SETFONT, (WPARAM)m_hEditFont, 0);
@@ -69,6 +154,24 @@ public:
 		SendMessage(m_hToolbar, WM_SETFONT, (WPARAM)m_hToolbarFont, 0);
 		InitializeWebView();
 		return true;
+	}
+
+	bool InitializeWebView()
+	{
+		HRESULT hr = CreateCoreWebView2EnvironmentWithOptions(nullptr, nullptr, nullptr,
+			Callback<ICoreWebView2CreateCoreWebView2EnvironmentCompletedHandler>(
+				[this](HRESULT result, ICoreWebView2Environment* env) -> HRESULT {
+					m_webviewEnvironment = env;
+					m_tabs.emplace_back(new CWebTab(this));
+
+					TCITEM tcItem{};
+					tcItem.mask = TCIF_TEXT;
+					tcItem.pszText = (PWSTR)L"";
+					TabCtrl_InsertItem(m_hTabCtrl, 0, &tcItem);
+					m_activeTab = 0;
+					return S_OK;
+				}).Get());
+		return SUCCEEDED(hr);
 	}
 
 	bool Destroy()
@@ -79,16 +182,33 @@ public:
 			DestroyWindow(m_hWnd);
 		m_hToolbar = nullptr;
 		m_hWnd = nullptr;
+		DeleteObject(m_hToolbarFont);
+		DeleteObject(m_hEditFont);
 		return true;
+	}
+
+	CWebTab* GetActiveTab()
+	{
+		assert(m_activeTab >= 0 && m_activeTab < m_tabs.size());
+		return m_tabs[m_activeTab].get();
+	}
+
+	ICoreWebView2* GetActiveWebView()
+	{
+		return GetActiveTab()->m_webview.get();
+	}
+
+	ICoreWebView2Controller* GetActiveWebViewController()
+	{
+		return GetActiveTab()->m_webviewController.get();
 	}
 
 	bool Navigate(const wchar_t* url)
 	{
-		HRESULT hr = m_webview->Navigate(url);
+		HRESULT hr = GetActiveWebView()->Navigate(url);
 		if (hr == E_INVALIDARG)
-			hr = m_webview->Navigate((L"http://" + std::wstring(url)).c_str());
+			hr = GetActiveWebView()->Navigate((L"http://" + std::wstring(url)).c_str());
 		return SUCCEEDED(hr);
-
 	}
 
 	RECT GetWindowRect() const
@@ -119,10 +239,14 @@ private:
 
 	void SetToolbarRect()
 	{
-		RECT bounds, rcToolbar, rcStop;
+		RECT bounds, rcToolbar, rcStop, rcTabCtrl{};
 		GetClientRect(m_hWnd, &bounds);
 		GetClientRect(m_hToolbar, &rcToolbar);
-		MoveWindow(m_hToolbar, bounds.left, bounds.top, bounds.right - bounds.left, rcToolbar.bottom - rcToolbar.top, TRUE);
+		TabCtrl_AdjustRect(m_hTabCtrl, false, &rcTabCtrl);
+		const int tabCtrlHeight = 32; // rcTabCtrl.bottom - rcTabCtrl.top;
+		const int toolbarHeight = rcToolbar.bottom - rcToolbar.top;
+		MoveWindow(m_hTabCtrl, bounds.left, bounds.top, bounds.right - bounds.left, tabCtrlHeight, TRUE);
+		MoveWindow(m_hToolbar, bounds.left, bounds.top + tabCtrlHeight, bounds.right - bounds.left, rcToolbar.bottom - rcToolbar.top, TRUE);
 		SendMessage(m_hToolbar, TB_GETRECT, ID_STOP, (LPARAM)&rcStop);
 		MoveWindow(m_hEdit, rcStop.right + 4, rcStop.top + 2, bounds.right - 4 - (rcStop.right + 4), rcStop.bottom - rcStop.top - 2 * 2, TRUE);
 	}
@@ -145,142 +269,46 @@ private:
 		return RegisterClassExW(&wcex);
 	}
 
-	bool InitializeWebView()
+	HRESULT OnNavigationStarting(ICoreWebView2* sender, ICoreWebView2NavigationStartingEventArgs* args)
 	{
-		// <-- WebView2 sample code starts here -->
-		// Step 3 - Create a single WebView within the parent window
-		// Locate the browser and set up the environment for WebView
-		HRESULT hr = CreateCoreWebView2EnvironmentWithOptions(nullptr, nullptr, nullptr,
-			Callback<ICoreWebView2CreateCoreWebView2EnvironmentCompletedHandler>(
-				[this](HRESULT result, ICoreWebView2Environment* env) -> HRESULT {
+		SendMessage(m_hToolbar, TB_ENABLEBUTTON, ID_STOP, true);
+		return S_OK;
+	}
 
-					// Create a CoreWebView2Controller and get the associated CoreWebView2 whose parent is the main window hWnd
-					env->CreateCoreWebView2Controller(m_hWnd, Callback<ICoreWebView2CreateCoreWebView2ControllerCompletedHandler>(
-						[this](HRESULT result, ICoreWebView2Controller* controller) -> HRESULT {
-							if (controller != nullptr) {
-								m_webviewController = controller;
-								m_webviewController->get_CoreWebView2(&m_webview);
-							}
+	HRESULT OnHistoryChanged(ICoreWebView2* sender, IUnknown* args)
+	{
+		BOOL canGoBack;
+		BOOL canGoForward;
+		sender->get_CanGoBack(&canGoBack);
+		sender->get_CanGoForward(&canGoForward);
+		SendMessage(m_hToolbar, TB_ENABLEBUTTON, ID_GOBACK, canGoBack);
+		SendMessage(m_hToolbar, TB_ENABLEBUTTON, ID_GOFORWARD, canGoForward);
+		return S_OK;
+	}
+	
+	HRESULT OnSourceChanged(ICoreWebView2* sender, ICoreWebView2SourceChangedEventArgs* args)
+	{
+		wil::unique_cotaskmem_string uri;
+		sender->get_Source(&uri);
+		SetWindowText(m_hEdit, uri.get());
+		return S_OK;
+	}
 
-							// Add a few settings for the webview
-							// The demo step is redundant since the values are the default settings
-							ICoreWebView2Settings* Settings;
-							m_webview->get_Settings(&Settings);
-							Settings->put_IsScriptEnabled(TRUE);
-							Settings->put_AreDefaultScriptDialogsEnabled(TRUE);
-							Settings->put_IsWebMessageEnabled(TRUE);
+	HRESULT OnNavigationCompleted(ICoreWebView2* sender, ICoreWebView2NavigationCompletedEventArgs* args)
+	{
+		SendMessage(m_hToolbar, TB_ENABLEBUTTON, ID_STOP, false);
+		SendMessage(m_hToolbar, TB_ENABLEBUTTON, ID_RELOAD, true);
+		return S_OK;
+	}
 
-							// Resize WebView to fit the bounds of the parent window
-							RECT bounds, rcToolbar;
-							GetClientRect(m_hWnd, &bounds);
-							GetClientRect(m_hToolbar, &rcToolbar);
-							bounds.top += rcToolbar.bottom - rcToolbar.top;
-							m_webviewController->put_Bounds(bounds);
-
-							// Schedule an async task to navigate to Bing
-							m_webview->Navigate(L"https://www.google.com/");
-
-							/*
-							// Step 4 - Navigation events
-							// register an ICoreWebView2NavigationStartingEventHandler to cancel any non-https navigation
-							EventRegistrationToken token;
-							m_webviewWindow->add_NavigationStarting(Callback<ICoreWebView2NavigationStartingEventHandler>(
-								[](ICoreWebView2* webview, ICoreWebView2NavigationStartingEventArgs* args) -> HRESULT {
-									PWSTR uri;
-									args->get_Uri(&uri);
-									std::wstring source(uri);
-									if (source.substr(0, 5) != L"https") {
-										args->put_Cancel(true);
-									}
-									CoTaskMemFree(uri);
-									return S_OK;
-								}).Get(), &token);
-
-							// Step 5 - Scripting
-							// Schedule an async task to add initialization script that freezes the Object object
-							m_webviewWindow->AddScriptToExecuteOnDocumentCreated(L"Object.freeze(Object);", nullptr);
-							// Schedule an async task to get the document URL
-							m_webviewWindow->ExecuteScript(L"window.document.URL;", Callback<ICoreWebView2ExecuteScriptCompletedHandler>(
-								[](HRESULT errorCode, LPCWSTR resultObjectAsJson) -> HRESULT {
-									LPCWSTR URL = resultObjectAsJson;
-									//doSomethingWithURL(URL);
-									return S_OK;
-								}).Get());
-
-							// Step 6 - Communication between host and web content
-							// Set an event handler for the host to return received message back to the web content
-							m_webviewWindow->add_WebMessageReceived(Callback<ICoreWebView2WebMessageReceivedEventHandler>(
-								[](ICoreWebView2* webview, ICoreWebView2WebMessageReceivedEventArgs* args) -> HRESULT {
-									PWSTR message;
-									args->TryGetWebMessageAsString(&message);
-									// processMessage(&message);
-									webview->PostWebMessageAsString(message);
-									CoTaskMemFree(message);
-									return S_OK;
-								}).Get(), &token);
-
-							// Schedule an async task to add initialization script that
-							// 1) Add an listener to print message from the host
-							// 2) Post document URL to the host
-							m_webviewWindow->AddScriptToExecuteOnDocumentCreated(
-								L"window.chrome.webview.addEventListener(\'message\', event => alert(event.data));" \
-								L"window.chrome.webview.postMessage(window.document.URL);",
-								nullptr);*/
-
-							EventRegistrationToken navigationStartingToken{};
-							EventRegistrationToken navigationCompletedToken{};
-							EventRegistrationToken sourceChangedToken{};
-							EventRegistrationToken historyChangedToken{};
-
-							m_webview->add_NavigationStarting(
-								Callback<ICoreWebView2NavigationStartingEventHandler>(
-									[this](ICoreWebView2* sender, ICoreWebView2NavigationStartingEventArgs* args)
-									-> HRESULT {
-										SendMessage(m_hToolbar, TB_ENABLEBUTTON, ID_STOP, true);
-										return S_OK;
-									})
-								.Get(), &navigationStartingToken);
-
-							m_webview->add_HistoryChanged(
-								Callback<ICoreWebView2HistoryChangedEventHandler>(
-									[this](ICoreWebView2* sender, IUnknown* args) -> HRESULT {
-										BOOL canGoBack;
-										BOOL canGoForward;
-										sender->get_CanGoBack(&canGoBack);
-										sender->get_CanGoForward(&canGoForward);
-										SendMessage(m_hToolbar, TB_ENABLEBUTTON, ID_GOBACK, canGoBack);
-										SendMessage(m_hToolbar, TB_ENABLEBUTTON, ID_GOFORWARD, canGoForward);
-
-										return S_OK;
-									})
-								.Get(), &historyChangedToken);
-
-							m_webview->add_SourceChanged(
-								Callback<ICoreWebView2SourceChangedEventHandler>(
-									[this](ICoreWebView2* sender, ICoreWebView2SourceChangedEventArgs* args)
-									-> HRESULT {
-										wil::unique_cotaskmem_string uri;
-										sender->get_Source(&uri);
-										SetWindowText(m_hEdit, uri.get());
-
-										return S_OK;
-									})
-								.Get(), &sourceChangedToken);
-
-							m_webview->add_NavigationCompleted(
-								Callback<ICoreWebView2NavigationCompletedEventHandler>(
-									[this](ICoreWebView2* sender, ICoreWebView2NavigationCompletedEventArgs* args)
-									-> HRESULT {
-										SendMessage(m_hToolbar, TB_ENABLEBUTTON, ID_STOP, false);
-										SendMessage(m_hToolbar, TB_ENABLEBUTTON, ID_RELOAD, true);
-										return S_OK;
-									})
-								.Get(), &navigationCompletedToken);
-							return S_OK;
-						}).Get());
-					return S_OK;
-				}).Get());
-		return SUCCEEDED(hr);
+	void ResizeWebView()
+	{
+		RECT bounds, rcToolbar, rcTabCtrl;
+		GetClientRect(m_hWnd, &bounds);
+		GetClientRect(m_hToolbar, &rcToolbar);
+		GetClientRect(m_hTabCtrl, &rcTabCtrl);
+		bounds.top += rcTabCtrl.bottom - rcTabCtrl.top + rcToolbar.bottom - rcToolbar.top;
+		GetActiveWebViewController()->put_Bounds(bounds);
 	}
 
 	LRESULT OnWndMsg(HWND hWnd, UINT iMsg, WPARAM wParam, LPARAM lParam)
@@ -291,26 +319,23 @@ private:
 			switch (wParam)
 			{
 			case ID_GOBACK:
-				m_webview->GoBack();
+				GetActiveWebView()->GoBack();
 				break;
 			case ID_GOFORWARD:
-				m_webview->GoForward();
+				GetActiveWebView()->GoForward();
 				break;
 			case ID_RELOAD:
-				m_webview->Reload();
+				GetActiveWebView()->Reload();
 				break;
 			case ID_STOP:
-				m_webview->Stop();
+				GetActiveWebView()->Stop();
 				break;
 			}
 			break;
 		case WM_SIZE:
-			if (m_webviewController != nullptr) {
-				RECT bounds, rcToolbar;
-				GetClientRect(m_hWnd, &bounds);
-				GetClientRect(m_hToolbar, &rcToolbar);
-				bounds.top += rcToolbar.bottom - rcToolbar.top;
-				m_webviewController->put_Bounds(bounds);
+			if (m_activeTab != -1 && GetActiveWebViewController())
+			{
+				ResizeWebView();
 			};
 			break;
 		case WM_PAINT:
@@ -328,21 +353,15 @@ private:
 
 	LRESULT OnEditWndMsg(HWND hWnd, UINT iMsg, WPARAM wParam, LPARAM lParam)
 	{
-		switch (iMsg)
+		if (iMsg == WM_KEYDOWN && wParam == VK_RETURN && hWnd == m_hEdit)
 		{
-		case WM_KEYDOWN:
-			if (wParam == VK_RETURN && hWnd == m_hEdit)
-			{
-				int length = GetWindowTextLength(m_hEdit);
-				std::wstring url(length, 0);
-				GetWindowText(m_hEdit, const_cast<wchar_t*>(url.data()), length + 1);
-				Navigate(url.c_str());
-			}
-			break;
-		default:
-			return CallWindowProc(m_oldEditWndProc, hWnd, iMsg, wParam, lParam);
+			int length = GetWindowTextLength(m_hEdit);
+			std::wstring url(length, 0);
+			GetWindowText(m_hEdit, const_cast<wchar_t*>(url.data()), length + 1);
+			Navigate(url.c_str());
+			return 0;
 		}
-		return 0;
+		return CallWindowProc(m_oldEditWndProc, hWnd, iMsg, wParam, lParam);
 	}
 
 	static LRESULT CALLBACK EditWndProc(HWND hwnd, UINT iMsg, WPARAM wParam, LPARAM lParam)
@@ -361,13 +380,15 @@ private:
 		return lResult;
 	}
 
-	HWND m_hWnd;
-	HWND m_hToolbar;
-	HWND m_hEdit;
-	HFONT m_hToolbarFont;
-	HFONT m_hEditFont;
-	wil::com_ptr<ICoreWebView2Controller> m_webviewController;
-	wil::com_ptr<ICoreWebView2> m_webview;
-	WNDPROC m_oldEditWndProc;
+	HWND m_hWnd = nullptr;
+	HWND m_hTabCtrl = nullptr;
+	HWND m_hToolbar = nullptr;
+	HWND m_hEdit = nullptr;
+	HFONT m_hToolbarFont = nullptr;
+	HFONT m_hEditFont = nullptr;
+	WNDPROC m_oldEditWndProc = nullptr;
+	wil::com_ptr<ICoreWebView2Environment> m_webviewEnvironment;
+	std::vector<std::unique_ptr<CWebTab>> m_tabs;
+	int m_activeTab = -1;
 };
 
