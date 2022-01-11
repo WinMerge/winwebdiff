@@ -167,6 +167,14 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
             case IDM_EXIT:
                 DestroyWindow(hWnd);
                 break;
+            case IDM_COMPARE_SCREENSHOTS:
+                m_pWebMergeWindow->SaveScreenshot(0, L"c:\\tmp\\p0.png");
+                m_pWebMergeWindow->SaveScreenshot(1, L"c:\\tmp\\p1.png");
+                break;
+            case IDM_COMPARE_HTML:
+                m_pWebMergeWindow->SaveHTML(0, L"c:\\tmp\\p0.html");
+                m_pWebMergeWindow->SaveHTML(1, L"c:\\tmp\\p1.html");
+                break;
             default:
                 return DefWindowProc(hWnd, message, wParam, lParam);
             }

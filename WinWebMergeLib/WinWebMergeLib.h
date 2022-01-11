@@ -11,6 +11,8 @@ struct IWebMergeWindow
 	virtual RECT GetPaneWindowRect(int pane) const = 0;
 	virtual RECT GetWindowRect() const = 0;
 	virtual bool SetWindowRect(const RECT& rc) = 0;
+	virtual bool SaveScreenshot(int pane, const wchar_t* filename) = 0;
+	virtual bool SaveHTML(int pane, const wchar_t* filename) = 0;
 };
 
 extern "C"

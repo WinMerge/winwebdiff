@@ -2,6 +2,7 @@
 
 #include <Windows.h>
 #include <CommCtrl.h>
+#include <Shlwapi.h>
 #include <wrl.h>
 #include <wil/com.h>
 #include <string>
@@ -10,6 +11,8 @@
 #include <cassert>
 #include "WebView2.h"
 #include "resource.h"
+
+#pragma comment(lib, "shlwapi.lib")
 
 using namespace Microsoft::WRL;
 
@@ -187,24 +190,6 @@ public:
 		return true;
 	}
 
-	bool InitializeWebView()
-	{
-		HRESULT hr = CreateCoreWebView2EnvironmentWithOptions(nullptr, nullptr, nullptr,
-			Callback<ICoreWebView2CreateCoreWebView2EnvironmentCompletedHandler>(
-				[this](HRESULT result, ICoreWebView2Environment* env) -> HRESULT {
-					m_webviewEnvironment = env;
-					m_tabs.emplace_back(new CWebTab(this, L"https://www.google.com"));
-
-					TCITEM tcItem{};
-					tcItem.mask = TCIF_TEXT;
-					tcItem.pszText = (PWSTR)L"";
-					TabCtrl_InsertItem(m_hTabCtrl, 0, &tcItem);
-					m_activeTab = 0;
-					return S_OK;
-				}).Get());
-		return SUCCEEDED(hr);
-	}
-
 	bool Destroy()
 	{
 		if (m_hToolbar)
@@ -219,33 +204,6 @@ public:
 		DeleteObject(m_hToolbarFont);
 		DeleteObject(m_hEditFont);
 		return true;
-	}
-
-	int FindTabIndex(const ICoreWebView2* webview)
-	{
-		int i = 0;
-		for (auto& tab : m_tabs)
-		{
-			if (tab->m_webview.get() == webview)
-				return i;
-			++i;
-		}
-		return -1;
-	}
-	CWebTab* GetActiveTab()
-	{
-		assert(m_activeTab >= 0 && m_activeTab < m_tabs.size());
-		return m_tabs[m_activeTab].get();
-	}
-
-	ICoreWebView2* GetActiveWebView()
-	{
-		return GetActiveTab()->m_webview.get();
-	}
-
-	ICoreWebView2Controller* GetActiveWebViewController()
-	{
-		return GetActiveTab()->m_webviewController.get();
 	}
 
 	bool Navigate(const wchar_t* url)
@@ -280,7 +238,86 @@ public:
 		::SetFocus(m_hWnd);
 	}
 
+	bool SaveScreenshot(const wchar_t* filename)
+	{
+		wil::com_ptr<IStream> stream;
+		HRESULT hr = SHCreateStreamOnFileEx(filename, STGM_READWRITE | STGM_CREATE, FILE_ATTRIBUTE_NORMAL, TRUE, nullptr, &stream);
+		if (FAILED(hr))
+			return false;
+
+		hr = GetActiveWebView()->CapturePreview(
+			COREWEBVIEW2_CAPTURE_PREVIEW_IMAGE_FORMAT_PNG, stream.get(),
+			Callback<ICoreWebView2CapturePreviewCompletedHandler>(
+				[](HRESULT error_code) -> HRESULT {
+					return S_OK;
+				})
+			.Get());
+
+		if (FAILED(hr))
+			return false;
+		return true;
+	}
+
+	bool SaveHTML(const wchar_t* filename)
+	{
+		GetActiveWebView()->ExecuteScript(L"document.children[0].innerHTML",
+			Callback<ICoreWebView2ExecuteScriptCompletedHandler>(
+				[filename](HRESULT errorCode, LPCWSTR resultObjectAsJson) -> HRESULT {
+					wil::unique_file fp;
+					_wfopen_s(&fp, filename, L"wt,ccs=UTF-8");
+					fwprintf(fp.get(), L"%s", resultObjectAsJson);
+					return S_OK;
+				})
+			.Get());
+		return true;
+	}
+
 private:
+
+	bool InitializeWebView()
+	{
+		HRESULT hr = CreateCoreWebView2EnvironmentWithOptions(nullptr, nullptr, nullptr,
+			Callback<ICoreWebView2CreateCoreWebView2EnvironmentCompletedHandler>(
+				[this](HRESULT result, ICoreWebView2Environment* env) -> HRESULT {
+					m_webviewEnvironment = env;
+					m_tabs.emplace_back(new CWebTab(this, L"https://www.google.com"));
+
+					TCITEM tcItem{};
+					tcItem.mask = TCIF_TEXT;
+					tcItem.pszText = (PWSTR)L"";
+					TabCtrl_InsertItem(m_hTabCtrl, 0, &tcItem);
+					m_activeTab = 0;
+					return S_OK;
+				}).Get());
+		return SUCCEEDED(hr);
+	}
+
+	int FindTabIndex(const ICoreWebView2* webview)
+	{
+		int i = 0;
+		for (auto& tab : m_tabs)
+		{
+			if (tab->m_webview.get() == webview)
+				return i;
+			++i;
+		}
+		return -1;
+	}
+	CWebTab* GetActiveTab()
+	{
+		assert(m_activeTab >= 0 && m_activeTab < m_tabs.size());
+		return m_tabs[m_activeTab].get();
+	}
+
+	ICoreWebView2* GetActiveWebView()
+	{
+		return GetActiveTab()->m_webview.get();
+	}
+
+	ICoreWebView2Controller* GetActiveWebViewController()
+	{
+		return GetActiveTab()->m_webviewController.get();
+	}
 
 	void ResizeUIControls()
 	{

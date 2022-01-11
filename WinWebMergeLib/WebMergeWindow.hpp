@@ -54,7 +54,9 @@ public:
 		if (m_hWnd)
 		{
 			for (int i = 0; i < nPanes; ++i)
+			{
 				m_webWindow[i].Create(m_hInstance, m_hWnd);
+			}
 		}
 		return true;
 	}
@@ -94,6 +96,20 @@ public:
 		if (m_hWnd)
 			MoveWindow(m_hWnd, rc.left, rc.top, rc.right - rc.left, rc.bottom - rc.top, TRUE);
 		return true;
+	}
+
+	bool SaveScreenshot(int pane, const wchar_t* filename) override
+	{
+		if (pane < 0 || pane >= m_nPanes)
+			return false;
+		return m_webWindow[pane].SaveScreenshot(filename);
+	}
+
+	bool SaveHTML(int pane, const wchar_t* filename)
+	{
+		if (pane < 0 || pane >= m_nPanes)
+			return false;
+		return m_webWindow[pane].SaveHTML(filename);
 	}
 
 private:

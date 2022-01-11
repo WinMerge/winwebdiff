@@ -9,9 +9,11 @@
 #define IDD_ABOUTBOX			103
 #define IDM_ABOUT				104
 #define IDM_EXIT				105
-#define IDI_WINWEBMERGE			107
-#define IDI_SMALL				108
-#define IDC_WINWEBMERGE			109
+#define IDM_COMPARE_SCREENSHOTS 106
+#define IDM_COMPARE_HTML        107
+#define IDI_WINWEBMERGE			108
+#define IDI_SMALL				109
+#define IDC_WINWEBMERGE			110
 #define IDC_MYICON				2
 #ifndef IDC_STATIC
 #define IDC_STATIC				-1
@@ -25,6 +27,6 @@
 #define _APS_NEXT_RESOURCE_VALUE	129
 #define _APS_NEXT_COMMAND_VALUE		32771
 #define _APS_NEXT_CONTROL_VALUE		1000
-#define _APS_NEXT_SYMED_VALUE		110
+#define _APS_NEXT_SYMED_VALUE		111
 #endif
 #endif
