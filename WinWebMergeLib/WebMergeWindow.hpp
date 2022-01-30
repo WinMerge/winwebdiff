@@ -124,7 +124,7 @@ private:
 		{
 			if (!bHorizontalSplit)
 			{
-				int cx = GetSystemMetrics(SM_CXVSCROLL);
+				int cx = 0; //GetSystemMetrics(SM_CXVSCROLL);
 				int width = (rcParent.left + rcParent.right - cx) / nPanes - 2;
 				rc.left = 0;
 				rc.right = rc.left + width;
@@ -140,7 +140,7 @@ private:
 			}
 			else
 			{
-				int cy = GetSystemMetrics(SM_CXVSCROLL);
+				int cy = 0; // GetSystemMetrics(SM_CXVSCROLL);
 				int height = (rcParent.top + rcParent.bottom - cy) / nPanes - 2;
 				rc.top = 0;
 				rc.bottom = rc.top + height;

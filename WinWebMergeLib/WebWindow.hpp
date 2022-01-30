@@ -9,12 +9,16 @@
 #include <vector>
 #include <memory>
 #include <cassert>
+#undef max
+#undef min
+#include <rapidjson/document.h>
 #include "WebView2.h"
 #include "resource.h"
 
 #pragma comment(lib, "shlwapi.lib")
 
 using namespace Microsoft::WRL;
+using WDocument = rapidjson::GenericDocument < rapidjson::UTF16 < >>;
 
 class CWebWindow
 {
@@ -240,15 +244,35 @@ public:
 
 	bool SaveScreenshot(const wchar_t* filename)
 	{
-		wil::com_ptr<IStream> stream;
-		HRESULT hr = SHCreateStreamOnFileEx(filename, STGM_READWRITE | STGM_CREATE, FILE_ATTRIBUTE_NORMAL, TRUE, nullptr, &stream);
-		if (FAILED(hr))
-			return false;
+		std::wstring filepath = filename;
+		HRESULT hr = GetActiveWebView()->CallDevToolsProtocolMethod(L"Page.getLayoutMetrics", L"{}",
+			Callback<ICoreWebView2CallDevToolsProtocolMethodCompletedHandler>(
+				[this, filepath](HRESULT errorCode, LPCWSTR returnObjectAsJson) -> HRESULT {
 
-		hr = GetActiveWebView()->CapturePreview(
-			COREWEBVIEW2_CAPTURE_PREVIEW_IMAGE_FORMAT_PNG, stream.get(),
-			Callback<ICoreWebView2CapturePreviewCompletedHandler>(
-				[](HRESULT error_code) -> HRESULT {
+					wil::com_ptr<IStream> stream;
+					HRESULT hr = SHCreateStreamOnFileEx(filepath.c_str(), STGM_READWRITE | STGM_CREATE, FILE_ATTRIBUTE_NORMAL, TRUE, nullptr, &stream);
+					if (FAILED(hr))
+						return hr;
+
+					RECT rcOrg;
+					GetActiveWebViewController()->get_Bounds(&rcOrg);
+ 
+					WDocument document;
+					document.Parse(returnObjectAsJson);
+					int width = document[L"cssContentSize"][L"width"].GetInt();
+					int height = document[L"cssContentSize"][L"height"].GetInt();
+
+					RECT rcNew{ 0, 0, width, height };
+					GetActiveWebViewController()->put_Bounds(rcNew);
+
+					hr = GetActiveWebView()->CapturePreview(
+						COREWEBVIEW2_CAPTURE_PREVIEW_IMAGE_FORMAT_PNG, stream.get(),
+						Callback<ICoreWebView2CapturePreviewCompletedHandler>(
+							[this, rcOrg](HRESULT errorCode) -> HRESULT {
+								GetActiveWebViewController()->put_Bounds(rcOrg);
+								return S_OK;
+							})
+						.Get());
 					return S_OK;
 				})
 			.Get());
@@ -260,6 +284,21 @@ public:
 
 	bool SaveHTML(const wchar_t* filename)
 	{
+		/*
+		HRESULT hr2 = GetActiveWebView()->CallDevToolsProtocolMethod(L"Page.captureSnapshot", L"{\"format\": \"mhtml\"}",
+			Callback<ICoreWebView2CallDevToolsProtocolMethodCompletedHandler>(
+				[this, filename](HRESULT errorCode, LPCWSTR returnObjectAsJson) -> HRESULT {
+					WDocument document;
+					document.Parse(returnObjectAsJson);
+
+					wil::unique_file fp;
+					_wfopen_s(&fp, (filename + std::wstring(L".mhtml")).c_str(), L"wt,ccs=UTF-8");
+					fwprintf(fp.get(), L"%s", document[L"data"].GetString());
+					return S_OK;
+				})
+			.Get());
+			*/
+
 		GetActiveWebView()->ExecuteScript(L"document.children[0].innerHTML",
 			Callback<ICoreWebView2ExecuteScriptCompletedHandler>(
 				[filename](HRESULT errorCode, LPCWSTR resultObjectAsJson) -> HRESULT {
