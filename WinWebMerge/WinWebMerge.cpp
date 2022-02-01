@@ -146,7 +146,14 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
     {
     case WM_CREATE:
         m_pWebMergeWindow = WinWebMerge_CreateWindow(hInstDLL, hWnd);
-        m_pWebMergeWindow->OpenUrls(L"about:blank", L"about:blank");
+        if (m_pWebMergeWindow->IsWebView2Installed())
+        {
+            m_pWebMergeWindow->OpenUrls(L"about:blank", L"about:blank");
+        }
+        else
+        {
+            MessageBox(hWnd, L"WebView2 is not installed", L"WinWebMerge", MB_OK);
+        }
         break;
     case WM_SIZE:
     {

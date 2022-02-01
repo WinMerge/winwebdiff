@@ -36,6 +36,13 @@ public:
 		return !!bSucceeded;
 	}
 
+	bool IsWebView2Installed() const override
+	{
+		wil::unique_cotaskmem_string version_info;
+		HRESULT hr = GetAvailableCoreWebView2BrowserVersionString(nullptr, &version_info);
+		return (hr == S_OK && version_info != nullptr);
+	}
+
 	bool OpenUrls(const wchar_t* url1, const wchar_t* url2) override
 	{
 		const wchar_t* const urls[3] = { url1, url2, nullptr };

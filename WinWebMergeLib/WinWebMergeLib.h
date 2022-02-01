@@ -5,6 +5,7 @@
 
 struct IWebMergeWindow
 {
+	virtual bool IsWebView2Installed() const = 0;
 	virtual bool OpenUrls(const wchar_t* url1, const wchar_t* url2) = 0;
 	virtual bool OpenUrls(const wchar_t* url1, const wchar_t* url2, const wchar_t* url3) = 0;
 	virtual int  GetPaneCount() const = 0;
