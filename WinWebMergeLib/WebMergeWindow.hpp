@@ -43,6 +43,12 @@ public:
 		return (hr == S_OK && version_info != nullptr);
 	}
 
+	bool NewUrls(int nUrls)
+	{
+		const wchar_t* const urls[3] = { L"about:blank", L"about:blank", L"about:blank" };
+		return OpenUrls(3, urls);
+	}
+
 	bool OpenUrls(const wchar_t* url1, const wchar_t* url2) override
 	{
 		const wchar_t* const urls[3] = { url1, url2, nullptr };
@@ -65,6 +71,16 @@ public:
 				m_webWindow[i].Create(m_hInstance, m_hWnd);
 			}
 		}
+		return true;
+	}
+
+	bool CloseUrls()
+	{
+		return true;
+	}
+
+	bool ReloadUrls()
+	{
 		return true;
 	}
 
@@ -117,6 +133,163 @@ public:
 		if (pane < 0 || pane >= m_nPanes)
 			return false;
 		return m_webWindow[pane].SaveHTML(filename);
+	}
+
+	const wchar_t* GetCurrentUrl(int pane)
+	{
+		return L"";
+	}
+
+	int  GetActivePane() const
+	{
+		return 0;
+	}
+
+	void SetActivePane(int pane)
+	{
+	}
+
+	bool GetHorizontalSplit() const
+	{
+		return true;
+	}
+
+	void SetHorizontalSplit(bool horizontalSplit)
+	{
+	}
+
+	COLORREF GetDiffColor() const
+	{
+		return RGB(0, 0, 0);
+	}
+
+	void SetDiffColor(COLORREF clrDiffColor)
+	{
+	}
+
+	COLORREF GetSelDiffColor() const
+	{
+		return RGB(0, 0, 0);
+	}
+
+	void SetSelDiffColor(COLORREF clrSelDiffColor)
+	{
+	}
+
+	double GetDiffColorAlpha() const
+	{
+		return 0.8;
+	}
+	void SetDiffColorAlpha(double diffColorAlpha)
+	{
+	}
+
+	double GetZoom() const
+	{
+		return 1.0;
+	}
+	void SetZoom(double zoom)
+	{
+	}
+
+	bool GetShowDifferences() const
+	{
+		return true;
+	}
+
+	void SetShowDifferences(bool visible)
+	{
+	}
+
+	int  GetDiffCount() const
+	{
+		return 0;
+	}
+
+	int  GetConflictCount() const
+	{
+		return 0;
+	}
+
+	int  GetCurrentDiffIndex() const
+	{
+		return 0;
+	}
+
+	bool FirstDiff()
+	{
+		return true;
+	}
+	bool LastDiff()
+	{
+		return true;
+	}
+
+	bool NextDiff()
+	{
+		return true;
+	}
+	
+	bool PrevDiff()
+	{
+		return true;
+	}
+
+	bool FirstConflict()
+	{
+		return true;
+	}
+
+	bool LastConflict()
+	{
+		return true;
+	}
+
+	bool NextConflict()
+	{
+		return true;
+	}
+
+	bool PrevConflict() 
+	{
+		return true;
+	}
+
+	bool SelectDiff(int diffIndex)
+	{
+		return true;
+	}
+
+	int  GetNextDiffIndex() const
+	{
+		return 0;
+	}
+
+	int  GetPrevDiffIndex() const
+	{
+		return 0;
+	}
+
+	int  GetNextConflictIndex() const
+	{
+		return 0;
+	}
+
+	int  GetPrevConflictIndex() const
+	{
+		return 0;
+	}
+
+	HWND GetHWND() const
+	{
+		return m_hWnd;
+	}
+
+	HWND GetPaneHWND(int pane) const
+	{
+		if (pane < 0 || pane >= m_nPanes)
+			return nullptr;
+		return m_webWindow[pane].GetHWND();
 	}
 
 private:
