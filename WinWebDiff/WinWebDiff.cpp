@@ -1,9 +1,9 @@
-// WinWebMerge.cpp : Defines the entry point for the application.
+// WinWebDiff.cpp : Defines the entry point for the application.
 //
 
 #include "framework.h"
-#include "WinWebMerge.h"
-#include "../WinWebMergeLib/WinWebMergeLib.h"
+#include "WinWebDiff.h"
+#include "../WinWebDiffLib/WinWebDiffLib.h"
 #include <combaseapi.h>
 
 #if defined _M_IX86
@@ -23,7 +23,7 @@ HINSTANCE hInst;                                // current instance
 HINSTANCE hInstDLL;                             // current instance
 WCHAR szTitle[MAX_LOADSTRING];                  // The title bar text
 WCHAR szWindowClass[MAX_LOADSTRING];            // the main window class name
-IWebMergeWindow* m_pWebMergeWindow = nullptr;
+IWebDiffWindow* m_pWebDiffWindow = nullptr;
 
 // Forward declarations of functions included in this code module:
 ATOM                MyRegisterClass(HINSTANCE hInstance);
@@ -44,9 +44,9 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
 
     // Initialize global strings
     LoadStringW(hInstance, IDS_APP_TITLE, szTitle, MAX_LOADSTRING);
-    LoadStringW(hInstance, IDC_WINWEBMERGE, szWindowClass, MAX_LOADSTRING);
+    LoadStringW(hInstance, IDC_WINWEBDIFF, szWindowClass, MAX_LOADSTRING);
     MyRegisterClass(hInstance);
-    hInstDLL = GetModuleHandleW(L"WinWebMergeLib.dll");
+    hInstDLL = GetModuleHandleW(L"WinWebDiffLib.dll");
 
     // Perform application initialization:
     if (!InitInstance (hInstance, nCmdShow))
@@ -54,7 +54,7 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
         return FALSE;
     }
 
-    HACCEL hAccelTable = LoadAccelerators(hInstance, MAKEINTRESOURCE(IDC_WINWEBMERGE));
+    HACCEL hAccelTable = LoadAccelerators(hInstance, MAKEINTRESOURCE(IDC_WINWEBDIFF));
 
     MSG msg;
 
@@ -92,10 +92,10 @@ ATOM MyRegisterClass(HINSTANCE hInstance)
     wcex.cbClsExtra     = 0;
     wcex.cbWndExtra     = 0;
     wcex.hInstance      = hInstance;
-    wcex.hIcon          = LoadIcon(hInstance, MAKEINTRESOURCE(IDI_WINWEBMERGE));
+    wcex.hIcon          = LoadIcon(hInstance, MAKEINTRESOURCE(IDI_WINWEBDIFF));
     wcex.hCursor        = LoadCursor(nullptr, IDC_ARROW);
     wcex.hbrBackground  = (HBRUSH)(COLOR_WINDOW+1);
-    wcex.lpszMenuName   = MAKEINTRESOURCEW(IDC_WINWEBMERGE);
+    wcex.lpszMenuName   = MAKEINTRESOURCEW(IDC_WINWEBDIFF);
     wcex.lpszClassName  = szWindowClass;
     wcex.hIconSm        = LoadIcon(wcex.hInstance, MAKEINTRESOURCE(IDI_SMALL));
 
@@ -145,21 +145,21 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
     switch (message)
     {
     case WM_CREATE:
-        m_pWebMergeWindow = WinWebMerge_CreateWindow(hInstDLL, hWnd);
-        if (m_pWebMergeWindow->IsWebView2Installed())
+        m_pWebDiffWindow = WinWebDiff_CreateWindow(hInstDLL, hWnd);
+        if (m_pWebDiffWindow->IsWebView2Installed())
         {
-            m_pWebMergeWindow->OpenUrls(L"about:blank", L"about:blank");
+            m_pWebDiffWindow->OpenUrls(L"about:blank", L"about:blank");
         }
         else
         {
-            MessageBox(hWnd, L"WebView2 is not installed", L"WinWebMerge", MB_OK);
+            MessageBox(hWnd, L"WebView2 is not installed", L"WinWebDiff", MB_OK);
         }
         break;
     case WM_SIZE:
     {
         RECT rc;
         GetClientRect(hWnd, &rc);
-        m_pWebMergeWindow->SetWindowRect(rc);
+        m_pWebDiffWindow->SetWindowRect(rc);
         break;
     }
     case WM_COMMAND:
@@ -175,12 +175,12 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
                 DestroyWindow(hWnd);
                 break;
             case IDM_COMPARE_SCREENSHOTS:
-                m_pWebMergeWindow->SaveScreenshot(0, L"c:\\tmp\\p0.png");
-                m_pWebMergeWindow->SaveScreenshot(1, L"c:\\tmp\\p1.png");
+                m_pWebDiffWindow->SaveScreenshot(0, L"c:\\tmp\\p0.png");
+                m_pWebDiffWindow->SaveScreenshot(1, L"c:\\tmp\\p1.png");
                 break;
             case IDM_COMPARE_HTML:
-                m_pWebMergeWindow->SaveHTML(0, L"c:\\tmp\\p0.html");
-                m_pWebMergeWindow->SaveHTML(1, L"c:\\tmp\\p1.html");
+                m_pWebDiffWindow->SaveHTML(0, L"c:\\tmp\\p0.html");
+                m_pWebDiffWindow->SaveHTML(1, L"c:\\tmp\\p1.html");
                 break;
             default:
                 return DefWindowProc(hWnd, message, wParam, lParam);
@@ -196,7 +196,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
         }
         break;
     case WM_DESTROY:
-        WinWebMerge_DestroyWindow(m_pWebMergeWindow);
+        WinWebDiff_DestroyWindow(m_pWebDiffWindow);
         PostQuitMessage(0);
         break;
     default:

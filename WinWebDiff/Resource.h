@@ -1,19 +1,19 @@
 //{{NO_DEPENDENCIES}}
 // Microsoft Visual C++ generated include file.
-// Used by WinWebMerge.rc
+// Used by WinWebDiff.rc
 
 #define IDS_APP_TITLE			103
 
 #define IDR_MAINFRAME			128
-#define IDD_WINWEBMERGE_DIALOG	102
+#define IDD_WINWEBDIFF_DIALOG	102
 #define IDD_ABOUTBOX			103
 #define IDM_ABOUT				104
 #define IDM_EXIT				105
 #define IDM_COMPARE_SCREENSHOTS 106
 #define IDM_COMPARE_HTML        107
-#define IDI_WINWEBMERGE			108
+#define IDI_WINWEBDIFF			108
 #define IDI_SMALL				109
-#define IDC_WINWEBMERGE			110
+#define IDC_WINWEBDIFF			110
 #define IDC_MYICON				2
 #ifndef IDC_STATIC
 #define IDC_STATIC				-1

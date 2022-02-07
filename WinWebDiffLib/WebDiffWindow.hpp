@@ -2,13 +2,13 @@
 
 #include <Windows.h>
 #include "WebWindow.hpp"
-#include "WinWebMergeLib.h"
+#include "WinWebDiffLib.h"
 #include <vector>
 
-class CWebMergeWindow : public IWebMergeWindow
+class CWebDiffWindow : public IWebDiffWindow
 {
 public:
-	CWebMergeWindow()
+	CWebDiffWindow()
 		: m_nPanes(0)
 		, m_hWnd(nullptr)
 		, m_hInstance(nullptr)
@@ -22,7 +22,7 @@ public:
 	{
 		m_hInstance = hInstance;
 		MyRegisterClass(hInstance);
-		m_hWnd = CreateWindowExW(0, L"WinWebMergeWindowClass", nullptr, WS_CHILD | WS_VISIBLE | WS_CLIPCHILDREN,
+		m_hWnd = CreateWindowExW(0, L"WinWebDiffWindowClass", nullptr, WS_CHILD | WS_VISIBLE | WS_CLIPCHILDREN,
 			rc.left, rc.top, rc.right - rc.left, rc.bottom - rc.top, hWndParent, reinterpret_cast<HMENU>((intptr_t)nID), hInstance, this);
 		return m_hWnd ? true : false;
 	}
@@ -46,7 +46,7 @@ public:
 	bool NewUrls(int nUrls)
 	{
 		const wchar_t* const urls[3] = { L"about:blank", L"about:blank", L"about:blank" };
-		return OpenUrls(3, urls);
+		return OpenUrls(nUrls, urls);
 	}
 
 	bool OpenUrls(const wchar_t* url1, const wchar_t* url2) override
@@ -480,7 +480,7 @@ private:
 	{
 		if (iMsg == WM_NCCREATE)
 			SetWindowLongPtr(hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(reinterpret_cast<LPCREATESTRUCT>(lParam)->lpCreateParams));
-		CWebMergeWindow* pWebWnd = reinterpret_cast<CWebMergeWindow*>(GetWindowLongPtr(hwnd, GWLP_USERDATA));
+		CWebDiffWindow* pWebWnd = reinterpret_cast<CWebDiffWindow*>(GetWindowLongPtr(hwnd, GWLP_USERDATA));
 		LRESULT lResult = pWebWnd->OnWndMsg(hwnd, iMsg, wParam, lParam);
 		return lResult;
 	}
@@ -490,13 +490,13 @@ private:
 		WNDCLASSEXW wcex = { 0 };
 		wcex.cbSize = sizeof(WNDCLASSEX);
 		wcex.style = CS_HREDRAW | CS_VREDRAW;
-		wcex.lpfnWndProc = (WNDPROC)CWebMergeWindow::WndProc;
+		wcex.lpfnWndProc = (WNDPROC)CWebDiffWindow::WndProc;
 		wcex.cbClsExtra = 0;
 		wcex.cbWndExtra = 0;
 		wcex.hInstance = hInstance;
 		wcex.hCursor = LoadCursor(nullptr, IDC_ARROW);
 		wcex.hbrBackground = (HBRUSH)(COLOR_3DFACE + 1);
-		wcex.lpszClassName = L"WinWebMergeWindowClass";
+		wcex.lpszClassName = L"WinWebDiffWindowClass";
 		return RegisterClassExW(&wcex);
 	}
 

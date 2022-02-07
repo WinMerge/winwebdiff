@@ -3,7 +3,7 @@
 #include <Windows.h>
 #include <wtypes.h>
 
-struct IWebMergeWindow
+struct IWebDiffWindow
 {
 	virtual bool IsWebView2Installed() const = 0;
 	virtual bool NewUrls(int nUrls) = 0;
@@ -54,7 +54,7 @@ struct IWebMergeWindow
 
 extern "C"
 {
-	IWebMergeWindow* WinWebMerge_CreateWindow(HINSTANCE hInstance, HWND hWndParent, int nID = 0);
-	bool WinWebMerge_DestroyWindow(IWebMergeWindow* pWebMergeWindow);
+	IWebDiffWindow* WinWebDiff_CreateWindow(HINSTANCE hInstance, HWND hWndParent, int nID = 0);
+	bool WinWebDiff_DestroyWindow(IWebDiffWindow* pWebDiffWindow);
 };
 

@@ -1,6 +1,6 @@
 //{{NO_DEPENDENCIES}}
 // Microsoft Visual C++ generated include file.
-// Used by WinWebMerge.rc
+// Used by WinWebDiff.rc
 
 #define ID_GOBACK               100
 #define ID_GOFORWARD            101
