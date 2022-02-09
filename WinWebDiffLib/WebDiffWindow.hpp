@@ -45,37 +45,41 @@ public:
 
 	bool NewUrls(int nUrls)
 	{
-		const wchar_t* const urls[3] = { L"about:blank", L"about:blank", L"about:blank" };
+		const wchar_t* urls[3] = { L"about:blank", L"about:blank", L"about:blank" };
 		return OpenUrls(nUrls, urls);
 	}
 
 	bool OpenUrls(const wchar_t* url1, const wchar_t* url2) override
 	{
-		const wchar_t* const urls[3] = { url1, url2, nullptr };
+		const wchar_t* urls[3] = { url1, url2, nullptr };
 		return OpenUrls(2, urls);
 	}
 
 	bool OpenUrls(const wchar_t* url1, const wchar_t* url2, const wchar_t* url3) override
 	{
-		const wchar_t* const urls[3] = { url1, url2, url3 };
+		const wchar_t* urls[3] = { url1, url2, url3 };
 		return OpenUrls(3, urls);
 	}
 
-	bool OpenUrls(int nPanes, const wchar_t* const url[3])
+	bool OpenUrls(int nPanes, const wchar_t* urls[3])
 	{
 		m_nPanes = nPanes;
 		if (m_hWnd)
 		{
+			CloseUrls();
 			for (int i = 0; i < nPanes; ++i)
-			{
-				m_webWindow[i].Create(m_hInstance, m_hWnd);
-			}
+				m_webWindow[i].Create(m_hInstance, m_hWnd, urls[i]);
+			std::vector<RECT> rects = CalcChildWebWindowRect(m_hWnd, m_nPanes, m_bHorizontalSplit);
+			for (int i = 0; i < m_nPanes; ++i)
+				m_webWindow[i].SetWindowRect(rects[i]);
 		}
 		return true;
 	}
 
 	bool CloseUrls()
 	{
+		for (int i = 0; i < m_nPanes; ++i)
+			m_webWindow[i].Destroy();
 		return true;
 	}
 
@@ -151,7 +155,7 @@ public:
 
 	bool GetHorizontalSplit() const
 	{
-		return true;
+		return false;
 	}
 
 	void SetHorizontalSplit(bool horizontalSplit)
@@ -180,6 +184,7 @@ public:
 	{
 		return 0.8;
 	}
+
 	void SetDiffColorAlpha(double diffColorAlpha)
 	{
 	}
@@ -188,8 +193,31 @@ public:
 	{
 		return 1.0;
 	}
+
 	void SetZoom(double zoom)
 	{
+	}
+
+	bool GetFitToWindow() const
+	{
+		return m_webWindow[0].GetFitToWindow();
+	}
+
+	void SetFitToWindow(bool fitToWindow)
+	{
+		for (int pane = 0; pane < m_nPanes; ++pane)
+			m_webWindow[pane].SetFitToWindow(fitToWindow);
+	}
+
+	SIZE GetSize() const
+	{
+		return m_webWindow[0].GetSize();
+	}
+
+	void SetSize(const SIZE rc)
+	{
+		for (int pane = 0; pane < m_nPanes; ++pane)
+			m_webWindow[pane].SetSize(rc);
 	}
 
 	bool GetShowDifferences() const
@@ -220,6 +248,7 @@ public:
 	{
 		return true;
 	}
+
 	bool LastDiff()
 	{
 		return true;
