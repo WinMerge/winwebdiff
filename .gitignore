@@ -3,3 +3,4 @@ Build/
 BuildTmp/
 packages/
 ARM64/
+*.user
