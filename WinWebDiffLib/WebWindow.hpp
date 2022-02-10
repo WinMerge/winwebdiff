@@ -11,6 +11,9 @@
 #include <cassert>
 #undef max
 #undef min
+#ifdef _M_ARM64
+#define  RAPIDJSON_ENDIAN RAPIDJSON_LITTLEENDIAN
+#endif
 #include <rapidjson/document.h>
 #include "WebView2.h"
 #include "resource.h"
@@ -172,7 +175,7 @@ public:
 		lfToolbar.lfOutPrecision = OUT_TT_ONLY_PRECIS;
 		lfToolbar.lfQuality = PROOF_QUALITY;
 		lfToolbar.lfPitchAndFamily = VARIABLE_PITCH | FF_DECORATIVE;
-		wcscpy_s(lfToolbar.lfFaceName, L"Wingdings 3");
+		wcscpy_s(lfToolbar.lfFaceName, L"Webdings");
 		NONCLIENTMETRICS info;
 		info.cbSize = sizeof(info);
 		SystemParametersInfo(SPI_GETNONCLIENTMETRICS, sizeof(info), &info, 0);
@@ -182,10 +185,10 @@ public:
 		m_hEditFont = CreateFontIndirect(&lfEdit);
 		SendMessage(m_hToolbar, TB_BUTTONSTRUCTSIZE, sizeof(TBBUTTON), 0);
 		TBBUTTON tbb[] = {
-			{I_IMAGENONE, ID_GOBACK,    TBSTATE_ENABLED, BTNS_BUTTON | BTNS_AUTOSIZE, {}, 0, (INT_PTR)L"\xD1"},
-			{I_IMAGENONE, ID_GOFORWARD, TBSTATE_ENABLED, BTNS_BUTTON | BTNS_AUTOSIZE, {}, 0, (INT_PTR)L"\xD2"},
-			{I_IMAGENONE, ID_RELOAD,    TBSTATE_ENABLED, BTNS_BUTTON | BTNS_AUTOSIZE, {}, 0, (INT_PTR)L"\x50"},
-			{I_IMAGENONE, ID_STOP,      TBSTATE_ENABLED, BTNS_BUTTON | BTNS_AUTOSIZE, {}, 0, (INT_PTR)L"\xAC"},
+			{I_IMAGENONE, ID_GOBACK,    TBSTATE_ENABLED, BTNS_BUTTON | BTNS_AUTOSIZE, {}, 0, (INT_PTR)L"\x33"},
+			{I_IMAGENONE, ID_GOFORWARD, TBSTATE_ENABLED, BTNS_BUTTON | BTNS_AUTOSIZE, {}, 0, (INT_PTR)L"\x34"},
+			{I_IMAGENONE, ID_RELOAD,    TBSTATE_ENABLED, BTNS_BUTTON | BTNS_AUTOSIZE, {}, 0, (INT_PTR)L"\x71"},
+			{I_IMAGENONE, ID_STOP,      TBSTATE_ENABLED, BTNS_BUTTON | BTNS_AUTOSIZE, {}, 0, (INT_PTR)L"\x72"},
 		};
 		m_hEdit = CreateWindowEx(0, TEXT("EDIT"), TEXT(""),
 			WS_CHILD | WS_VISIBLE | WS_BORDER | ES_AUTOHSCROLL,
