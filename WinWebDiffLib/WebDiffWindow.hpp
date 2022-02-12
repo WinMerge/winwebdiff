@@ -1,20 +1,14 @@
 #pragma once
 
-#include <Windows.h>
-#include "WebWindow.hpp"
 #include "WinWebDiffLib.h"
+#include "WebWindow.hpp"
+#include <Windows.h>
 #include <vector>
 
 class CWebDiffWindow : public IWebDiffWindow
 {
 public:
 	CWebDiffWindow()
-		: m_nPanes(0)
-		, m_hWnd(nullptr)
-		, m_hInstance(nullptr)
-		, m_nDraggingSplitter(-1)
-		, m_bHorizontalSplit(false)
-		, m_bDragging(false)
 	{
 	}
 
@@ -43,49 +37,63 @@ public:
 		return (hr == S_OK && version_info != nullptr);
 	}
 
-	bool NewUrls(int nUrls)
+	HRESULT New(int nUrls)
 	{
 		const wchar_t* urls[3] = { L"about:blank", L"about:blank", L"about:blank" };
-		return OpenUrls(nUrls, urls);
+		return Open(nUrls, urls);
 	}
 
-	bool OpenUrls(const wchar_t* url1, const wchar_t* url2) override
+	HRESULT Open(const wchar_t* url1, const wchar_t* url2) override
 	{
 		const wchar_t* urls[3] = { url1, url2, nullptr };
-		return OpenUrls(2, urls);
+		return Open(2, urls);
 	}
 
-	bool OpenUrls(const wchar_t* url1, const wchar_t* url2, const wchar_t* url3) override
+	HRESULT Open(const wchar_t* url1, const wchar_t* url2, const wchar_t* url3) override
 	{
 		const wchar_t* urls[3] = { url1, url2, url3 };
-		return OpenUrls(3, urls);
+		return Open(3, urls);
 	}
 
-	bool OpenUrls(int nPanes, const wchar_t* urls[3])
+	HRESULT Open(int nPanes, const wchar_t* urls[3])
 	{
+		HRESULT hr = S_OK;
 		m_nPanes = nPanes;
 		if (m_hWnd)
 		{
-			CloseUrls();
+			Close();
 			for (int i = 0; i < nPanes; ++i)
-				m_webWindow[i].Create(m_hInstance, m_hWnd, urls[i]);
+				hr = m_webWindow[i].Create(m_hInstance, m_hWnd, urls[i]);
 			std::vector<RECT> rects = CalcChildWebWindowRect(m_hWnd, m_nPanes, m_bHorizontalSplit);
 			for (int i = 0; i < m_nPanes; ++i)
 				m_webWindow[i].SetWindowRect(rects[i]);
 		}
-		return true;
+		return hr;
 	}
 
-	bool CloseUrls()
+	void Close() override
 	{
 		for (int i = 0; i < m_nPanes; ++i)
 			m_webWindow[i].Destroy();
-		return true;
 	}
 
-	bool ReloadUrls()
+	void NewTab(int pane, const wchar_t *url) override
 	{
-		return true;
+		if (pane < 0 || pane >= m_nPanes || !m_hWnd)
+			return;
+		m_webWindow[pane].NewTab(url);
+	}
+
+	void CloseActiveTab(int pane) override
+	{
+		if (pane < 0 || pane >= m_nPanes || !m_hWnd)
+			return;
+		m_webWindow[pane].CloseActiveTab();
+	}
+
+	HRESULT Reload() override
+	{
+		return S_OK;
 	}
 
 	int GetPaneCount() const override
@@ -125,18 +133,138 @@ public:
 		return true;
 	}
 
-	bool SaveScreenshot(int pane, const wchar_t* filename) override
+	HRESULT SaveScreenshot(int pane, const wchar_t* filename, IWebDiffCallback *callback) override
 	{
 		if (pane < 0 || pane >= m_nPanes)
 			return false;
-		return m_webWindow[pane].SaveScreenshot(filename);
+		return m_webWindow[pane].SaveScreenshot(filename, callback);
 	}
 
-	bool SaveHTML(int pane, const wchar_t* filename)
+	HRESULT SaveScreenshots(const wchar_t* filename1, const wchar_t* filename2, IWebDiffCallback* callback) override
+	{
+		const wchar_t* filenames[3] = { filename1, filename2, nullptr };
+		return SaveScreenshots(filenames, callback);
+	}
+
+	HRESULT SaveScreenshots(const wchar_t* filename1, const wchar_t* filename2, const wchar_t* filename3, IWebDiffCallback* callback) override
+	{
+		const wchar_t* filenames[3] = { filename1, filename2, filename3 };
+		return SaveScreenshots(filenames, callback);
+	}
+
+	HRESULT SaveScreenshots(const wchar_t* filenames[3], IWebDiffCallback* callback)
+	{
+		std::vector<std::wstring> sfilenames;
+		for (int pane = 0; pane < m_nPanes; ++pane)
+			sfilenames.push_back(filenames[pane]);
+		ComPtr<IWebDiffCallback> callback2(callback);
+		HRESULT hr = SaveScreenshot(0, sfilenames[0].c_str(),
+			Callback<IWebDiffCallback>([this, sfilenames, callback2](HRESULT hr) -> HRESULT
+				{
+					if (SUCCEEDED(hr))
+					{
+						hr = SaveScreenshot(1, sfilenames[1].c_str(),
+							Callback<IWebDiffCallback>([this, sfilenames, callback2](HRESULT hr) -> HRESULT
+								{
+									if (m_nPanes < 3)
+									{
+										if (callback2)
+											callback2->Invoke(hr);
+										return S_OK;
+									}
+									if (SUCCEEDED(hr))
+									{
+										hr = SaveScreenshot(2, sfilenames[2].c_str(),
+											Callback<IWebDiffCallback>([this, sfilenames, callback2](HRESULT hr) -> HRESULT
+												{
+													if (callback2)
+														callback2->Invoke(hr);
+													return hr;
+												}).Get());
+									}
+									if (FAILED(hr))
+									{
+										if (callback2)
+											callback2->Invoke(E_FAIL);
+									}
+									return hr;
+								}).Get());
+					}
+					if (FAILED(hr))
+					{
+						if (callback2)
+							callback2->Invoke(E_FAIL);
+					}
+					return hr;
+				}).Get());
+		return hr;
+	}
+
+	HRESULT SaveHTML(int pane, const wchar_t* filename, IWebDiffCallback *callback) override
 	{
 		if (pane < 0 || pane >= m_nPanes)
 			return false;
-		return m_webWindow[pane].SaveHTML(filename);
+		return m_webWindow[pane].SaveHTML(filename, callback);
+	}
+
+	HRESULT SaveHTMLs(const wchar_t* filename1, const wchar_t* filename2, IWebDiffCallback* callback) override
+	{
+		const wchar_t* filenames[3] = { filename1, filename2, nullptr };
+		return SaveHTMLs(filenames, callback);
+	}
+
+	HRESULT SaveHTMLs(const wchar_t* filename1, const wchar_t* filename2, const wchar_t* filename3, IWebDiffCallback* callback) override
+	{
+		const wchar_t* filenames[3] = { filename1, filename2, filename3 };
+		return SaveHTMLs(filenames, callback);
+	}
+
+	HRESULT SaveHTMLs(const wchar_t* filenames[3], IWebDiffCallback* callback)
+	{
+		std::vector<std::wstring> sfilenames;
+		for (int pane = 0; pane < m_nPanes; ++pane)
+			sfilenames.push_back(filenames[pane]);
+		ComPtr<IWebDiffCallback> callback2(callback);
+		HRESULT hr = SaveHTML(0, sfilenames[0].c_str(),
+			Callback<IWebDiffCallback>([this, sfilenames, callback2](HRESULT hr) -> HRESULT
+				{
+					if (SUCCEEDED(hr))
+					{
+						hr = SaveHTML(1, sfilenames[1].c_str(),
+							Callback<IWebDiffCallback>([this, sfilenames, callback2](HRESULT hr) -> HRESULT
+								{
+									if (m_nPanes < 3)
+									{
+										if (callback2)
+											callback2->Invoke(hr);
+										return hr;
+									}
+									if (SUCCEEDED(hr))
+									{
+										hr = SaveHTML(2, sfilenames[2].c_str(),
+											Callback<IWebDiffCallback>([this, sfilenames, callback2](HRESULT hr) -> HRESULT
+												{
+													if (callback2)
+														callback2->Invoke(hr);
+													return S_OK;
+												}).Get());
+									}
+									if (FAILED(hr))
+									{
+										if (callback2)
+											callback2->Invoke(E_FAIL);
+									}
+									return hr;
+								}).Get());
+					}
+					if (FAILED(hr))
+					{
+						if (callback2)
+							callback2->Invoke(E_FAIL);
+					}
+					return hr;
+			}).Get());
+		return hr;
 	}
 
 	const wchar_t* GetCurrentUrl(int pane)
@@ -529,13 +657,13 @@ private:
 		return RegisterClassExW(&wcex);
 	}
 
-	int m_nPanes;
-	HWND m_hWnd;
-	HINSTANCE m_hInstance;
+	int m_nPanes = 0;
+	HWND m_hWnd = nullptr;
+	HINSTANCE m_hInstance = nullptr;
 	CWebWindow m_webWindow[3];
-	int m_nDraggingSplitter;
-	bool m_bHorizontalSplit;
-	bool m_bDragging;
-	POINT m_ptOrg;
-	POINT m_ptPrev;
+	int m_nDraggingSplitter = -1;
+	bool m_bHorizontalSplit = false;
+	bool m_bDragging = false;
+	POINT m_ptOrg{};
+	POINT m_ptPrev{};
 };

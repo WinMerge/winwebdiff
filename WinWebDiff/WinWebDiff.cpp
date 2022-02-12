@@ -2,6 +2,9 @@
 #include "WinWebDiff.h"
 #include "../WinWebDiffLib/WinWebDiffLib.h"
 #include <combaseapi.h>
+#include <string>
+#include <vector>
+#include <wrl.h>
 
 #if defined _M_IX86
 #pragma comment(linker, "/manifestdependency:\"type='win32' name='Microsoft.Windows.Common-Controls' version='6.0.0.0' processorArchitecture='x86' publicKeyToken='6595b64144ccf1df' language='*'\"")
@@ -14,6 +17,8 @@
 #endif
 
 #define MAX_LOADSTRING 100
+
+using namespace Microsoft::WRL;
 
 HINSTANCE hInst;                                // current instance
 HINSTANCE hInstDLL;                             // current instance
@@ -104,6 +109,36 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
    return TRUE;
 }
 
+std::wstring GetLastErrorString()
+{
+	wchar_t buf[256];
+	FormatMessageW(FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
+		NULL, GetLastError(), MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT),
+		buf, (sizeof(buf) / sizeof(wchar_t)), NULL);
+    return buf;
+}
+
+bool CompareFiles(const std::wstring& filename1, const std::wstring& filename2)
+{
+    std::wstring cmdline = L"\"C:\\Program Files\\WinMerge\\WinMergeU.exe\" /ub \"" + filename1 + L"\" \"" + filename2 + L"\"";
+    STARTUPINFO stInfo = { sizeof(STARTUPINFO) };
+    stInfo.dwFlags = STARTF_USESHOWWINDOW;
+    stInfo.wShowWindow = SW_SHOW;
+    PROCESS_INFORMATION processInfo;
+    bool retVal = !!CreateProcess(nullptr, (LPTSTR)cmdline.c_str(),
+        nullptr, nullptr, FALSE, CREATE_DEFAULT_ERROR_MODE, nullptr, nullptr,
+        &stInfo, &processInfo);
+    if (!retVal)
+    {
+        std::wstring msg = L"Failed to launch WinMerge: " + GetLastErrorString() + L"\nCommand line: " + cmdline;
+        MessageBox(nullptr, msg.c_str(), L"WinWebDiff", MB_ICONEXCLAMATION | MB_OK);
+        return false;
+    }
+    CloseHandle(processInfo.hThread);
+    CloseHandle(processInfo.hProcess);
+    return true;
+}
+
 LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 {
     switch (message)
@@ -112,7 +147,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
         m_pWebDiffWindow = WinWebDiff_CreateWindow(hInstDLL, hWnd);
         if (m_pWebDiffWindow->IsWebView2Installed())
         {
-            m_pWebDiffWindow->NewUrls(2);
+            m_pWebDiffWindow->New(2);
         }
         else
         {
@@ -135,8 +170,20 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
                 DialogBox(hInst, MAKEINTRESOURCE(IDD_ABOUTBOX), hWnd, About);
                 break;
             case IDM_FILE_NEW:
-                m_pWebDiffWindow->NewUrls(2);
+                m_pWebDiffWindow->New(2);
                 break;
+            case IDM_FILE_NEW_TAB:
+            {
+                int nActivePane = m_pWebDiffWindow->GetActivePane();
+                m_pWebDiffWindow->NewTab(nActivePane < 0 ? 0 : nActivePane, L"about:blank");
+                break;
+            }
+            case IDM_FILE_CLOSE_TAB:
+            {
+                int nActivePane = m_pWebDiffWindow->GetActivePane();
+                m_pWebDiffWindow->CloseActiveTab(nActivePane < 0 ? 0 : nActivePane);
+                break;
+            }
             case IDM_EXIT:
                 DestroyWindow(hWnd);
                 break;
@@ -156,13 +203,29 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
                 m_pWebDiffWindow->SetSize({ 1440, 900});
                 break;
             case IDM_COMPARE_SCREENSHOTS:
-                m_pWebDiffWindow->SaveScreenshot(0, L"c:\\tmp\\p0.png");
-                m_pWebDiffWindow->SaveScreenshot(1, L"c:\\tmp\\p1.png");
+            {
+                std::vector<std::wstring> filenames = { L"c:\\tmp\\p0.png", L"c:\\tmp\\p1.png" };
+                m_pWebDiffWindow->SaveScreenshots(filenames[0].c_str(), filenames[1].c_str(),
+                    Callback<IWebDiffCallback>([filenames](HRESULT hr) -> HRESULT
+                        {
+                            CompareFiles(filenames[0].c_str(), filenames[1].c_str());
+                            return S_OK;
+                        })
+                    .Get());
                 break;
+            }
             case IDM_COMPARE_HTML:
-                m_pWebDiffWindow->SaveHTML(0, L"c:\\tmp\\p0.html");
-                m_pWebDiffWindow->SaveHTML(1, L"c:\\tmp\\p1.html");
+            {
+                std::vector<std::wstring> filenames = { L"c:\\tmp\\p0.html", L"c:\\tmp\\p1.html" };
+                m_pWebDiffWindow->SaveHTMLs(filenames[0].c_str(), filenames[1].c_str(),
+                    Callback<IWebDiffCallback>([filenames](HRESULT hr) -> HRESULT
+                        {
+                            CompareFiles(filenames[0].c_str(), filenames[1].c_str());
+                            return S_OK;
+                        })
+                    .Get());
                 break;
+            }
             default:
                 return DefWindowProc(hWnd, message, wParam, lParam);
             }

@@ -1,5 +1,13 @@
 #pragma once
 
+#undef max
+#undef min
+#ifdef _M_ARM64
+#define  RAPIDJSON_ENDIAN RAPIDJSON_LITTLEENDIAN
+#endif
+#include <rapidjson/document.h>
+#include <WebView2.h>
+#include "WinWebDiffLib.h"
 #include <Windows.h>
 #include <CommCtrl.h>
 #include <Shlwapi.h>
@@ -9,13 +17,6 @@
 #include <vector>
 #include <memory>
 #include <cassert>
-#undef max
-#undef min
-#ifdef _M_ARM64
-#define  RAPIDJSON_ENDIAN RAPIDJSON_LITTLEENDIAN
-#endif
-#include <rapidjson/document.h>
-#include "WebView2.h"
 #include "resource.h"
 
 #pragma comment(lib, "shlwapi.lib")
@@ -25,8 +26,6 @@ using WDocument = rapidjson::GenericDocument < rapidjson::UTF16 < >>;
 
 class CWebWindow
 {
-	enum { MARGIN = 16 };
-
 	class CWebTab
 	{
 	public:
@@ -69,7 +68,8 @@ class CWebWindow
 					{
 						m_webview->Navigate(url2->c_str());
 					}
-					m_parent->ResizeWebView();
+
+					m_parent->SetActiveTab(this);
 
 					m_webview->add_NewWindowRequested(
 						Callback<ICoreWebView2NewWindowRequestedEventHandler>(
@@ -150,7 +150,7 @@ public:
 		return m_hWnd;
 	}
 
-	bool Create(HINSTANCE hInstance, HWND hWndParent, const wchar_t* url)
+	HRESULT Create(HINSTANCE hInstance, HWND hWndParent, const wchar_t* url)
 	{
 		MyRegisterClass(hInstance);
 		m_hWnd = CreateWindowExW(0, L"WinWebWindowClass", nullptr,
@@ -159,7 +159,7 @@ public:
 		if (!m_hWnd)
 			return false;
 		m_hTabCtrl = CreateWindowEx(0, WC_TABCONTROL, nullptr,
-			WS_CHILD | WS_VISIBLE | WS_CLIPSIBLINGS | TCS_FLATBUTTONS,
+			WS_CHILD | WS_VISIBLE | WS_CLIPSIBLINGS | TCS_FLATBUTTONS | TCS_FOCUSNEVER,
 			0, 0, 4, 4, m_hWnd, (HMENU)1, hInstance, nullptr);
 		m_hToolbar = CreateWindowExW(0, TOOLBARCLASSNAME, nullptr,
 			WS_CHILD | TBSTYLE_FLAT | TBSTYLE_LIST | CCS_NOMOVEY | WS_VISIBLE,
@@ -199,8 +199,7 @@ public:
 		SendMessage(m_hEdit, WM_SETFONT, (WPARAM)m_hEditFont, 0);
 		SendMessage(m_hToolbar, TB_ADDBUTTONS, (WPARAM)std::size(tbb), (LPARAM)&tbb);
 		SendMessage(m_hToolbar, WM_SETFONT, (WPARAM)m_hToolbarFont, 0);
-		InitializeWebView(url);
-		return true;
+		return InitializeWebView(url);
 	}
 
 	bool Destroy()
@@ -228,12 +227,30 @@ public:
 		return true;
 	}
 
-	bool Navigate(const wchar_t* url)
+	void NewTab(const wchar_t* url)
+	{
+		m_tabs.emplace_back(new CWebTab(this, url));
+
+		TCITEM tcItem{};
+		tcItem.mask = TCIF_TEXT;
+		tcItem.pszText = (PWSTR)L"";
+		int tabIndex = static_cast<int>(m_tabs.size()) - 1;
+		TabCtrl_InsertItem(m_hTabCtrl, tabIndex, &tcItem);
+	}
+
+	HRESULT Navigate(const wchar_t* url)
 	{
 		HRESULT hr = GetActiveWebView()->Navigate(url);
 		if (hr == E_INVALIDARG)
 			hr = GetActiveWebView()->Navigate((L"http://" + std::wstring(url)).c_str());
-		return SUCCEEDED(hr);
+		return hr;
+	}
+
+	void CloseActiveTab()
+	{
+		if (m_activeTab < 0)
+			return;
+		CloseTab(m_activeTab);
 	}
 
 	RECT GetWindowRect() const
@@ -265,7 +282,7 @@ public:
 		m_fitToWindow = fitToWindow;
 		ShowScrollBar(m_hWebViewParent, SB_BOTH, !m_fitToWindow);
 		ResizeWebView();
-		CalcScrollBarRange();
+		CalcScrollBarRange(m_nHScrollPos, m_nVScrollPos);
 	}
 
 	SIZE GetSize() const
@@ -279,7 +296,7 @@ public:
 	{
 		m_size = size;
 		ResizeWebView();
-		CalcScrollBarRange();
+		CalcScrollBarRange(m_nHScrollPos, m_nVScrollPos);
 	}
 
 	double GetZoom() const
@@ -309,7 +326,7 @@ public:
 				m_nVScrollPos = size.cy - rc.bottom;
 			if (m_nVScrollPos < 0)
 				m_nVScrollPos = 0;
-			CalcScrollBarRange();
+			CalcScrollBarRange(m_nHScrollPos, m_nVScrollPos);
 			InvalidateRect(m_hWebViewParent, NULL, TRUE);
 		}
 	}
@@ -319,47 +336,63 @@ public:
 		::SetFocus(m_hWebViewParent);
 	}
 
-	bool SaveScreenshot(const wchar_t* filename)
+	HRESULT SaveScreenshot(const wchar_t* filename, IWebDiffCallback *callback)
 	{
 		std::wstring filepath = filename;
+		ComPtr<IWebDiffCallback> callback2(callback);
 		HRESULT hr = GetActiveWebView()->CallDevToolsProtocolMethod(L"Page.getLayoutMetrics", L"{}",
 			Callback<ICoreWebView2CallDevToolsProtocolMethodCompletedHandler>(
-				[this, filepath](HRESULT errorCode, LPCWSTR returnObjectAsJson) -> HRESULT {
+				[this, filepath, callback2](HRESULT errorCode, LPCWSTR returnObjectAsJson) -> HRESULT {
 
-					wil::com_ptr<IStream> stream;
-					HRESULT hr = SHCreateStreamOnFileEx(filepath.c_str(), STGM_READWRITE | STGM_CREATE, FILE_ATTRIBUTE_NORMAL, TRUE, nullptr, &stream);
+					HRESULT hr = errorCode;
+					if (SUCCEEDED(hr))
+					{
+						wil::com_ptr<IStream> stream;
+						hr = SHCreateStreamOnFileEx(filepath.c_str(), STGM_READWRITE | STGM_CREATE, FILE_ATTRIBUTE_NORMAL, TRUE, nullptr, &stream);
+						if (SUCCEEDED(hr))
+						{
+							RECT rcOrg;
+							GetActiveWebViewController()->get_Bounds(&rcOrg);
+
+							WDocument document;
+							document.Parse(returnObjectAsJson);
+							int width = document[L"cssContentSize"][L"width"].GetInt();
+							int height = document[L"cssContentSize"][L"height"].GetInt();
+
+							RECT rcNew{ 0, 0, width, height };
+							GetActiveWebViewController()->put_Bounds(rcNew);
+
+							hr = GetActiveWebView()->CapturePreview(
+								COREWEBVIEW2_CAPTURE_PREVIEW_IMAGE_FORMAT_PNG, stream.get(),
+								Callback<ICoreWebView2CapturePreviewCompletedHandler>(
+									[this, rcOrg, callback2](HRESULT errorCode) -> HRESULT {
+										GetActiveWebViewController()->put_Bounds(rcOrg);
+										if (callback2)
+											callback2->Invoke(errorCode);
+										return S_OK;
+									})
+								.Get());
+						}
+					}
 					if (FAILED(hr))
-						return hr;
-
-					RECT rcOrg;
-					GetActiveWebViewController()->get_Bounds(&rcOrg);
- 
-					WDocument document;
-					document.Parse(returnObjectAsJson);
-					int width = document[L"cssContentSize"][L"width"].GetInt();
-					int height = document[L"cssContentSize"][L"height"].GetInt();
-
-					RECT rcNew{ 0, 0, width, height };
-					GetActiveWebViewController()->put_Bounds(rcNew);
-
-					hr = GetActiveWebView()->CapturePreview(
-						COREWEBVIEW2_CAPTURE_PREVIEW_IMAGE_FORMAT_PNG, stream.get(),
-						Callback<ICoreWebView2CapturePreviewCompletedHandler>(
-							[this, rcOrg](HRESULT errorCode) -> HRESULT {
-								GetActiveWebViewController()->put_Bounds(rcOrg);
-								return S_OK;
-							})
-						.Get());
+					{
+						if (callback2)
+							callback2->Invoke(hr);
+					}
 					return S_OK;
 				})
 			.Get());
 
 		if (FAILED(hr))
-			return false;
-		return true;
+		{
+			if (callback2)
+				callback2->Invoke(hr);
+			return hr;
+		}
+		return hr;
 	}
 
-	bool SaveHTML(const wchar_t* filename)
+	HRESULT SaveHTML(const wchar_t* filename, IWebDiffCallback* callback)
 	{
 		/*
 		HRESULT hr2 = GetActiveWebView()->CallDevToolsProtocolMethod(L"Page.captureSnapshot", L"{\"format\": \"mhtml\"}",
@@ -376,9 +409,113 @@ public:
 			.Get());
 			*/
 
-		GetActiveWebView()->ExecuteScript(L"document.children[0].innerHTML",
+		const wchar_t *script = L"document.documentElement.outerHTML";
+		ComPtr<IWebDiffCallback> callback2(callback);
+		std::wstring filename2(filename);
+		HRESULT hr = GetActiveWebView()->ExecuteScript(script,
+			Callback<ICoreWebView2ExecuteScriptCompletedHandler>(
+				[filename2, callback2](HRESULT errorCode, LPCWSTR resultObjectAsJson) -> HRESULT {
+					if (SUCCEEDED(errorCode))
+					{
+						WDocument document;
+						document.Parse(resultObjectAsJson);
+						wil::unique_file fp;
+						_wfopen_s(&fp, filename2.c_str(), L"wt,ccs=UTF-8");
+						fwprintf(fp.get(), L"%s", document.GetString());
+					}
+					if (callback2)
+						callback2->Invoke(errorCode);
+					return S_OK;
+				})
+			.Get());
+		if (FAILED(hr))
+		{
+			if (callback2)
+				callback2->Invoke(hr);
+			return hr;
+		}
+		return hr;
+	}
+
+	bool DOMtoJSON(const wchar_t *filename)
+	{
+		// https://gist.github.com/sstur/7379870
+		const wchar_t *script = LR"(
+function toJSON(node) {
+  let propFix = { for: 'htmlFor', class: 'className' };
+  let specialGetters = {
+    style: (node) => node.style.cssText,
+  };
+  let attrDefaultValues = { style: '' };
+  let obj = {
+    nodeType: node.nodeType,
+  };
+  if (node.tagName) {
+    obj.tagName = node.tagName.toLowerCase();
+  } else if (node.nodeName) {
+    obj.nodeName = node.nodeName;
+  }
+  if (node.nodeValue) {
+    obj.nodeValue = node.nodeValue;
+  }
+  let attrs = node.attributes;
+  if (attrs) {
+    let defaultValues = new Map();
+    for (let i = 0; i < attrs.length; i++) {
+      let name = attrs[i].nodeName;
+      defaultValues.set(name, attrDefaultValues[name]);
+    }
+    // Add some special cases that might not be included by enumerating
+    // attributes above. Note: this list is probably not exhaustive.
+    switch (obj.tagName) {
+      case 'input': {
+        if (node.type === 'checkbox' || node.type === 'radio') {
+          defaultValues.set('checked', false);
+        } else if (node.type !== 'file') {
+          // Don't store the value for a file input.
+          defaultValues.set('value', '');
+        }
+        break;
+      }
+      case 'option': {
+        defaultValues.set('selected', false);
+        break;
+      }
+      case 'textarea': {
+        defaultValues.set('value', '');
+        break;
+      }
+    }
+    let arr = [];
+    for (let [name, defaultValue] of defaultValues) {
+      let propName = propFix[name] || name;
+      let specialGetter = specialGetters[propName];
+      let value = specialGetter ? specialGetter(node) : node[propName];
+      if (value !== defaultValue) {
+        arr.push([name, value]);
+      }
+    }
+    if (arr.length) {
+      obj.attributes = arr;
+    }
+  }
+  let childNodes = node.childNodes;
+  // Don't process children for a textarea since we used `value` above.
+  if (obj.tagName !== 'textarea' && childNodes && childNodes.length) {
+    let arr = (obj.childNodes = []);
+    for (let i = 0; i < childNodes.length; i++) {
+      arr[i] = toJSON(childNodes[i]);
+    }
+  }
+  return obj;
+}
+toJSON(document.documentElement)
+)";
+		GetActiveWebView()->ExecuteScript(script,
 			Callback<ICoreWebView2ExecuteScriptCompletedHandler>(
 				[filename](HRESULT errorCode, LPCWSTR resultObjectAsJson) -> HRESULT {
+					WDocument document;
+					document.Parse(resultObjectAsJson);
 					wil::unique_file fp;
 					_wfopen_s(&fp, filename, L"wt,ccs=UTF-8");
 					fwprintf(fp.get(), L"%s", resultObjectAsJson);
@@ -390,7 +527,7 @@ public:
 
 private:
 
-	bool InitializeWebView(const wchar_t *url)
+	HRESULT InitializeWebView(const wchar_t *url)
 	{
 		std::shared_ptr<std::wstring> url2(new std::wstring(url));
 		HRESULT hr = CreateCoreWebView2EnvironmentWithOptions(nullptr, nullptr, nullptr,
@@ -402,11 +539,12 @@ private:
 					TCITEM tcItem{};
 					tcItem.mask = TCIF_TEXT;
 					tcItem.pszText = (PWSTR)L"";
-					TabCtrl_InsertItem(m_hTabCtrl, 0, &tcItem);
-					m_activeTab = 0;
+					m_activeTab = static_cast<int>(m_tabs.size()) - 1;
+					TabCtrl_InsertItem(m_hTabCtrl, m_activeTab, &tcItem);
+					TabCtrl_SetCurSel(m_hTabCtrl, m_activeTab);
 					return S_OK;
 				}).Get());
-		return SUCCEEDED(hr);
+		return hr;
 	}
 
 	int FindTabIndex(const ICoreWebView2* webview)
@@ -421,10 +559,48 @@ private:
 		return -1;
 	}
 
+	void SetActiveTab(const CWebTab *ptab)
+	{
+		int tabIndex = FindTabIndex(ptab->m_webview.get());
+		if (tabIndex >= 0)
+			SetActiveTab(tabIndex);
+	}
+
+	void SetActiveTab(int tabIndex)
+	{
+		if (tabIndex < 0 || tabIndex >= m_tabs.size())
+			return;
+		if (!GetActiveWebViewController())
+			return;
+		CalcScrollBarRange(0, 0);
+		GetActiveWebViewController()->put_IsVisible(false);
+		int oldActiveTab = TabCtrl_GetCurSel(m_hTabCtrl);
+		if (oldActiveTab != tabIndex)
+			TabCtrl_SetCurSel(m_hTabCtrl, tabIndex);
+		m_activeTab = tabIndex;
+		GetActiveWebViewController()->put_IsVisible(true);
+		ResizeWebView();
+		UpdateToolbarControls();
+	}
+
 	CWebTab* GetActiveTab() const
 	{
 		assert(m_activeTab >= 0 && m_activeTab < m_tabs.size());
 		return m_tabs[m_activeTab].get();
+	}
+
+	HRESULT CloseTab(int tab)
+	{
+		int ntabs = TabCtrl_GetItemCount(m_hTabCtrl);
+		if (ntabs == 1)
+		{
+			return Navigate(L"about:blank");
+		}
+		m_tabs.erase(m_tabs.begin() + tab);
+		TabCtrl_DeleteItem(m_hTabCtrl, tab);
+		if (m_activeTab == tab)
+			SetActiveTab(tab >= ntabs ? ntabs - 1 : tab);
+		return S_OK;
 	}
 
 	ICoreWebView2* GetActiveWebView() const
@@ -452,7 +628,8 @@ private:
 		MoveWindow(m_hToolbar, rcClient.left, rcClient.top, rcClient.right - rcClient.left, rcToolbar.bottom - rcToolbar.top, TRUE);
 		SendMessage(m_hToolbar, TB_GETRECT, ID_STOP, (LPARAM)&rcStop);
 		MoveWindow(m_hEdit, rcStop.right + 4, rcStop.top + 1, rcClient.right - 4 - (rcStop.right + 4), rcStop.bottom - rcStop.top - 2 * 1, TRUE);
-		MoveWindow(m_hWebViewParent, 0, rcClient.top + rcToolbar.bottom, bounds.right - bounds.left, bounds.bottom - (rcClient.bottom + rcToolbar.bottom), TRUE);
+		RECT rcWebViewParent{ 0, rcClient.top + rcToolbar.bottom, bounds.right, bounds.bottom };
+		MoveWindow(m_hWebViewParent, rcWebViewParent.left, rcWebViewParent.top, rcWebViewParent.right - rcWebViewParent.left, rcWebViewParent.bottom - rcWebViewParent.top, TRUE);
 	}
 
 	void ResizeWebView()
@@ -491,7 +668,7 @@ private:
 		SendMessage(m_hToolbar, TB_ENABLEBUTTON, ID_STOP, !tab->m_navigationCompleted);
 	}
 
-	void CalcScrollBarRange()
+	void CalcScrollBarRange(int nHScrollPos, int nVScrollPos)
 	{
 		if (!m_fitToWindow && m_activeTab >= 0)
 		{
@@ -505,14 +682,14 @@ private:
 			si.nMin = 0;
 			si.nMax = size.cy;
 			si.nPage = rc.bottom;
-			si.nPos = m_nVScrollPos;
+			si.nPos = nVScrollPos;
 			SetScrollInfo(m_hWebViewParent, SB_VERT, &si, TRUE);
 			m_nVScrollPos = GetScrollPos(m_hWebViewParent, SB_VERT);
 
 			si.nMin = 0;
 			si.nMax = size.cx;
 			si.nPage = rc.right;
-			si.nPos = m_nHScrollPos;
+			si.nPos = nHScrollPos;
 			SetScrollInfo(m_hWebViewParent, SB_HORZ, &si, TRUE);
 			m_nHScrollPos = GetScrollPos(m_hWebViewParent, SB_HORZ);
 		}
@@ -553,6 +730,8 @@ private:
 
 	HRESULT OnNewWindowRequested(ICoreWebView2* sender, ICoreWebView2NewWindowRequestedEventArgs* args)
 	{
+		CalcScrollBarRange(0, 0);
+
 		GetActiveWebViewController()->put_IsVisible(false);
 		ICoreWebView2Deferral* deferral;
 		args->GetDeferral(&deferral);
@@ -572,19 +751,7 @@ private:
 		int i = FindTabIndex(sender);
 		if (i < 0)
 			return S_OK;
-		int ntabs = TabCtrl_GetItemCount(m_hTabCtrl);
-		if (ntabs == 1)
-		{
-			Navigate(L"about:blank");
-			return S_OK;
-		}
-		m_tabs.erase(m_tabs.begin() + i);
-		TabCtrl_DeleteItem(m_hTabCtrl, i);
-		if (m_activeTab == i)
-		{
-			TabCtrl_SetCurSel(m_hTabCtrl, i >= ntabs ? ntabs - 1 : i);
-		}
-		return S_OK;
+		return CloseTab(i);
 	}
 
 	HRESULT OnNavigationStarting(ICoreWebView2* sender, ICoreWebView2NavigationStartingEventArgs* args)
@@ -648,7 +815,7 @@ private:
 			break;
 		default: break;
 		}
-		CalcScrollBarRange();
+		CalcScrollBarRange(m_nHScrollPos, m_nVScrollPos);
 		ScrollWindow(m_hWebViewParent, si.nPos - m_nHScrollPos, 0, NULL, NULL);
 	}
 
@@ -674,7 +841,7 @@ private:
 			break;
 		default: break;
 		}
-		CalcScrollBarRange();
+		CalcScrollBarRange(m_nHScrollPos, m_nVScrollPos);
 		ScrollWindow(m_hWebViewParent, 0, si.nPos - m_nVScrollPos, NULL, NULL);
 	}
 
@@ -703,13 +870,7 @@ private:
 		{
 			NMHDR* pnmhdr = (NMHDR*)lParam;
 			if (pnmhdr->code == TCN_SELCHANGE)
-			{
-				GetActiveWebViewController()->put_IsVisible(false);
-				m_activeTab = TabCtrl_GetCurSel(m_hTabCtrl);
-				GetActiveWebViewController()->put_IsVisible(true);
-				ResizeWebView();
-				UpdateToolbarControls();
-			}
+				SetActiveTab(TabCtrl_GetCurSel(m_hTabCtrl));
 			break;
 		}
 		case WM_SIZE:
@@ -717,7 +878,7 @@ private:
 			if (m_activeTab != -1 && GetActiveWebViewController())
 			{
 				ResizeWebView();
-				CalcScrollBarRange();
+				CalcScrollBarRange(m_nHScrollPos, m_nVScrollPos);
 			};
 			break;
 		case WM_PAINT:
