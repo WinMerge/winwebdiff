@@ -281,13 +281,19 @@ public:
 	{
 	}
 
-	bool GetHorizontalSplit() const
+	bool GetHorizontalSplit() const override
 	{
-		return false;
+		return m_bHorizontalSplit;
 	}
 
-	void SetHorizontalSplit(bool horizontalSplit)
+	void SetHorizontalSplit(bool horizontalSplit) override
 	{
+		if (!m_hWnd)
+			return;
+		m_bHorizontalSplit = horizontalSplit;
+		std::vector<RECT> rects = CalcChildWebWindowRect(m_hWnd, m_nPanes, m_bHorizontalSplit);
+		for (int i = 0; i < m_nPanes; ++i)
+			m_webWindow[i].SetWindowRect(rects[i]);
 	}
 
 	COLORREF GetDiffColor() const
@@ -625,7 +631,11 @@ private:
 			OnMouseMove((UINT)(wParam), (int)(short)LOWORD(lParam), (int)(short)HIWORD(lParam));
 			break;
 		case WM_SETCURSOR:
-			SetCursor(::LoadCursor(nullptr, !m_bHorizontalSplit ? IDC_SIZEWE : IDC_SIZENS));
+			if ((HWND)wParam == m_hWnd)
+			{
+				SetCursor(::LoadCursor(nullptr, !m_bHorizontalSplit ? IDC_SIZEWE : IDC_SIZENS));
+				return TRUE;
+			}
 			break;
 		default:
 			return DefWindowProc(hwnd, iMsg, wParam, lParam);

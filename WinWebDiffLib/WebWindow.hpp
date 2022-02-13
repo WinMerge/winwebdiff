@@ -920,7 +920,7 @@ private:
 
 	LRESULT OnEditWndMsg(HWND hWnd, UINT iMsg, WPARAM wParam, LPARAM lParam)
 	{
-		if (iMsg == WM_KEYDOWN && wParam == VK_RETURN && hWnd == m_hEdit)
+		if (iMsg == WM_CHAR && wParam == VK_RETURN && hWnd == m_hEdit)
 		{
 			int length = GetWindowTextLength(m_hEdit);
 			std::wstring url(length, 0);

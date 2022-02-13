@@ -202,6 +202,9 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
                 m_pWebDiffWindow->SetFitToWindow(false);
                 m_pWebDiffWindow->SetSize({ 1440, 900});
                 break;
+            case IDM_VIEW_SPLITHORIZONTALLY:
+                m_pWebDiffWindow->SetHorizontalSplit(!m_pWebDiffWindow->GetHorizontalSplit());
+                break;
             case IDM_COMPARE_SCREENSHOTS:
             {
                 std::vector<std::wstring> filenames = { L"c:\\tmp\\p0.png", L"c:\\tmp\\p1.png" };
