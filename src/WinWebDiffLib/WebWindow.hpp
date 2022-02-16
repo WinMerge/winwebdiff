@@ -568,7 +568,7 @@ private:
 
 	void SetActiveTab(int tabIndex)
 	{
-		if (tabIndex < 0 || tabIndex >= m_tabs.size())
+		if (tabIndex < 0 || tabIndex >= static_cast<int>(m_tabs.size()))
 			return;
 		if (!GetActiveWebViewController())
 			return;
@@ -585,7 +585,7 @@ private:
 
 	CWebTab* GetActiveTab() const
 	{
-		assert(m_activeTab >= 0 && m_activeTab < m_tabs.size());
+		assert(m_activeTab >= 0 && m_activeTab < static_cast<int>(m_tabs.size()));
 		return m_tabs[m_activeTab].get();
 	}
 

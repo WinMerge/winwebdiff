@@ -6,7 +6,7 @@
 
 struct __declspec(uuid("{DC951F69-C8CA-44DD-8C3C-8A9C76B0022C}")) IWebDiffCallback : IUnknown
 {
-	virtual HRESULT Invoke(HRESULT hr) = 0;
+	virtual HRESULT __stdcall Invoke(HRESULT hr) = 0;
 };
 
 struct IWebDiffWindow
