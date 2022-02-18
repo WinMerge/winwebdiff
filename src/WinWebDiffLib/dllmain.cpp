@@ -5,7 +5,7 @@
 extern "C" IWebDiffWindow *
 WinWebDiff_CreateWindow(HINSTANCE hInstance, HWND hWndParent, int nID)
 {
-    RECT rc = { 0 };
+    RECT rc{};
     CWebDiffWindow* pWebDiffWindow = new CWebDiffWindow();
     pWebDiffWindow->Create(hInstance, hWndParent, nID, rc);
     return static_cast<IWebDiffWindow*>(pWebDiffWindow);
