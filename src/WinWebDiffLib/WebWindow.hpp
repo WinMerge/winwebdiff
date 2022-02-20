@@ -11,18 +11,23 @@
 #include <Windows.h>
 #include <CommCtrl.h>
 #include <Shlwapi.h>
+#include <WinInet.h>
 #include <wrl.h>
 #include <wil/com.h>
+#include <wincrypt.h>
 #include <string>
 #include <vector>
+#include <filesystem>
 #include <memory>
 #include <cassert>
 #include "resource.h"
 
 #pragma comment(lib, "shlwapi.lib")
+#pragma comment(lib, "crypt32.lib")
 
 using namespace Microsoft::WRL;
 using WDocument = rapidjson::GenericDocument < rapidjson::UTF16 < >>;
+using WValue = rapidjson::GenericValue < rapidjson::UTF16 < >>;
 
 class CWebWindow
 {
@@ -425,6 +430,182 @@ public:
 					}
 					if (callback2)
 						callback2->Invoke(errorCode);
+					return S_OK;
+				})
+			.Get());
+		if (FAILED(hr))
+		{
+			if (callback2)
+				callback2->Invoke(hr);
+			return hr;
+		}
+		return hr;
+	}
+
+	std::wstring EscapeUrl(const std::wstring& text)
+	{
+		wchar_t buf[INTERNET_MAX_URL_LENGTH];
+		DWORD cchEscaped = sizeof(buf)/sizeof(buf[0]);
+		UrlEscape(text.c_str(), buf, &cchEscaped, URL_ESCAPE_AS_UTF8);
+		return std::wstring(buf, cchEscaped);
+	}
+
+	std::vector<BYTE> DecodeBase64(const std::wstring& base64)
+	{
+		std::vector<BYTE> data;
+		DWORD cbBinary;
+		if (CryptStringToBinary(base64.c_str(), static_cast<DWORD>(base64.size()), CRYPT_STRING_BASE64_ANY, nullptr, &cbBinary, nullptr, nullptr))
+		{
+			data.resize(cbBinary);
+			CryptStringToBinary(base64.c_str(), static_cast<DWORD>(base64.size()), CRYPT_STRING_BASE64_ANY, data.data(), &cbBinary, nullptr, nullptr);
+		}
+		return data;
+	}
+
+	void WriteToErrorLog(const wchar_t* dirname, const wchar_t* url, HRESULT hr)
+	{
+		wil::unique_file fp;
+		std::filesystem::path path(dirname);
+		path /= L"error.log";
+		_wfopen_s(&fp, path.c_str(), L"at,ccs=UTF-8");
+		fwprintf(fp.get(), L"url=%s hr=%08x\n", url, hr);
+	}
+
+	HRESULT SaveResourceContent(const wchar_t* frameId, const WValue& resource, const wchar_t* dirname, IWebDiffCallback* callback, std::shared_ptr<uint32_t> counter)
+	{
+		std::wstring dirname2(dirname);
+		std::wstring url(resource[L"url"].GetString());
+		std::wstring args = L"{ \"frameId\": \"" + std::wstring(frameId) + L"\", \"url\": \"" + url + L"\" }";
+		ComPtr<IWebDiffCallback> callback2(callback);
+		HRESULT hr = GetActiveWebView()->CallDevToolsProtocolMethod(L"Page.getResourceContent", args.c_str(),
+			Callback<ICoreWebView2CallDevToolsProtocolMethodCompletedHandler>(
+				[this, dirname2, url, callback2, counter](HRESULT errorCode, LPCWSTR returnObjectAsJson) -> HRESULT {
+					wil::unique_file fp;
+					std::filesystem::path path(dirname2);
+					if (SUCCEEDED(errorCode))
+					{
+						std::wstring filename;
+						if (url.compare(0, 5, L"data:") == 0)
+							filename = L"inline";
+						else
+							filename = std::filesystem::path(url).filename();
+						size_t pos = filename.find('?');
+						if (pos != std::wstring::npos)
+						{
+							if (pos > 0)
+								filename = filename.substr(0, pos);
+							else
+								filename = filename.substr(pos + 1);
+						}
+						path /= EscapeUrl(filename);
+
+						WDocument document;
+						document.Parse(returnObjectAsJson);
+						if (document[L"base64Encoded"].GetBool())
+						{
+							std::vector<BYTE> data = DecodeBase64(document[L"content"].GetString());
+							_wfopen_s(&fp, path.c_str(), L"wb");
+							if (fp)
+								fwrite(data.data(), data.size(), 1, fp.get());
+							else
+								WriteToErrorLog(dirname2.c_str(), url.c_str(), errorCode);
+						}
+						else
+						{
+							_wfopen_s(&fp, path.c_str(), L"wt,ccs=UTF-8");
+							if (fp)
+								fwprintf(fp.get(), L"%s", document[L"content"].GetString());
+							else
+								WriteToErrorLog(dirname2.c_str(), url.c_str(), errorCode);
+						}
+					}
+					else
+					{
+						WriteToErrorLog(dirname2.c_str(), url.c_str(), errorCode);
+					}
+					*counter = *counter - 1;
+					if (*counter == 0 && callback2)
+						callback2->Invoke(errorCode);
+					return S_OK;
+				})
+			.Get());
+		if (FAILED(hr))
+		{
+			*counter = *counter - 1;
+			if (*counter == 0 && callback2)
+				callback2->Invoke(hr);
+			return hr;
+		}
+		return hr;
+	}
+
+	uint32_t GetResourceTreeItemCount(const WValue& frameTree)
+	{
+		uint32_t count = 0;
+		if (frameTree.HasMember(L"childFrames") && frameTree.IsArray())
+		{
+			for (const auto& frame : frameTree[L"childFrames"].GetArray())
+				count += GetResourceTreeItemCount(frame);
+		}
+		if (frameTree.HasMember(L"frame"))
+		{
+			std::wstring id = frameTree[L"frame"][L"id"].GetString();
+			for (const auto& resource : frameTree[L"resources"].GetArray())
+				++count;
+		}
+		return count;
+	}
+
+	HRESULT SaveResourceTree(const wchar_t* dirname, const WValue& frameTree, IWebDiffCallback* callback, std::shared_ptr<uint32_t> counter)
+	{
+		if (frameTree.HasMember(L"childFrames"))
+		{
+			for (const auto& frame : frameTree[L"childFrames"].GetArray())
+			{
+				std::wstring frameId = frame[L"frame"][L"id"].GetString();
+				SaveResourceTree((std::filesystem::path(dirname) / (L"frameId_" + frameId)).c_str(), frame, callback, counter);
+			}
+		}
+		if (frameTree.HasMember(L"frame"))
+		{
+			std::wstring id = frameTree[L"frame"][L"id"].GetString();
+			for (const auto& resource : frameTree[L"resources"].GetArray())
+			{
+				std::filesystem::path path = dirname;
+				path /= resource[L"type"].GetString();
+				if (!std::filesystem::exists(path))
+					std::filesystem::create_directories(path);
+				SaveResourceContent(id.c_str(), resource, path.c_str(), callback, counter);
+			}
+		}
+		return S_OK;
+	}
+
+	HRESULT SaveResourceTree(const wchar_t* dirname, IWebDiffCallback* callback)
+	{
+		std::wstring dirname2(dirname);
+		ComPtr<IWebDiffCallback> callback2(callback);
+		HRESULT hr = GetActiveWebView()->CallDevToolsProtocolMethod(L"Page.enable", L"{}", nullptr);
+		if (FAILED(hr))
+		{
+			if (callback2)
+				callback2->Invoke(hr);
+			return hr;
+		}
+		hr = GetActiveWebView()->CallDevToolsProtocolMethod(L"Page.getResourceTree", L"{}",
+			Callback<ICoreWebView2CallDevToolsProtocolMethodCompletedHandler>(
+				[this, dirname2, callback2](HRESULT errorCode, LPCWSTR returnObjectAsJson) -> HRESULT {
+					WDocument document;
+					document.Parse(returnObjectAsJson);
+					const WValue& tree = document[L"frameTree"];
+
+					uint32_t size = GetResourceTreeItemCount(tree);
+					std::shared_ptr<unsigned> counter(new unsigned{ size });
+					SaveResourceTree(dirname2.c_str(), tree, callback2.Get(), counter);
+
+					wil::unique_file fp;
+					_wfopen_s(&fp, (dirname2 + L"resourceTree.json").c_str(), L"wt,ccs=UTF-8");
+					fwprintf(fp.get(), L"%s", returnObjectAsJson);
 					return S_OK;
 				})
 			.Get());

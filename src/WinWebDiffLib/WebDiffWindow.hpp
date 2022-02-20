@@ -267,6 +267,72 @@ public:
 		return hr;
 	}
 
+	HRESULT SaveResourceTree(int pane, const wchar_t* dirname, IWebDiffCallback *callback) override {
+		if (pane < 0 || pane >= m_nPanes)
+			return false;
+		return m_webWindow[pane].SaveResourceTree(dirname, callback);
+	}
+
+	HRESULT SaveResourceTree(const wchar_t* dirname1, const wchar_t* dirname2, IWebDiffCallback* callback) override
+	{
+		const wchar_t* dirnames[3] = { dirname1, dirname2, nullptr };
+		return SaveResourceTree(dirnames, callback);
+	}
+
+	HRESULT SaveResourceTree(const wchar_t* dirname1, const wchar_t* dirname2, const wchar_t* dirname3, IWebDiffCallback* callback) override
+	{
+		const wchar_t* dirnames[3] = { dirname1, dirname2, dirname3 };
+		return SaveResourceTree(dirnames, callback);
+	}
+
+	HRESULT SaveResourceTree(const wchar_t* dirnames[3], IWebDiffCallback* callback)
+	{
+		std::vector<std::wstring> sdirnames;
+		for (int pane = 0; pane < m_nPanes; ++pane)
+			sdirnames.push_back(dirnames[pane]);
+		ComPtr<IWebDiffCallback> callback2(callback);
+		HRESULT hr = SaveResourceTree(0, sdirnames[0].c_str(),
+			Callback<IWebDiffCallback>([this, sdirnames, callback2](HRESULT hr) -> HRESULT
+				{
+					if (SUCCEEDED(hr))
+					{
+						hr = SaveResourceTree(1, sdirnames[1].c_str(),
+							Callback<IWebDiffCallback>([this, sdirnames, callback2](HRESULT hr) -> HRESULT
+								{
+									if (m_nPanes < 3)
+									{
+										if (callback2)
+											callback2->Invoke(hr);
+										return hr;
+									}
+									if (SUCCEEDED(hr))
+									{
+										hr = SaveResourceTree(2, sdirnames[2].c_str(),
+											Callback<IWebDiffCallback>([this, sdirnames, callback2](HRESULT hr) -> HRESULT
+												{
+													if (callback2)
+														callback2->Invoke(hr);
+													return S_OK;
+												}).Get());
+									}
+									if (FAILED(hr))
+									{
+										if (callback2)
+											callback2->Invoke(E_FAIL);
+									}
+									return hr;
+								}).Get());
+					}
+					if (FAILED(hr))
+					{
+						if (callback2)
+							callback2->Invoke(E_FAIL);
+					}
+					return hr;
+			}).Get());
+		return hr;
+	}
+
 	const wchar_t* GetCurrentUrl(int pane)
 	{
 		return L"";

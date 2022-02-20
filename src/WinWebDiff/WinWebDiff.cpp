@@ -6,6 +6,7 @@
 #include <CommCtrl.h>
 #include <string>
 #include <vector>
+#include <filesystem>
 #include <wrl.h>
 
 #pragma comment(lib, "comctl32.lib")
@@ -161,11 +162,11 @@ std::wstring GetLastErrorString()
 	return buf;
 }
 
-bool CompareFiles(const std::wstring& filename1, const std::wstring& filename2, const std::wstring& unpacker)
+bool CompareFiles(const std::wstring& filename1, const std::wstring& filename2, const std::wstring& options)
 {
 	std::wstring cmdline = L"\"C:\\Program Files\\WinMerge\\WinMergeU.exe\" /ub \"" + filename1 + L"\" \"" + filename2 + L"\"";
-	if (!unpacker.empty())
-		cmdline += L" /unpacker " + unpacker;
+	if (!options.empty())
+		cmdline += L" " + options;
 	STARTUPINFO stInfo = { sizeof(STARTUPINFO) };
 	stInfo.dwFlags = STARTF_USESHOWWINDOW;
 	stInfo.wShowWindow = SW_SHOW;
@@ -260,7 +261,19 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 				m_pWebDiffWindow->SaveHTMLs(filenames[0].c_str(), filenames[1].c_str(),
 					Callback<IWebDiffCallback>([filenames](HRESULT hr) -> HRESULT
 						{
-							CompareFiles(filenames[0].c_str(), filenames[1].c_str(), L"PrettifyHTML");
+							CompareFiles(filenames[0].c_str(), filenames[1].c_str(), L"/unpacker PrettifyHTML");
+							return S_OK;
+						})
+					.Get());
+				break;
+			}
+			case IDM_COMPARE_RESOURCE_TREE:
+			{
+				std::vector<std::wstring> dirnames = { L"c:\\tmp\\dir1\\", L"c:\\tmp\\dir2\\" };
+				m_pWebDiffWindow->SaveResourceTree(dirnames[0].c_str(), dirnames[1].c_str(),
+					Callback<IWebDiffCallback>([dirnames](HRESULT hr) -> HRESULT
+						{
+							CompareFiles(dirnames[0].c_str(), dirnames[1].c_str(), L"/r");
 							return S_OK;
 						})
 					.Get());
