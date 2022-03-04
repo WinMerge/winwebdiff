@@ -336,9 +336,15 @@ public:
 		}
 	}
 
+	bool IsFocused() const
+	{
+		HWND hwndCurrent = GetFocus();
+		return m_hWnd == hwndCurrent || IsChild(m_hWnd, hwndCurrent);
+	}
+
 	void SetFocus()
 	{
-		::SetFocus(m_hWebViewParent);
+		GetActiveWebViewController()->MoveFocus(COREWEBVIEW2_MOVE_FOCUS_REASON_PROGRAMMATIC);
 	}
 
 	HRESULT SaveScreenshot(const wchar_t* filename, IWebDiffCallback *callback)

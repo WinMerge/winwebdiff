@@ -340,11 +340,17 @@ public:
 
 	int  GetActivePane() const
 	{
-		return 0;
+		if (!m_hWnd)
+			return -1;
+		for (int i = 0; i < m_nPanes; ++i)
+			if (m_webWindow[i].IsFocused())
+				return i;
+		return -1;
 	}
 
 	void SetActivePane(int pane)
 	{
+		m_webWindow[pane].SetFocus();
 	}
 
 	bool GetHorizontalSplit() const override
