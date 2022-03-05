@@ -85,7 +85,10 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
 
 	if (!m_pWebDiffWindow->IsWebView2Installed())
 	{
-		MessageBox(nullptr, L"WebView2 is not installed", L"WinWebDiff", MB_OK);
+		if (IDYES == MessageBox(nullptr, L"WebView2 runtime is not installed. Do you want to download it?", L"WinWebDiff", MB_YESNO))
+		{
+			m_pWebDiffWindow->DownloadWebView2();
+		}
 	}
 	else
 	{
@@ -246,7 +249,8 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 			case IDM_COMPARE_SCREENSHOTS:
 			{
 				std::vector<std::wstring> filenames = { L"c:\\tmp\\p0.png", L"c:\\tmp\\p1.png" };
-				m_pWebDiffWindow->SaveScreenshots(filenames[0].c_str(), filenames[1].c_str(),
+				const wchar_t* pfilenames[3] = { filenames[0].c_str(), filenames[1].c_str() };
+				m_pWebDiffWindow->SaveScreenshots(pfilenames,
 					Callback<IWebDiffCallback>([filenames](HRESULT hr) -> HRESULT
 						{
 							CompareFiles(filenames[0].c_str(), filenames[1].c_str(), L"");
@@ -258,7 +262,8 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 			case IDM_COMPARE_HTML:
 			{
 				std::vector<std::wstring> filenames = { L"c:\\tmp\\p0.html", L"c:\\tmp\\p1.html" };
-				m_pWebDiffWindow->SaveHTMLs(filenames[0].c_str(), filenames[1].c_str(),
+				const wchar_t* pfilenames[3] = { filenames[0].c_str(), filenames[1].c_str() };
+				m_pWebDiffWindow->SaveHTMLs(pfilenames,
 					Callback<IWebDiffCallback>([filenames](HRESULT hr) -> HRESULT
 						{
 							CompareFiles(filenames[0].c_str(), filenames[1].c_str(), L"/unpacker PrettifyHTML");
@@ -270,7 +275,8 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 			case IDM_COMPARE_RESOURCE_TREE:
 			{
 				std::vector<std::wstring> dirnames = { L"c:\\tmp\\dir1\\", L"c:\\tmp\\dir2\\" };
-				m_pWebDiffWindow->SaveResourceTree(dirnames[0].c_str(), dirnames[1].c_str(),
+				const wchar_t* pdirnames[3] = { dirnames[0].c_str(), dirnames[1].c_str() };
+				m_pWebDiffWindow->SaveResourceTrees(pdirnames,
 					Callback<IWebDiffCallback>([dirnames](HRESULT hr) -> HRESULT
 						{
 							CompareFiles(dirnames[0].c_str(), dirnames[1].c_str(), L"/r");

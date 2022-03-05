@@ -3,6 +3,7 @@
 #include "WinWebDiffLib.h"
 #include "WebWindow.hpp"
 #include <Windows.h>
+#include <shellapi.h>
 #include <vector>
 
 class CWebDiffWindow : public IWebDiffWindow
@@ -35,6 +36,11 @@ public:
 		wil::unique_cotaskmem_string version_info;
 		HRESULT hr = GetAvailableCoreWebView2BrowserVersionString(nullptr, &version_info);
 		return (hr == S_OK && version_info != nullptr);
+	}
+
+	bool DownloadWebView2() const override
+	{
+		return ShellExecute(0, 0, L"https://go.microsoft.com/fwlink/p/?LinkId=2124703", 0, 0, SW_SHOW);
 	}
 
 	HRESULT New(int nUrls)
@@ -140,19 +146,7 @@ public:
 		return m_webWindow[pane].SaveScreenshot(filename, callback);
 	}
 
-	HRESULT SaveScreenshots(const wchar_t* filename1, const wchar_t* filename2, IWebDiffCallback* callback) override
-	{
-		const wchar_t* filenames[3] = { filename1, filename2, nullptr };
-		return SaveScreenshots(filenames, callback);
-	}
-
-	HRESULT SaveScreenshots(const wchar_t* filename1, const wchar_t* filename2, const wchar_t* filename3, IWebDiffCallback* callback) override
-	{
-		const wchar_t* filenames[3] = { filename1, filename2, filename3 };
-		return SaveScreenshots(filenames, callback);
-	}
-
-	HRESULT SaveScreenshots(const wchar_t* filenames[3], IWebDiffCallback* callback)
+	HRESULT SaveScreenshots(const wchar_t* filenames[], IWebDiffCallback* callback)
 	{
 		std::vector<std::wstring> sfilenames;
 		for (int pane = 0; pane < m_nPanes; ++pane)
@@ -207,19 +201,7 @@ public:
 		return m_webWindow[pane].SaveHTML(filename, callback);
 	}
 
-	HRESULT SaveHTMLs(const wchar_t* filename1, const wchar_t* filename2, IWebDiffCallback* callback) override
-	{
-		const wchar_t* filenames[3] = { filename1, filename2, nullptr };
-		return SaveHTMLs(filenames, callback);
-	}
-
-	HRESULT SaveHTMLs(const wchar_t* filename1, const wchar_t* filename2, const wchar_t* filename3, IWebDiffCallback* callback) override
-	{
-		const wchar_t* filenames[3] = { filename1, filename2, filename3 };
-		return SaveHTMLs(filenames, callback);
-	}
-
-	HRESULT SaveHTMLs(const wchar_t* filenames[3], IWebDiffCallback* callback)
+	HRESULT SaveHTMLs(const wchar_t* filenames[], IWebDiffCallback* callback)
 	{
 		std::vector<std::wstring> sfilenames;
 		for (int pane = 0; pane < m_nPanes; ++pane)
@@ -273,19 +255,7 @@ public:
 		return m_webWindow[pane].SaveResourceTree(dirname, callback);
 	}
 
-	HRESULT SaveResourceTree(const wchar_t* dirname1, const wchar_t* dirname2, IWebDiffCallback* callback) override
-	{
-		const wchar_t* dirnames[3] = { dirname1, dirname2, nullptr };
-		return SaveResourceTree(dirnames, callback);
-	}
-
-	HRESULT SaveResourceTree(const wchar_t* dirname1, const wchar_t* dirname2, const wchar_t* dirname3, IWebDiffCallback* callback) override
-	{
-		const wchar_t* dirnames[3] = { dirname1, dirname2, dirname3 };
-		return SaveResourceTree(dirnames, callback);
-	}
-
-	HRESULT SaveResourceTree(const wchar_t* dirnames[3], IWebDiffCallback* callback)
+	HRESULT SaveResourceTrees(const wchar_t* dirnames[], IWebDiffCallback* callback)
 	{
 		std::vector<std::wstring> sdirnames;
 		for (int pane = 0; pane < m_nPanes; ++pane)
