@@ -1,0 +1,8 @@
+version: 1.0.{build}
+image: Visual Studio 2022
+build_script:
+- cmd: >-
+    BuildBin.vs2022.cmd
+    BuildArc.cmd
+artifacts:
+- path: Dist/winwebdiff-*-exe.zip

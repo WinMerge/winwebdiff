@@ -2,5 +2,8 @@
 Build/
 BuildTmp/
 packages/
-ARM64/
+Dist/
 *.user
+*.bak
+*.aps
+*.*~
