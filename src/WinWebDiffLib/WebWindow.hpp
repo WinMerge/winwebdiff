@@ -56,6 +56,9 @@ class CWebWindow
 						m_webviewController->get_CoreWebView2(&m_webview);
 					}
 
+					if (!m_webview)
+						return E_FAIL;
+
 					ICoreWebView2Settings* Settings;
 					m_webview->get_Settings(&Settings);
 					Settings->put_IsScriptEnabled(TRUE);
