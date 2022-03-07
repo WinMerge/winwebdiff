@@ -34,30 +34,35 @@ class CWebWindow
 	class CWebTab
 	{
 	public:
-		CWebTab(CWebWindow* parent, const wchar_t* url)
+		CWebTab(CWebWindow* parent, const wchar_t* url, IWebDiffCallback* callback)
 			: m_parent(parent)
 		{
-			InitializeWebView(url, nullptr, nullptr);
+			InitializeWebView(url, nullptr, nullptr, callback);
 		}
 
-		CWebTab(CWebWindow* parent, ICoreWebView2NewWindowRequestedEventArgs* args = nullptr, ICoreWebView2Deferral* deferral = nullptr)
+		CWebTab(CWebWindow* parent, ICoreWebView2NewWindowRequestedEventArgs* args = nullptr, ICoreWebView2Deferral* deferral = nullptr, IWebDiffCallback* callback = nullptr)
 			: m_parent(parent)
 		{
-			InitializeWebView(nullptr, args, deferral);
+			InitializeWebView(nullptr, args, deferral, callback);
 		}
 
-		bool InitializeWebView(const wchar_t* url, ICoreWebView2NewWindowRequestedEventArgs* args, ICoreWebView2Deferral* deferral)
+		bool InitializeWebView(const wchar_t* url, ICoreWebView2NewWindowRequestedEventArgs* args, ICoreWebView2Deferral* deferral, IWebDiffCallback* callback)
 		{
 			std::shared_ptr<std::wstring> url2(url ? new std::wstring(url) : nullptr);
+			ComPtr<IWebDiffCallback> callback2(callback);
 			HRESULT hr = m_parent->m_webviewEnvironment->CreateCoreWebView2Controller(m_parent->m_hWebViewParent, Callback<ICoreWebView2CreateCoreWebView2ControllerCompletedHandler>(
-				[this, url2, args, deferral](HRESULT result, ICoreWebView2Controller* controller) -> HRESULT {
+				[this, url2, args, deferral, callback2](HRESULT result, ICoreWebView2Controller* controller) -> HRESULT {
 					if (controller != nullptr) {
 						m_webviewController = controller;
 						m_webviewController->get_CoreWebView2(&m_webview);
 					}
 
 					if (!m_webview)
-						return E_FAIL;
+					{
+						if (callback2)
+							callback2->Invoke(result);
+						return result;
+					}
 
 					ICoreWebView2Settings* Settings;
 					m_webview->get_Settings(&Settings);
@@ -132,6 +137,9 @@ class CWebWindow
 								return m_parent->OnNavigationCompleted(sender, args);
 							})
 						.Get(), nullptr);
+
+					if (callback2)
+						callback2->Invoke(S_OK);
 					return S_OK;
 				}).Get());
 			return SUCCEEDED(hr);
@@ -158,7 +166,7 @@ public:
 		return m_hWnd;
 	}
 
-	HRESULT Create(HINSTANCE hInstance, HWND hWndParent, const wchar_t* url)
+	HRESULT Create(HINSTANCE hInstance, HWND hWndParent, const wchar_t* url, const wchar_t* userDataFolder, IWebDiffCallback* callback)
 	{
 		MyRegisterClass(hInstance);
 		m_hWnd = CreateWindowExW(0, L"WinWebWindowClass", nullptr,
@@ -207,7 +215,7 @@ public:
 		SendMessage(m_hEdit, WM_SETFONT, (WPARAM)m_hEditFont, 0);
 		SendMessage(m_hToolbar, TB_ADDBUTTONS, (WPARAM)std::size(tbb), (LPARAM)&tbb);
 		SendMessage(m_hToolbar, WM_SETFONT, (WPARAM)m_hToolbarFont, 0);
-		return InitializeWebView(url);
+		return InitializeWebView(url, userDataFolder, callback);
 	}
 
 	bool Destroy()
@@ -235,9 +243,9 @@ public:
 		return true;
 	}
 
-	void NewTab(const wchar_t* url)
+	void NewTab(const wchar_t* url, IWebDiffCallback* callback)
 	{
-		m_tabs.emplace_back(new CWebTab(this, url));
+		m_tabs.emplace_back(new CWebTab(this, url, callback));
 
 		TCITEM tcItem{};
 		tcItem.mask = TCIF_TEXT;
@@ -351,7 +359,7 @@ public:
 			GetActiveWebViewController()->MoveFocus(COREWEBVIEW2_MOVE_FOCUS_REASON_PROGRAMMATIC);
 	}
 
-	HRESULT SaveScreenshot(const wchar_t* filename, IWebDiffCallback *callback)
+	HRESULT SaveScreenshot(const wchar_t* filename, IWebDiffCallback* callback)
 	{
 		std::wstring filepath = filename;
 		ComPtr<IWebDiffCallback> callback2(callback);
@@ -718,14 +726,14 @@ toJSON(document.documentElement)
 
 private:
 
-	HRESULT InitializeWebView(const wchar_t *url)
+	HRESULT InitializeWebView(const wchar_t *url, const wchar_t *userDataFolder, IWebDiffCallback* callback)
 	{
 		std::shared_ptr<std::wstring> url2(new std::wstring(url));
-		HRESULT hr = CreateCoreWebView2EnvironmentWithOptions(nullptr, nullptr, nullptr,
+		HRESULT hr = CreateCoreWebView2EnvironmentWithOptions(nullptr, userDataFolder, nullptr,
 			Callback<ICoreWebView2CreateCoreWebView2EnvironmentCompletedHandler>(
-				[this, url2](HRESULT result, ICoreWebView2Environment* env) -> HRESULT {
+				[this, url2, callback](HRESULT result, ICoreWebView2Environment* env) -> HRESULT {
 					m_webviewEnvironment = env;
-					m_tabs.emplace_back(new CWebTab(this, url2->c_str()));
+					m_tabs.emplace_back(new CWebTab(this, url2->c_str(), callback));
 
 					TCITEM tcItem{};
 					tcItem.mask = TCIF_TEXT;

@@ -95,12 +95,12 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
 		if (cmdline.nUrls > 0)
 		{
 			if (cmdline.nUrls <= 2)
-				m_pWebDiffWindow->Open(cmdline.sUrls[0].c_str(), cmdline.sUrls[1].c_str());
+				m_pWebDiffWindow->Open(cmdline.sUrls[0].c_str(), cmdline.sUrls[1].c_str(), nullptr);
 			else
-				m_pWebDiffWindow->Open(cmdline.sUrls[0].c_str(), cmdline.sUrls[1].c_str(), cmdline.sUrls[2].c_str());
+				m_pWebDiffWindow->Open(cmdline.sUrls[0].c_str(), cmdline.sUrls[1].c_str(), cmdline.sUrls[2].c_str(), nullptr);
 		}
 		else
-			m_pWebDiffWindow->New(2);
+			m_pWebDiffWindow->New(2, nullptr);
 	}
 
 	MSG msg;
@@ -211,12 +211,12 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 				DialogBox(m_hInstance, MAKEINTRESOURCE(IDD_ABOUTBOX), hWnd, About);
 				break;
 			case IDM_FILE_NEW:
-				m_pWebDiffWindow->New(2);
+				m_pWebDiffWindow->New(2, nullptr);
 				break;
 			case IDM_FILE_NEW_TAB:
 			{
 				int nActivePane = m_pWebDiffWindow->GetActivePane();
-				m_pWebDiffWindow->NewTab(nActivePane < 0 ? 0 : nActivePane, L"about:blank");
+				m_pWebDiffWindow->NewTab(nActivePane < 0 ? 0 : nActivePane, L"about:blank", nullptr);
 				break;
 			}
 			case IDM_FILE_CLOSE_TAB:

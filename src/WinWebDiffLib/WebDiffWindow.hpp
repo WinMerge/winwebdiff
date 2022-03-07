@@ -5,6 +5,7 @@
 #include <Windows.h>
 #include <shellapi.h>
 #include <vector>
+#include <wil/win32_helpers.h>
 
 class CWebDiffWindow : public IWebDiffWindow
 {
@@ -43,33 +44,51 @@ public:
 		return ShellExecute(0, 0, L"https://go.microsoft.com/fwlink/p/?LinkId=2124703", 0, 0, SW_SHOW);
 	}
 
-	HRESULT New(int nUrls)
+	void SetUserDataFolderType(UserDataFolderType userDataFolderType, bool perPane)
+	{
+		m_userDataFolderType = userDataFolderType;
+		m_bUserDataFolderPerPane = perPane;
+	}
+
+	HRESULT New(int nUrls, IWebDiffCallback* callback)
 	{
 		const wchar_t* urls[3] = { L"about:blank", L"about:blank", L"about:blank" };
-		return Open(nUrls, urls);
+		return Open(nUrls, urls, callback);
 	}
 
-	HRESULT Open(const wchar_t* url1, const wchar_t* url2) override
+	HRESULT Open(const wchar_t* url1, const wchar_t* url2, IWebDiffCallback* callback) override
 	{
 		const wchar_t* urls[3] = { url1, url2, nullptr };
-		return Open(2, urls);
+		return Open(2, urls, callback);
 	}
 
-	HRESULT Open(const wchar_t* url1, const wchar_t* url2, const wchar_t* url3) override
+	HRESULT Open(const wchar_t* url1, const wchar_t* url2, const wchar_t* url3, IWebDiffCallback* callback) override
 	{
 		const wchar_t* urls[3] = { url1, url2, url3 };
-		return Open(3, urls);
+		return Open(3, urls, callback);
 	}
 
-	HRESULT Open(int nPanes, const wchar_t* urls[3])
+	HRESULT Open(int nPanes, const wchar_t* urls[3], IWebDiffCallback* callback)
 	{
 		HRESULT hr = S_OK;
 		m_nPanes = nPanes;
 		if (m_hWnd)
 		{
 			Close();
+			std::shared_ptr<int> counter(new int{ nPanes });
 			for (int i = 0; i < nPanes; ++i)
-				hr = m_webWindow[i].Create(m_hInstance, m_hWnd, urls[i]);
+			{
+				std::wstring userDataFolder = GetUserDataFolderPath(i);
+				ComPtr<IWebDiffCallback> callback2(callback);
+				hr = m_webWindow[i].Create(m_hInstance, m_hWnd, urls[i], userDataFolder.c_str(),
+						Callback<IWebDiffCallback>([counter, callback2](HRESULT hr) -> HRESULT
+							{
+								*counter = *counter - 1;
+								if (*counter == 0 && callback2)
+									callback2->Invoke(hr);
+								return S_OK;
+							}).Get());
+			}
 			std::vector<RECT> rects = CalcChildWebWindowRect(m_hWnd, m_nPanes, m_bHorizontalSplit);
 			for (int i = 0; i < m_nPanes; ++i)
 				m_webWindow[i].SetWindowRect(rects[i]);
@@ -83,11 +102,11 @@ public:
 			m_webWindow[i].Destroy();
 	}
 
-	void NewTab(int pane, const wchar_t *url) override
+	void NewTab(int pane, const wchar_t *url, IWebDiffCallback* callback) override
 	{
 		if (pane < 0 || pane >= m_nPanes || !m_hWnd)
 			return;
-		m_webWindow[pane].NewTab(url);
+		m_webWindow[pane].NewTab(url, callback);
 	}
 
 	void CloseActiveTab(int pane) override
@@ -139,7 +158,7 @@ public:
 		return true;
 	}
 
-	HRESULT SaveScreenshot(int pane, const wchar_t* filename, IWebDiffCallback *callback) override
+	HRESULT SaveScreenshot(int pane, const wchar_t* filename, IWebDiffCallback* callback) override
 	{
 		if (pane < 0 || pane >= m_nPanes)
 			return false;
@@ -194,7 +213,7 @@ public:
 		return hr;
 	}
 
-	HRESULT SaveHTML(int pane, const wchar_t* filename, IWebDiffCallback *callback) override
+	HRESULT SaveHTML(int pane, const wchar_t* filename, IWebDiffCallback* callback) override
 	{
 		if (pane < 0 || pane >= m_nPanes)
 			return false;
@@ -249,7 +268,7 @@ public:
 		return hr;
 	}
 
-	HRESULT SaveResourceTree(int pane, const wchar_t* dirname, IWebDiffCallback *callback) override {
+	HRESULT SaveResourceTree(int pane, const wchar_t* dirname, IWebDiffCallback* callback) override {
 		if (pane < 0 || pane >= m_nPanes)
 			return false;
 		return m_webWindow[pane].SaveResourceTree(dirname, callback);
@@ -499,6 +518,19 @@ public:
 
 private:
 
+	std::wstring GetUserDataFolderPath(int pane)
+	{
+		std::wstring path;
+		
+		if (m_userDataFolderType == UserDataFolderType::APPDATA)
+			path = wil::ExpandEnvironmentStringsW(L"%APPDATA%\\WinMerge\\WinWebDiff\\").get();
+		else
+			path = wil::GetModuleFileNameW(GetModuleHandle(nullptr)).get() + std::wstring(L".WebView2");
+		if (m_bUserDataFolderPerPane)
+			path += L"\\" + std::to_wstring(pane + 1);
+		return path;
+	}
+
 	std::vector<RECT> CalcChildWebWindowRect(HWND hWnd, int nPanes, bool bHorizontalSplit)
 	{
 		std::vector<RECT> childrects;
@@ -718,4 +750,6 @@ private:
 	bool m_bDragging = false;
 	POINT m_ptOrg{};
 	POINT m_ptPrev{};
+	UserDataFolderType m_userDataFolderType = UserDataFolderType::APPDATA;
+	bool m_bUserDataFolderPerPane = true;
 };
