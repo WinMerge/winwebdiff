@@ -44,6 +44,11 @@ public:
 		return ShellExecute(0, 0, L"https://go.microsoft.com/fwlink/p/?LinkId=2124703", 0, 0, SW_SHOW);
 	}
 
+	void AddEventListener(IWebDiffEventHandler* handler)
+	{
+		m_listeners.push_back(handler);
+	}
+
 	void SetUserDataFolderType(UserDataFolderType userDataFolderType, bool perPane)
 	{
 		m_userDataFolderType = userDataFolderType;
@@ -752,4 +757,5 @@ private:
 	POINT m_ptPrev{};
 	UserDataFolderType m_userDataFolderType = UserDataFolderType::APPDATA;
 	bool m_bUserDataFolderPerPane = true;
+	std::vector<ComPtr<IWebDiffEventHandler>> m_listeners;
 };
