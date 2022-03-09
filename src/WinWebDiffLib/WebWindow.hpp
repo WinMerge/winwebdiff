@@ -65,6 +65,13 @@ class CWebWindow
 						return result;
 					}
 
+					m_webviewController->add_AcceleratorKeyPressed(
+						Callback<ICoreWebView2AcceleratorKeyPressedEventHandler>(
+							[this](ICoreWebView2Controller* sender, ICoreWebView2AcceleratorKeyPressedEventArgs* args) {
+								return m_parent->OnAcceleratorKeyPressed(sender, args);
+							})
+						.Get(), nullptr);
+
 					ICoreWebView2Settings* Settings;
 					m_webview->get_Settings(&Settings);
 					Settings->put_IsScriptEnabled(TRUE);
@@ -264,6 +271,16 @@ public:
 		return hr;
 	}
 
+	const wchar_t *GetCurrentUrl()
+	{
+		if (!GetActiveWebView())
+			return L"";
+		wil::unique_cotaskmem_string uri;
+		GetActiveWebView()->get_Source(&uri);
+		m_currentUrl = uri.get();
+		return m_currentUrl.c_str();
+	}
+
 	void CloseActiveTab()
 	{
 		if (m_activeTab < 0)
@@ -390,7 +407,8 @@ public:
 							hr = GetActiveWebView()->CapturePreview(
 								COREWEBVIEW2_CAPTURE_PREVIEW_IMAGE_FORMAT_PNG, stream.get(),
 								Callback<ICoreWebView2CapturePreviewCompletedHandler>(
-									[this, rcOrg, callback2](HRESULT errorCode) -> HRESULT {
+									[this, rcOrg, callback2, stream](HRESULT errorCode) -> HRESULT {
+										stream->Commit(STGC_DEFAULT);
 										GetActiveWebViewController()->put_Bounds(rcOrg);
 										if (callback2)
 											callback2->Invoke(errorCode);
@@ -929,6 +947,12 @@ private:
 		return RegisterClassExW(&wcex) != 0;
 	}
 
+	HRESULT OnAcceleratorKeyPressed(ICoreWebView2Controller* sender, ICoreWebView2AcceleratorKeyPressedEventArgs* args)
+	{
+		m_eventHandler(WebDiffEvent::AcceleratorKeyPressed);
+		return S_OK;
+	}
+
 	HRESULT OnNewWindowRequested(ICoreWebView2* sender, ICoreWebView2NewWindowRequestedEventArgs* args)
 	{
 		CalcScrollBarRange(0, 0);
@@ -1183,5 +1207,6 @@ private:
 	SIZE m_size{ 1024, 600 };
 	bool m_fitToWindow = true;
 	std::function<void(WebDiffEvent::EVENT_TYPE)> m_eventHandler;
+	std::wstring m_currentUrl;
 };
 

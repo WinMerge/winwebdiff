@@ -338,7 +338,9 @@ public:
 
 	const wchar_t* GetCurrentUrl(int pane)
 	{
-		return L"";
+		if (pane < 0 || pane >= m_nPanes)
+			return L"";
+		return m_webWindow[pane].GetCurrentUrl();
 	}
 
 	int  GetActivePane() const
