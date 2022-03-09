@@ -20,6 +20,7 @@
 #include <filesystem>
 #include <memory>
 #include <cassert>
+#include <functional>
 #include "resource.h"
 
 #pragma comment(lib, "shlwapi.lib")
@@ -166,8 +167,9 @@ public:
 		return m_hWnd;
 	}
 
-	HRESULT Create(HINSTANCE hInstance, HWND hWndParent, const wchar_t* url, const wchar_t* userDataFolder, IWebDiffCallback* callback)
+	HRESULT Create(HINSTANCE hInstance, HWND hWndParent, const wchar_t* url, const wchar_t* userDataFolder, IWebDiffCallback* callback, std::function<void (WebDiffEvent::EVENT_TYPE)> eventHandler)
 	{
+		m_eventHandler = eventHandler;
 		MyRegisterClass(hInstance);
 		m_hWnd = CreateWindowExW(0, L"WinWebWindowClass", nullptr,
 			WS_CHILD | WS_VISIBLE,
@@ -942,6 +944,9 @@ private:
 		m_activeTab = TabCtrl_GetItemCount(m_hTabCtrl);
 		TabCtrl_InsertItem(m_hTabCtrl, m_activeTab, &tcItem);
 		TabCtrl_SetCurSel(m_hTabCtrl, m_activeTab);
+
+		m_eventHandler(WebDiffEvent::NewWindowRequested);
+
 		return S_OK;
 	}
 
@@ -950,24 +955,28 @@ private:
 		int i = FindTabIndex(sender);
 		if (i < 0)
 			return S_OK;
+		m_eventHandler(WebDiffEvent::WindowCloseRequested);
 		return CloseTab(i);
 	}
 
 	HRESULT OnNavigationStarting(ICoreWebView2* sender, ICoreWebView2NavigationStartingEventArgs* args)
 	{
 		UpdateToolbarControls();
+		m_eventHandler(WebDiffEvent::NavigationStarting);
 		return S_OK;
 	}
 
 	HRESULT OnHistoryChanged(ICoreWebView2* sender, IUnknown* args)
 	{
 		UpdateToolbarControls();
+		m_eventHandler(WebDiffEvent::HistoryChanged);
 		return S_OK;
 	}
 	
 	HRESULT OnSourceChanged(ICoreWebView2* sender, ICoreWebView2SourceChangedEventArgs* args)
 	{
 		UpdateToolbarControls();
+		m_eventHandler(WebDiffEvent::SourceChanged);
 		return S_OK;
 	}
 
@@ -983,12 +992,14 @@ private:
 			tcItem.pszText = title.get();
 			TabCtrl_SetItem(m_hTabCtrl, i, &tcItem);
 		}
+		m_eventHandler(WebDiffEvent::DocumentTitleChanged);
 		return S_OK;
 	}
 
 	HRESULT OnNavigationCompleted(ICoreWebView2* sender, ICoreWebView2NavigationCompletedEventArgs* args)
 	{
 		UpdateToolbarControls();
+		m_eventHandler(WebDiffEvent::NavigationCompleted);
 		return S_OK;
 	}
 
@@ -1171,5 +1182,6 @@ private:
 	double m_zoom = 1.0;
 	SIZE m_size{ 1024, 600 };
 	bool m_fitToWindow = true;
+	std::function<void(WebDiffEvent::EVENT_TYPE)> m_eventHandler;
 };
 

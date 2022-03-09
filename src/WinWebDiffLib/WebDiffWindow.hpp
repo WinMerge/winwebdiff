@@ -92,7 +92,16 @@ public:
 								if (*counter == 0 && callback2)
 									callback2->Invoke(hr);
 								return S_OK;
-							}).Get());
+							}).Get()
+						,
+						[this, i](WebDiffEvent::EVENT_TYPE event)
+							{
+								WebDiffEvent ev;
+								ev.type = event;
+								ev.pane = i;
+								for (const auto& listener : m_listeners)
+									listener->Invoke(ev);
+							});
 			}
 			std::vector<RECT> rects = CalcChildWebWindowRect(m_hWnd, m_nPanes, m_bHorizontalSplit);
 			for (int i = 0; i < m_nPanes; ++i)
