@@ -7,7 +7,6 @@
 #endif
 #include <rapidjson/document.h>
 #include <WebView2.h>
-#include "WinWebDiffLib.h"
 #include <Windows.h>
 #include <CommCtrl.h>
 #include <Shlwapi.h>
@@ -21,6 +20,7 @@
 #include <memory>
 #include <cassert>
 #include <functional>
+#include "WinWebDiffLib.h"
 #include "resource.h"
 
 #pragma comment(lib, "shlwapi.lib")
@@ -69,6 +69,15 @@ class CWebWindow
 						Callback<ICoreWebView2AcceleratorKeyPressedEventHandler>(
 							[this](ICoreWebView2Controller* sender, ICoreWebView2AcceleratorKeyPressedEventArgs* args) {
 								return m_parent->OnAcceleratorKeyPressed(sender, args);
+							})
+						.Get(), nullptr);
+
+					m_webviewController->add_ZoomFactorChanged(
+						Callback<ICoreWebView2ZoomFactorChangedEventHandler>(
+							[this](ICoreWebView2Controller* sender, IUnknown* args)
+							-> HRESULT {
+								m_navigationCompleted = true;
+								return m_parent->OnZoomFactorChanged(sender, args);
 							})
 						.Get(), nullptr);
 
@@ -218,6 +227,8 @@ public:
 		m_hEdit = CreateWindowEx(0, TEXT("EDIT"), TEXT(""),
 			WS_CHILD | WS_VISIBLE | WS_BORDER | ES_AUTOHSCROLL,
 			0, 0, 0, 0, m_hToolbar, (HMENU)3, hInstance, nullptr);
+		SetWindowLongPtr(m_hTabCtrl, GWLP_USERDATA, (LONG_PTR)this);
+		m_oldTabCtrlWndProc = (WNDPROC)SetWindowLongPtr(m_hTabCtrl, GWLP_WNDPROC, (LONG_PTR)TabCtrlWndProc);
 		SetWindowLongPtr(m_hEdit, GWLP_USERDATA, (LONG_PTR)this);
 		m_oldEditWndProc = (WNDPROC)SetWindowLongPtr(m_hEdit, GWLP_WNDPROC, (LONG_PTR)EditWndProc);
 		SendMessage(m_hTabCtrl, WM_SETFONT, (WPARAM)m_hEditFont, 0);
@@ -265,15 +276,24 @@ public:
 
 	HRESULT Navigate(const wchar_t* url)
 	{
+		if (m_activeTab < 0)
+			return E_FAIL;
 		HRESULT hr = GetActiveWebView()->Navigate(url);
 		if (hr == E_INVALIDARG)
 			hr = GetActiveWebView()->Navigate((L"http://" + std::wstring(url)).c_str());
 		return hr;
 	}
 
+	HRESULT Reload()
+	{
+		if (m_activeTab < 0)
+			return E_FAIL;
+		return GetActiveWebView()->Reload();
+	}
+
 	const wchar_t *GetCurrentUrl()
 	{
-		if (!GetActiveWebView())
+		if (m_activeTab < 0)
 			return L"";
 		wil::unique_cotaskmem_string uri;
 		GetActiveWebView()->get_Source(&uri);
@@ -336,34 +356,16 @@ public:
 
 	double GetZoom() const
 	{
-		return m_zoom;
+		if (m_activeTab < 0)
+			return 1.0;
+		double zoom = 1.0;
+		GetActiveWebViewController()->get_ZoomFactor(&zoom);
+		return zoom;
 	}
 
 	void SetZoom(double zoom)
 	{
-		double oldZoom = m_zoom;
-		m_zoom = zoom;
-		if (m_zoom < 0.1)
-			m_zoom = 0.1;
-		m_nVScrollPos = static_cast<int>(m_nVScrollPos / oldZoom * m_zoom);
-		m_nHScrollPos = static_cast<int>(m_nHScrollPos / oldZoom * m_zoom);
-
-		if (m_activeTab >= 0)
-		{
-			RECT rc;
-			GetClientRect(m_hWebViewParent, &rc);
-			SIZE size = GetSize();
-			if (m_nHScrollPos > static_cast<int>(size.cx - rc.right))
-				m_nHScrollPos = size.cx - rc.right;
-			if (m_nHScrollPos < 0)
-				m_nHScrollPos = 0;
-			if (m_nVScrollPos > static_cast<int>(size.cy - rc.bottom))
-				m_nVScrollPos = size.cy - rc.bottom;
-			if (m_nVScrollPos < 0)
-				m_nVScrollPos = 0;
-			CalcScrollBarRange(m_nHScrollPos, m_nVScrollPos);
-			InvalidateRect(m_hWebViewParent, NULL, TRUE);
-		}
+		GetActiveWebViewController()->put_ZoomFactor(std::clamp(zoom, 0.25, 5.0));
 	}
 
 	bool IsFocused() const
@@ -372,14 +374,41 @@ public:
 		return m_hWnd == hwndCurrent || IsChild(m_hWnd, hwndCurrent);
 	}
 
+	int GetHScrollPos() const
+	{
+		return m_nHScrollPos;
+	}
+
+	void SetHScrollPos(int pos)
+	{
+		ScrollWindow(m_hWebViewParent, m_nHScrollPos - pos, 0, nullptr, nullptr);
+		SetScrollPos(m_hWebViewParent, SB_HORZ, pos, TRUE);
+		m_nHScrollPos = pos;
+	}
+
+	int GetVScrollPos() const
+	{
+		return m_nVScrollPos;
+	}
+
+	void SetVScrollPos(int pos)
+	{
+		ScrollWindow(m_hWebViewParent, 0, m_nVScrollPos - pos, nullptr, nullptr);
+		SetScrollPos(m_hWebViewParent, SB_VERT, pos, TRUE);
+		m_nVScrollPos = pos;
+	}
+
 	void SetFocus()
 	{
-		if (GetActiveWebViewController())
-			GetActiveWebViewController()->MoveFocus(COREWEBVIEW2_MOVE_FOCUS_REASON_PROGRAMMATIC);
+		if (m_activeTab < 0)
+			return;
+		GetActiveWebViewController()->MoveFocus(COREWEBVIEW2_MOVE_FOCUS_REASON_PROGRAMMATIC);
 	}
 
 	HRESULT SaveScreenshot(const wchar_t* filename, IWebDiffCallback* callback)
 	{
+		if (m_activeTab < 0)
+			return E_FAIL;
 		std::wstring filepath = filename;
 		ComPtr<IWebDiffCallback> callback2(callback);
 		HRESULT hr = GetActiveWebView()->CallDevToolsProtocolMethod(L"Page.getLayoutMetrics", L"{}",
@@ -437,6 +466,8 @@ public:
 
 	HRESULT SaveHTML(const wchar_t* filename, IWebDiffCallback* callback)
 	{
+		if (m_activeTab < 0)
+			return E_FAIL;
 		/*
 		HRESULT hr2 = GetActiveWebView()->CallDevToolsProtocolMethod(L"Page.captureSnapshot", L"{\"format\": \"mhtml\"}",
 			Callback<ICoreWebView2CallDevToolsProtocolMethodCompletedHandler>(
@@ -511,6 +542,8 @@ public:
 
 	HRESULT SaveResourceContent(const wchar_t* frameId, const WValue& resource, const wchar_t* dirname, IWebDiffCallback* callback, std::shared_ptr<uint32_t> counter)
 	{
+		if (m_activeTab < 0)
+			return E_FAIL;
 		std::wstring dirname2(dirname);
 		std::wstring url(resource[L"url"].GetString());
 		std::wstring args = L"{ \"frameId\": \"" + std::wstring(frameId) + L"\", \"url\": \"" + url + L"\" }";
@@ -621,6 +654,8 @@ public:
 
 	HRESULT SaveResourceTree(const wchar_t* dirname, IWebDiffCallback* callback)
 	{
+		if (m_activeTab < 0)
+			return E_FAIL;
 		std::wstring dirname2(dirname);
 		ComPtr<IWebDiffCallback> callback2(callback);
 		HRESULT hr = GetActiveWebView()->CallDevToolsProtocolMethod(L"Page.enable", L"{}", nullptr);
@@ -810,15 +845,16 @@ private:
 
 	HRESULT CloseTab(int tab)
 	{
-		int ntabs = TabCtrl_GetItemCount(m_hTabCtrl);
-		if (ntabs == 1)
-		{
+		int ntabs = static_cast<int>(m_tabs.size());
+		if (m_tabs.size() == 1)
 			return Navigate(L"about:blank");
-		}
+		if (m_activeTab == tab)
+			SetActiveTab(tab == ntabs - 1 ? ntabs - 2 : tab + 1);
 		m_tabs.erase(m_tabs.begin() + tab);
 		TabCtrl_DeleteItem(m_hTabCtrl, tab);
-		if (m_activeTab == tab)
-			SetActiveTab(tab >= ntabs ? ntabs - 1 : tab);
+		ntabs = static_cast<int>(m_tabs.size());
+		if (m_activeTab >= ntabs)
+			m_activeTab = ntabs - 1;
 		return S_OK;
 	}
 
@@ -949,7 +985,26 @@ private:
 
 	HRESULT OnAcceleratorKeyPressed(ICoreWebView2Controller* sender, ICoreWebView2AcceleratorKeyPressedEventArgs* args)
 	{
-		m_eventHandler(WebDiffEvent::AcceleratorKeyPressed);
+		COREWEBVIEW2_KEY_EVENT_KIND kind{};
+		UINT virtualKey = 0;
+		args->get_KeyEventKind(&kind);
+		args->get_VirtualKey(&virtualKey);
+		if (kind == COREWEBVIEW2_KEY_EVENT_KIND_KEY_DOWN || kind == COREWEBVIEW2_KEY_EVENT_KIND_SYSTEM_KEY_DOWN)
+		{
+			if (GetKeyState(VK_MENU) && virtualKey == 'D')
+			{
+				::SendMessage(m_hEdit, EM_SETSEL, 0, -1);
+				::SetFocus(m_hEdit);
+			}
+			m_eventHandler(WebDiffEvent::AcceleratorKeyPressed);
+		}
+
+		return S_OK;
+	}
+
+	HRESULT OnZoomFactorChanged(ICoreWebView2Controller* sender, IUnknown* args)
+	{
+		m_eventHandler(WebDiffEvent::ZoomFactorChanged);
 		return S_OK;
 	}
 
@@ -1051,6 +1106,7 @@ private:
 		}
 		CalcScrollBarRange(m_nHScrollPos, m_nVScrollPos);
 		ScrollWindow(m_hWebViewParent, si.nPos - m_nHScrollPos, 0, NULL, NULL);
+		m_eventHandler(WebDiffEvent::HSCROLL);
 	}
 
 	void OnVScroll(UINT nSBCode, UINT nPos)
@@ -1077,6 +1133,7 @@ private:
 		}
 		CalcScrollBarRange(m_nHScrollPos, m_nVScrollPos);
 		ScrollWindow(m_hWebViewParent, 0, si.nPos - m_nVScrollPos, NULL, NULL);
+		m_eventHandler(WebDiffEvent::VSCROLL);
 	}
 
 	LRESULT OnWndMsg(HWND hWnd, UINT iMsg, WPARAM wParam, LPARAM lParam)
@@ -1111,8 +1168,12 @@ private:
 			ResizeUIControls();
 			if (m_activeTab != -1 && GetActiveWebViewController())
 			{
+				if (!m_fitToWindow)
+					ScrollWindow(m_hWebViewParent, m_nHScrollPos, m_nVScrollPos, nullptr, nullptr);
 				ResizeWebView();
 				CalcScrollBarRange(m_nHScrollPos, m_nVScrollPos);
+				if (!m_fitToWindow)
+					ScrollWindow(m_hWebViewParent, -m_nHScrollPos, -m_nVScrollPos, nullptr, nullptr);
 			};
 			break;
 		case WM_PAINT:
@@ -1138,6 +1199,8 @@ private:
 		case WM_HSCROLL:
 			OnHScroll((UINT)(LOWORD(wParam) & 0xff), (int)(unsigned short)HIWORD(wParam) | ((LOWORD(wParam) & 0xff00) << 8)); // See 'case WM_HSCROLL:' in CImgMergeWindow::ChildWndProc() 
 			break;
+		case WM_MOUSEWHEEL:
+			break;
 			/*
 		case WM_PAINT:
 		{
@@ -1152,6 +1215,19 @@ private:
 		return 0;
 	}
 
+	LRESULT OnTabCtrlWndMsg(HWND hWnd, UINT iMsg, WPARAM wParam, LPARAM lParam)
+	{
+		if (iMsg == WM_MBUTTONDOWN)
+		{
+			TCHITTESTINFO ti{ { LOWORD(lParam), HIWORD(lParam) }, };
+			int index = TabCtrl_HitTest(hWnd, &ti);
+			if (index >= 0)
+				CloseTab(index);
+			return 0;
+		}
+		return CallWindowProc(m_oldTabCtrlWndProc, hWnd, iMsg, wParam, lParam);
+	}
+
 	LRESULT OnEditWndMsg(HWND hWnd, UINT iMsg, WPARAM wParam, LPARAM lParam)
 	{
 		if (iMsg == WM_CHAR && wParam == VK_RETURN && hWnd == m_hEdit)
@@ -1163,13 +1239,6 @@ private:
 			return 0;
 		}
 		return CallWindowProc(m_oldEditWndProc, hWnd, iMsg, wParam, lParam);
-	}
-
-	static LRESULT CALLBACK EditWndProc(HWND hwnd, UINT iMsg, WPARAM wParam, LPARAM lParam)
-	{
-		CWebWindow* pWebWnd = reinterpret_cast<CWebWindow*>(GetWindowLongPtr(hwnd, GWLP_USERDATA));
-		LRESULT lResult = pWebWnd->OnEditWndMsg(hwnd, iMsg, wParam, lParam);
-		return lResult;
 	}
 
 	static LRESULT CALLBACK WndProc(HWND hwnd, UINT iMsg, WPARAM wParam, LPARAM lParam)
@@ -1190,6 +1259,20 @@ private:
 		return lResult;
 	}
 
+	static LRESULT CALLBACK TabCtrlWndProc(HWND hwnd, UINT iMsg, WPARAM wParam, LPARAM lParam)
+	{
+		CWebWindow* pWebWnd = reinterpret_cast<CWebWindow*>(GetWindowLongPtr(hwnd, GWLP_USERDATA));
+		LRESULT lResult = pWebWnd->OnTabCtrlWndMsg(hwnd, iMsg, wParam, lParam);
+		return lResult;
+	}
+
+	static LRESULT CALLBACK EditWndProc(HWND hwnd, UINT iMsg, WPARAM wParam, LPARAM lParam)
+	{
+		CWebWindow* pWebWnd = reinterpret_cast<CWebWindow*>(GetWindowLongPtr(hwnd, GWLP_USERDATA));
+		LRESULT lResult = pWebWnd->OnEditWndMsg(hwnd, iMsg, wParam, lParam);
+		return lResult;
+	}
+
 	HWND m_hWnd = nullptr;
 	HWND m_hTabCtrl = nullptr;
 	HWND m_hToolbar = nullptr;
@@ -1197,13 +1280,13 @@ private:
 	HWND m_hWebViewParent = nullptr;
 	HFONT m_hToolbarFont = nullptr;
 	HFONT m_hEditFont = nullptr;
+	WNDPROC m_oldTabCtrlWndProc = nullptr;
 	WNDPROC m_oldEditWndProc = nullptr;
 	wil::com_ptr<ICoreWebView2Environment> m_webviewEnvironment;
 	std::vector<std::unique_ptr<CWebTab>> m_tabs;
 	int m_activeTab = -1;
 	int m_nVScrollPos = 0;
 	int m_nHScrollPos = 0;
-	double m_zoom = 1.0;
 	SIZE m_size{ 1024, 600 };
 	bool m_fitToWindow = true;
 	std::function<void(WebDiffEvent::EVENT_TYPE)> m_eventHandler;

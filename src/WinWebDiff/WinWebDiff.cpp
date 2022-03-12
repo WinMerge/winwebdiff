@@ -24,12 +24,77 @@
 
 using namespace Microsoft::WRL;
 
-HINSTANCE m_hInstance;
-HINSTANCE hInstDLL;
-HWND m_hWnd;
-WCHAR m_szTitle[256] = L"WinWebDiff";
-WCHAR m_szWindowClass[256] = L"WINWEBDIFF";
-IWebDiffWindow* m_pWebDiffWindow = nullptr;
+class TempFile
+{
+public:
+	~TempFile()
+	{
+		Delete();
+	}
+
+	std::wstring Create(const wchar_t *ext)
+	{
+		wchar_t buf[MAX_PATH];
+		GetTempFileName(std::filesystem::temp_directory_path().wstring().c_str(), L"WD", 0, buf);
+		std::wstring temp = buf;
+		if (temp.empty())
+			return _T("");
+		if (ext && !std::wstring(ext).empty())
+		{
+			std::wstring newfile = temp + ext;
+			std::filesystem::rename(temp, newfile);
+			temp = newfile;
+		}
+		m_path = temp;
+		return temp;
+	}
+
+	bool Delete()
+	{
+		bool success = true;
+		if (!m_path.empty())
+			success = !!DeleteFile(m_path.c_str());
+		if (success)
+			m_path = _T("");
+		return success;
+	}
+
+	std::wstring m_path;
+};
+
+class TempFolder
+{
+public:
+	~TempFolder()
+	{
+		Delete();
+	}
+
+	std::wstring Create()
+	{
+		TempFile tmpfile;
+		std::wstring temp = tmpfile.Create(nullptr);
+		if (temp.empty())
+			return L"";
+		temp += L".dir";
+		if (!std::filesystem::create_directory(temp))
+			return L"";
+		m_path = temp;
+		return temp;
+	}
+
+	bool Delete()
+	{
+		bool success = true;
+		if (!m_path.empty())
+			success = std::filesystem::remove_all(m_path);
+		if (success)
+			m_path = _T("");
+		return success;
+	}
+
+	std::wstring m_path;
+};
 
 struct CmdLineInfo
 {
@@ -53,6 +118,15 @@ struct CmdLineInfo
 	std::wstring sUrls[3];
 	int nUrls;
 };
+
+HINSTANCE m_hInstance;
+HINSTANCE hInstDLL;
+HWND m_hWnd;
+WCHAR m_szTitle[256] = L"WinWebDiff";
+WCHAR m_szWindowClass[256] = L"WINWEBDIFF";
+IWebDiffWindow* m_pWebDiffWindow = nullptr;
+std::vector<TempFile> m_tempFiles;
+std::vector<TempFolder> m_tempFolders;
 
 ATOM				MyRegisterClass(HINSTANCE hInstance);
 BOOL				InitInstance(HINSTANCE, int);
@@ -165,9 +239,11 @@ std::wstring GetLastErrorString()
 	return buf;
 }
 
-bool CompareFiles(const std::wstring& filename1, const std::wstring& filename2, const std::wstring& options)
+bool CompareFiles(const std::vector<std::wstring> filenames, const std::wstring& options)
 {
-	std::wstring cmdline = L"\"C:\\Program Files\\WinMerge\\WinMergeU.exe\" /ub \"" + filename1 + L"\" \"" + filename2 + L"\"";
+	std::wstring cmdline = L"\"C:\\Program Files\\WinMerge\\WinMergeU.exe\" /ub ";
+	for (const auto& filename : filenames)
+		cmdline += L"\"" + filename + L"\" ";
 	if (!options.empty())
 		cmdline += L" " + options;
 	STARTUPINFO stInfo = { sizeof(STARTUPINFO) };
@@ -225,6 +301,9 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 				m_pWebDiffWindow->CloseActiveTab(nActivePane < 0 ? 0 : nActivePane);
 				break;
 			}
+			case IDM_FILE_RELOAD:
+				m_pWebDiffWindow->ReloadAll();
+				break;
 			case IDM_EXIT:
 				DestroyWindow(hWnd);
 				break;
@@ -248,12 +327,19 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 				break;
 			case IDM_COMPARE_SCREENSHOTS:
 			{
-				std::vector<std::wstring> filenames = { L"c:\\tmp\\p0.png", L"c:\\tmp\\p1.png" };
-				const wchar_t* pfilenames[3] = { filenames[0].c_str(), filenames[1].c_str() };
+				const wchar_t* pfilenames[3]{};
+				std::vector<std::wstring> filenames;
+				for (int pane = 0; pane < m_pWebDiffWindow->GetPaneCount(); pane++)
+				{
+					m_tempFiles.emplace_back();
+					m_tempFiles.back().Create(L".png");
+					filenames.push_back(m_tempFiles.back().m_path);
+					pfilenames[pane] = filenames[pane].c_str();
+				}
 				m_pWebDiffWindow->SaveScreenshots(pfilenames,
 					Callback<IWebDiffCallback>([filenames](HRESULT hr) -> HRESULT
 						{
-							CompareFiles(filenames[0].c_str(), filenames[1].c_str(), L"");
+							CompareFiles(filenames, L"");
 							return S_OK;
 						})
 					.Get());
@@ -261,12 +347,19 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 			}
 			case IDM_COMPARE_HTML:
 			{
-				std::vector<std::wstring> filenames = { L"c:\\tmp\\p0.html", L"c:\\tmp\\p1.html" };
-				const wchar_t* pfilenames[3] = { filenames[0].c_str(), filenames[1].c_str() };
+				const wchar_t* pfilenames[3]{};
+				std::vector<std::wstring> filenames;
+				for (int pane = 0; pane < m_pWebDiffWindow->GetPaneCount(); pane++)
+				{
+					m_tempFiles.emplace_back();
+					m_tempFiles.back().Create(L".html");
+					filenames.push_back(m_tempFiles.back().m_path);
+					pfilenames[pane] = filenames[pane].c_str();
+				}
 				m_pWebDiffWindow->SaveHTMLs(pfilenames,
 					Callback<IWebDiffCallback>([filenames](HRESULT hr) -> HRESULT
 						{
-							CompareFiles(filenames[0].c_str(), filenames[1].c_str(), L"/unpacker PrettifyHTML");
+							CompareFiles(filenames, L"/unpacker PrettifyHTML");
 							return S_OK;
 						})
 					.Get());
@@ -274,12 +367,19 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 			}
 			case IDM_COMPARE_RESOURCE_TREE:
 			{
-				std::vector<std::wstring> dirnames = { L"c:\\tmp\\dir1\\", L"c:\\tmp\\dir2\\" };
-				const wchar_t* pdirnames[3] = { dirnames[0].c_str(), dirnames[1].c_str() };
+				const wchar_t* pdirnames[3]{};
+				std::vector<std::wstring> dirnames;
+				for (int pane = 0; pane < m_pWebDiffWindow->GetPaneCount(); pane++)
+				{
+					m_tempFolders.emplace_back();
+					m_tempFolders.back().Create();
+					dirnames.push_back(m_tempFolders.back().m_path);
+					pdirnames[pane] = dirnames[pane].c_str();
+				}
 				m_pWebDiffWindow->SaveResourceTrees(pdirnames,
 					Callback<IWebDiffCallback>([dirnames](HRESULT hr) -> HRESULT
 						{
-							CompareFiles(dirnames[0].c_str(), dirnames[1].c_str(), L"/r");
+							CompareFiles(dirnames, L"/r");
 							return S_OK;
 						})
 					.Get());

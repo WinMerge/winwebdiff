@@ -86,11 +86,11 @@ public:
 				std::wstring userDataFolder = GetUserDataFolderPath(i);
 				ComPtr<IWebDiffCallback> callback2(callback);
 				hr = m_webWindow[i].Create(m_hInstance, m_hWnd, urls[i], userDataFolder.c_str(),
-						Callback<IWebDiffCallback>([counter, callback2](HRESULT hr) -> HRESULT
+						Callback<IWebDiffCallback>([this, counter, callback2](HRESULT hr) -> HRESULT
 							{
 								*counter = *counter - 1;
-								if (*counter == 0 && callback2)
-									callback2->Invoke(hr);
+								if (*counter == 0)
+									Recompare(callback2.Get());
 								return S_OK;
 							}).Get()
 						,
@@ -99,6 +99,30 @@ public:
 								WebDiffEvent ev;
 								ev.type = event;
 								ev.pane = i;
+								if (event == WebDiffEvent::ZoomFactorChanged)
+								{
+									for (int pane = 0; pane < m_nPanes; ++pane)
+									{
+										if (pane != ev.pane)
+											m_webWindow[pane].SetZoom(m_webWindow[ev.pane].GetZoom());
+									}
+								}
+								else if (event == WebDiffEvent::HSCROLL)
+								{
+									for (int pane = 0; pane < m_nPanes; ++pane)
+									{
+										if (pane != ev.pane)
+											m_webWindow[pane].SetHScrollPos(m_webWindow[ev.pane].GetHScrollPos());
+									}
+								}
+								else if (event == WebDiffEvent::VSCROLL)
+								{
+									for (int pane = 0; pane < m_nPanes; ++pane)
+									{
+										if (pane != ev.pane)
+											m_webWindow[pane].SetVScrollPos(m_webWindow[ev.pane].GetVScrollPos());
+									}
+								}
 								for (const auto& listener : m_listeners)
 									listener->Invoke(ev);
 							});
@@ -130,46 +154,24 @@ public:
 		m_webWindow[pane].CloseActiveTab();
 	}
 
-	HRESULT Reload() override
-	{
-		return S_OK;
-	}
-
-	int GetPaneCount() const override
-	{
-		return m_nPanes;
-	}
-
-	RECT GetPaneWindowRect(int pane) const override
+	HRESULT Reload(int pane) override
 	{
 		if (pane < 0 || pane >= m_nPanes || !m_hWnd)
-		{
-			RECT rc = { -1, -1, -1, -1 };
-			return rc;
-		}
-		return m_webWindow[pane].GetWindowRect();
+			return E_INVALIDARG;
+		return m_webWindow[pane].Reload();
 	}
 
-	RECT GetWindowRect() const override
+	HRESULT ReloadAll() override
 	{
-		if (!m_hWnd)
-			return RECT{ 0 };
-		RECT rc, rcParent;
-		HWND hwndParent = GetParent(m_hWnd);
-		::GetWindowRect(hwndParent, &rcParent);
-		::GetWindowRect(m_hWnd, &rc);
-		rc.left -= rcParent.left;
-		rc.top -= rcParent.top;
-		rc.right -= rcParent.left;
-		rc.bottom -= rcParent.top;
-		return rc;
+		HRESULT hr = S_OK;
+		for (int pane = 0; pane < m_nPanes; ++pane)
+			hr = m_webWindow[pane].Reload();
+		return hr;
 	}
 
-	bool SetWindowRect(const RECT& rc) override
+	HRESULT Recompare(IWebDiffCallback* callback) override
 	{
-		if (m_hWnd)
-			MoveWindow(m_hWnd, rc.left, rc.top, rc.right - rc.left, rc.bottom - rc.top, TRUE);
-		return true;
+		return S_OK;
 	}
 
 	HRESULT SaveScreenshot(int pane, const wchar_t* filename, IWebDiffCallback* callback) override
@@ -341,6 +343,43 @@ public:
 		if (pane < 0 || pane >= m_nPanes)
 			return L"";
 		return m_webWindow[pane].GetCurrentUrl();
+	}
+
+	int GetPaneCount() const override
+	{
+		return m_nPanes;
+	}
+
+	RECT GetPaneWindowRect(int pane) const override
+	{
+		if (pane < 0 || pane >= m_nPanes || !m_hWnd)
+		{
+			RECT rc = { -1, -1, -1, -1 };
+			return rc;
+		}
+		return m_webWindow[pane].GetWindowRect();
+	}
+
+	RECT GetWindowRect() const override
+	{
+		if (!m_hWnd)
+			return RECT{ 0 };
+		RECT rc, rcParent;
+		HWND hwndParent = GetParent(m_hWnd);
+		::GetWindowRect(hwndParent, &rcParent);
+		::GetWindowRect(m_hWnd, &rc);
+		rc.left -= rcParent.left;
+		rc.top -= rcParent.top;
+		rc.right -= rcParent.left;
+		rc.bottom -= rcParent.top;
+		return rc;
+	}
+
+	bool SetWindowRect(const RECT& rc) override
+	{
+		if (m_hWnd)
+			MoveWindow(m_hWnd, rc.left, rc.top, rc.right - rc.left, rc.bottom - rc.top, TRUE);
+		return true;
 	}
 
 	int  GetActivePane() const
