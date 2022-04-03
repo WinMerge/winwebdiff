@@ -35,24 +35,24 @@ class CWebWindow
 	class CWebTab
 	{
 	public:
-		CWebTab(CWebWindow* parent, const wchar_t* url, IWebDiffCallback* callback)
+		CWebTab(CWebWindow* parent, const wchar_t* url, double zoom, IWebDiffCallback* callback)
 			: m_parent(parent)
 		{
-			InitializeWebView(url, nullptr, nullptr, callback);
+			InitializeWebView(url, zoom, nullptr, nullptr, callback);
 		}
 
-		CWebTab(CWebWindow* parent, ICoreWebView2NewWindowRequestedEventArgs* args = nullptr, ICoreWebView2Deferral* deferral = nullptr, IWebDiffCallback* callback = nullptr)
+		CWebTab(CWebWindow* parent, double zoom, ICoreWebView2NewWindowRequestedEventArgs* args = nullptr, ICoreWebView2Deferral* deferral = nullptr, IWebDiffCallback* callback = nullptr)
 			: m_parent(parent)
 		{
-			InitializeWebView(nullptr, args, deferral, callback);
+			InitializeWebView(nullptr, zoom, args, deferral, callback);
 		}
 
-		bool InitializeWebView(const wchar_t* url, ICoreWebView2NewWindowRequestedEventArgs* args, ICoreWebView2Deferral* deferral, IWebDiffCallback* callback)
+		bool InitializeWebView(const wchar_t* url, double zoom, ICoreWebView2NewWindowRequestedEventArgs* args, ICoreWebView2Deferral* deferral, IWebDiffCallback* callback)
 		{
 			std::shared_ptr<std::wstring> url2(url ? new std::wstring(url) : nullptr);
 			ComPtr<IWebDiffCallback> callback2(callback);
 			HRESULT hr = m_parent->m_webviewEnvironment->CreateCoreWebView2Controller(m_parent->m_hWebViewParent, Callback<ICoreWebView2CreateCoreWebView2ControllerCompletedHandler>(
-				[this, url2, args, deferral, callback2](HRESULT result, ICoreWebView2Controller* controller) -> HRESULT {
+				[this, url2, zoom, args, deferral, callback2](HRESULT result, ICoreWebView2Controller* controller) -> HRESULT {
 					if (controller != nullptr) {
 						m_webviewController = controller;
 						m_webviewController->get_CoreWebView2(&m_webview);
@@ -64,6 +64,8 @@ class CWebWindow
 							callback2->Invoke(result);
 						return result;
 					}
+					
+					m_webviewController->put_ZoomFactor(zoom);
 
 					m_webviewController->add_AcceleratorKeyPressed(
 						Callback<ICoreWebView2AcceleratorKeyPressedEventHandler>(
@@ -183,8 +185,12 @@ public:
 		return m_hWnd;
 	}
 
-	HRESULT Create(HINSTANCE hInstance, HWND hWndParent, const wchar_t* url, const wchar_t* userDataFolder, IWebDiffCallback* callback, std::function<void (WebDiffEvent::EVENT_TYPE)> eventHandler)
+	HRESULT Create(HINSTANCE hInstance, HWND hWndParent, const wchar_t* url, const wchar_t* userDataFolder,
+		const SIZE& size, bool fitToWindow, double zoom,
+		IWebDiffCallback* callback, std::function<void (WebDiffEvent::EVENT_TYPE)> eventHandler)
 	{
+		m_fitToWindow = fitToWindow;
+		m_size = size;
 		m_eventHandler = eventHandler;
 		MyRegisterClass(hInstance);
 		m_hWnd = CreateWindowExW(0, L"WinWebWindowClass", nullptr,
@@ -235,7 +241,7 @@ public:
 		SendMessage(m_hEdit, WM_SETFONT, (WPARAM)m_hEditFont, 0);
 		SendMessage(m_hToolbar, TB_ADDBUTTONS, (WPARAM)std::size(tbb), (LPARAM)&tbb);
 		SendMessage(m_hToolbar, WM_SETFONT, (WPARAM)m_hToolbarFont, 0);
-		return InitializeWebView(url, userDataFolder, callback);
+		return InitializeWebView(url, zoom, userDataFolder, callback);
 	}
 
 	bool Destroy()
@@ -263,9 +269,9 @@ public:
 		return true;
 	}
 
-	void NewTab(const wchar_t* url, IWebDiffCallback* callback)
+	void NewTab(const wchar_t* url, double zoom, IWebDiffCallback* callback)
 	{
-		m_tabs.emplace_back(new CWebTab(this, url, callback));
+		m_tabs.emplace_back(new CWebTab(this, url, zoom, callback));
 
 		TCITEM tcItem{};
 		tcItem.mask = TCIF_TEXT;
@@ -350,14 +356,14 @@ public:
 	void SetSize(const SIZE size)
 	{
 		m_size = size;
+		if (m_fitToWindow)
+			return;
 		ResizeWebView();
 		CalcScrollBarRange(m_nHScrollPos, m_nVScrollPos);
 	}
 
 	double GetZoom() const
 	{
-		if (m_activeTab < 0)
-			return 1.0;
 		double zoom = 1.0;
 		GetActiveWebViewController()->get_ZoomFactor(&zoom);
 		return zoom;
@@ -781,14 +787,14 @@ toJSON(document.documentElement)
 
 private:
 
-	HRESULT InitializeWebView(const wchar_t *url, const wchar_t *userDataFolder, IWebDiffCallback* callback)
+	HRESULT InitializeWebView(const wchar_t *url, double zoom, const wchar_t *userDataFolder, IWebDiffCallback* callback)
 	{
 		std::shared_ptr<std::wstring> url2(new std::wstring(url));
 		HRESULT hr = CreateCoreWebView2EnvironmentWithOptions(nullptr, userDataFolder, nullptr,
 			Callback<ICoreWebView2CreateCoreWebView2EnvironmentCompletedHandler>(
-				[this, url2, callback](HRESULT result, ICoreWebView2Environment* env) -> HRESULT {
+				[this, url2, zoom, callback](HRESULT result, ICoreWebView2Environment* env) -> HRESULT {
 					m_webviewEnvironment = env;
-					m_tabs.emplace_back(new CWebTab(this, url2->c_str(), callback));
+					m_tabs.emplace_back(new CWebTab(this, url2->c_str(), zoom, callback));
 
 					TCITEM tcItem{};
 					tcItem.mask = TCIF_TEXT;
@@ -833,7 +839,9 @@ private:
 			TabCtrl_SetCurSel(m_hTabCtrl, tabIndex);
 		m_activeTab = tabIndex;
 		GetActiveWebViewController()->put_IsVisible(true);
+		ShowScrollBar(m_hWebViewParent, SB_BOTH, !m_fitToWindow);
 		ResizeWebView();
+		CalcScrollBarRange(m_nHScrollPos, m_nVScrollPos);
 		UpdateToolbarControls();
 	}
 
@@ -1015,7 +1023,7 @@ private:
 		GetActiveWebViewController()->put_IsVisible(false);
 		ICoreWebView2Deferral* deferral;
 		args->GetDeferral(&deferral);
-		CWebTab* pWebTab{ new CWebTab(this, args, deferral) };
+		CWebTab* pWebTab{ new CWebTab(this, 1.0, args, deferral) };
 		m_tabs.emplace_back(pWebTab);
 		TCITEM tcItem{};
 		tcItem.mask = TCIF_TEXT;

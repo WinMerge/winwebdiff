@@ -86,6 +86,7 @@ public:
 				std::wstring userDataFolder = GetUserDataFolderPath(i);
 				ComPtr<IWebDiffCallback> callback2(callback);
 				hr = m_webWindow[i].Create(m_hInstance, m_hWnd, urls[i], userDataFolder.c_str(),
+						m_size, m_fitToWindow, m_zoom,
 						Callback<IWebDiffCallback>([this, counter, callback2](HRESULT hr) -> HRESULT
 							{
 								*counter = *counter - 1;
@@ -101,10 +102,11 @@ public:
 								ev.pane = i;
 								if (event == WebDiffEvent::ZoomFactorChanged)
 								{
+									m_zoom = m_webWindow[ev.pane].GetZoom();
 									for (int pane = 0; pane < m_nPanes; ++pane)
 									{
 										if (pane != ev.pane)
-											m_webWindow[pane].SetZoom(m_webWindow[ev.pane].GetZoom());
+											m_webWindow[pane].SetZoom(m_zoom);
 									}
 								}
 								else if (event == WebDiffEvent::HSCROLL)
@@ -144,7 +146,7 @@ public:
 	{
 		if (pane < 0 || pane >= m_nPanes || !m_hWnd)
 			return;
-		m_webWindow[pane].NewTab(url, callback);
+		m_webWindow[pane].NewTab(url, 1.0, callback);
 	}
 
 	void CloseActiveTab(int pane) override
@@ -441,33 +443,42 @@ public:
 
 	double GetZoom() const
 	{
-		return 1.0;
+		if (m_nPanes == 0)
+			return m_zoom;
+		return m_webWindow[0].GetZoom();
 	}
 
 	void SetZoom(double zoom)
 	{
+		if (zoom == m_zoom)
+			return;
+		m_zoom = std::clamp(zoom, 0.25, 5.0);
+		for (int pane = 0; pane < m_nPanes; ++pane)
+			m_webWindow[pane].SetZoom(m_zoom);
 	}
 
 	bool GetFitToWindow() const
 	{
-		return m_webWindow[0].GetFitToWindow();
+		return m_fitToWindow;
 	}
 
 	void SetFitToWindow(bool fitToWindow)
 	{
+		m_fitToWindow = fitToWindow;
 		for (int pane = 0; pane < m_nPanes; ++pane)
 			m_webWindow[pane].SetFitToWindow(fitToWindow);
 	}
 
 	SIZE GetSize() const
 	{
-		return m_webWindow[0].GetSize();
+		return m_size;
 	}
 
-	void SetSize(const SIZE rc)
+	void SetSize(const SIZE size)
 	{
+		m_size = size;
 		for (int pane = 0; pane < m_nPanes; ++pane)
-			m_webWindow[pane].SetSize(rc);
+			m_webWindow[pane].SetSize(size);
 	}
 
 	bool GetShowDifferences() const
@@ -805,6 +816,9 @@ private:
 	bool m_bDragging = false;
 	POINT m_ptOrg{};
 	POINT m_ptPrev{};
+	SIZE m_size{ 1024, 600 };
+	bool m_fitToWindow = false;
+	double m_zoom = 1.0;
 	UserDataFolderType m_userDataFolderType = UserDataFolderType::APPDATA;
 	bool m_bUserDataFolderPerPane = true;
 	std::vector<ComPtr<IWebDiffEventHandler>> m_listeners;
