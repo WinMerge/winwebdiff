@@ -176,26 +176,26 @@ public:
 		return S_OK;
 	}
 
-	HRESULT SaveScreenshot(int pane, const wchar_t* filename, IWebDiffCallback* callback) override
+	HRESULT SaveScreenshot(int pane, const wchar_t* filename, bool fullSize, IWebDiffCallback* callback) override
 	{
 		if (pane < 0 || pane >= m_nPanes)
 			return false;
-		return m_webWindow[pane].SaveScreenshot(filename, callback);
+		return m_webWindow[pane].SaveScreenshot(filename, fullSize, callback);
 	}
 
-	HRESULT SaveScreenshots(const wchar_t* filenames[], IWebDiffCallback* callback)
+	HRESULT SaveScreenshots(const wchar_t* filenames[], bool fullSize, IWebDiffCallback* callback)
 	{
 		std::vector<std::wstring> sfilenames;
 		for (int pane = 0; pane < m_nPanes; ++pane)
 			sfilenames.push_back(filenames[pane]);
 		ComPtr<IWebDiffCallback> callback2(callback);
-		HRESULT hr = SaveScreenshot(0, sfilenames[0].c_str(),
-			Callback<IWebDiffCallback>([this, sfilenames, callback2](HRESULT hr) -> HRESULT
+		HRESULT hr = SaveScreenshot(0, sfilenames[0].c_str(), fullSize,
+			Callback<IWebDiffCallback>([this, sfilenames, fullSize, callback2](HRESULT hr) -> HRESULT
 				{
 					if (SUCCEEDED(hr))
 					{
-						hr = SaveScreenshot(1, sfilenames[1].c_str(),
-							Callback<IWebDiffCallback>([this, sfilenames, callback2](HRESULT hr) -> HRESULT
+						hr = SaveScreenshot(1, sfilenames[1].c_str(), fullSize,
+							Callback<IWebDiffCallback>([this, sfilenames, fullSize, callback2](HRESULT hr) -> HRESULT
 								{
 									if (m_nPanes < 3)
 									{
@@ -205,8 +205,8 @@ public:
 									}
 									if (SUCCEEDED(hr))
 									{
-										hr = SaveScreenshot(2, sfilenames[2].c_str(),
-											Callback<IWebDiffCallback>([this, sfilenames, callback2](HRESULT hr) -> HRESULT
+										hr = SaveScreenshot(2, sfilenames[2].c_str(), fullSize,
+											Callback<IWebDiffCallback>([this, sfilenames, fullSize, callback2](HRESULT hr) -> HRESULT
 												{
 													if (callback2)
 														callback2->Invoke(hr);

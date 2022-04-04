@@ -411,7 +411,7 @@ public:
 		GetActiveWebViewController()->MoveFocus(COREWEBVIEW2_MOVE_FOCUS_REASON_PROGRAMMATIC);
 	}
 
-	HRESULT SaveScreenshot(const wchar_t* filename, IWebDiffCallback* callback)
+	HRESULT SaveScreenshot(const wchar_t* filename, bool fullSize, IWebDiffCallback* callback)
 	{
 		if (m_activeTab < 0)
 			return E_FAIL;
@@ -419,7 +419,7 @@ public:
 		ComPtr<IWebDiffCallback> callback2(callback);
 		HRESULT hr = GetActiveWebView()->CallDevToolsProtocolMethod(L"Page.getLayoutMetrics", L"{}",
 			Callback<ICoreWebView2CallDevToolsProtocolMethodCompletedHandler>(
-				[this, filepath, callback2](HRESULT errorCode, LPCWSTR returnObjectAsJson) -> HRESULT {
+				[this, filepath, fullSize, callback2](HRESULT errorCode, LPCWSTR returnObjectAsJson) -> HRESULT {
 
 					HRESULT hr = errorCode;
 					if (SUCCEEDED(hr))
@@ -436,8 +436,11 @@ public:
 							int width = document[L"cssContentSize"][L"width"].GetInt();
 							int height = document[L"cssContentSize"][L"height"].GetInt();
 
-							RECT rcNew{ 0, 0, width, height };
-							GetActiveWebViewController()->put_Bounds(rcNew);
+							if (fullSize)
+							{
+								RECT rcNew{ 0, 0, width, height };
+								GetActiveWebViewController()->put_Bounds(rcNew);
+							}
 
 							hr = GetActiveWebView()->CapturePreview(
 								COREWEBVIEW2_CAPTURE_PREVIEW_IMAGE_FORMAT_PNG, stream.get(),

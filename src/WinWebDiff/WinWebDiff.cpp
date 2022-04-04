@@ -326,6 +326,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 				m_pWebDiffWindow->SetHorizontalSplit(!m_pWebDiffWindow->GetHorizontalSplit());
 				break;
 			case IDM_COMPARE_SCREENSHOTS:
+			case IDM_COMPARE_FULLSIZE_SCREENSHOTS:
 			{
 				const wchar_t* pfilenames[3]{};
 				std::vector<std::wstring> filenames;
@@ -336,7 +337,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 					filenames.push_back(m_tempFiles.back().m_path);
 					pfilenames[pane] = filenames[pane].c_str();
 				}
-				m_pWebDiffWindow->SaveScreenshots(pfilenames,
+				m_pWebDiffWindow->SaveScreenshots(pfilenames, wmId == IDM_COMPARE_FULLSIZE_SCREENSHOTS,
 					Callback<IWebDiffCallback>([filenames](HRESULT hr) -> HRESULT
 						{
 							CompareFiles(filenames, L"");
