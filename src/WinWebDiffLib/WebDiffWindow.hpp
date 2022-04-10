@@ -173,6 +173,22 @@ public:
 
 	HRESULT Recompare(IWebDiffCallback* callback) override
 	{
+		std::shared_ptr<int> counter(new int{ m_nPanes });
+		for (int i = 0; i < m_nPanes; ++i)
+		{
+			ComPtr<IWebDiffCallback> callback2(callback);
+			/*
+			hr = m_webWindow[i].DOMtoJSON(Create(m_hInstance, m_hWnd, urls[i], userDataFolder.c_str(),
+					m_size, m_fitToWindow, m_zoom,
+					Callback<IWebDiffCallback>([this, counter, callback2](HRESULT hr) -> HRESULT
+						{
+							*counter = *counter - 1;
+							if (*counter == 0)
+								Recompare(callback2.Get());
+							return S_OK;
+						}).Get()
+						*/
+		}
 		return S_OK;
 	}
 
@@ -582,7 +598,115 @@ public:
 		return m_webWindow[pane].GetHWND();
 	}
 
+	bool Copy() override
+	{
+		return execCommand(L"copy");
+	}
+
+	bool Cut() override
+	{
+		return execCommand(L"cut");
+	}
+
+	bool Delete() override
+	{
+		return execCommand(L"delete");
+	}
+
+	bool Paste() override
+	{
+		return execCommand(L"paste");
+	}
+
+	bool SelectAll() override
+	{
+		return execCommand(L"selectall");
+	}
+
+	bool Undo() override
+	{
+		return execCommand(L"undo");
+	}
+
+	bool Redo() override
+	{
+		return execCommand(L"redo");
+	}
+
 private:
+
+	std::wstring getFromClipboard() const
+	{
+		std::wstring text;
+		if (OpenClipboard(m_hWnd))
+		{
+			HGLOBAL hData = GetClipboardData(CF_UNICODETEXT);
+			if (hData != nullptr)
+			{
+				LPWSTR pszData = (LPWSTR) GlobalLock(hData);
+				if (pszData != nullptr)
+				{
+					text = pszData;
+					GlobalUnlock(hData);
+				}
+			}
+			CloseClipboard();
+		}
+		return text;
+	}
+
+	std::wstring escape(const std::wstring text) const
+	{
+		std::wstring result;
+		for (auto c : text)
+		{
+			switch (c)
+			{
+			case '\r': break;
+			case '\n': result += L"\\n"; break;
+			case '\"': result += L"\\\""; break;
+			case '\\': result += L"\\\\"; break;
+			default: result += c;
+			}
+		}
+		return result;
+	}
+
+	bool execCommand(const wchar_t *command)
+	{
+		HWND hwndFocus = GetFocus();
+		if (!hwndFocus)
+			return false;
+		std::wstring cmd = command;
+		wchar_t classNameBuf[256]{};
+		GetClassName(hwndFocus, classNameBuf, sizeof(classNameBuf) / sizeof(wchar_t));
+		std::wstring className = classNameBuf;
+		if (className == L"Edit")
+		{
+			UINT msg = 0;
+			WPARAM wParam = 0;
+			LPARAM lParam = 0;
+			if (cmd == L"copy") { msg = WM_COPY; }
+			else if (cmd == L"cut") { msg = WM_CUT; }
+			else if (cmd == L"paste") { msg = WM_PASTE; }
+			else if (cmd == L"selectall") { msg = EM_SETSEL; wParam = 0; lParam = -1; }
+			else if (cmd == L"undo") { msg = WM_UNDO; }
+			SendMessage(hwndFocus, msg, wParam, lParam);
+			return true;
+		}
+		int pane = GetActivePane();
+		if (pane < 0)
+			return false;
+		std::wstring script;
+		if (cmd != L"paste")
+			script = L"document.execCommand(\"" + cmd + L"\")";
+		else
+		{
+			std::wstring text = escape(getFromClipboard());
+			script = L"document.execCommand(\"insertText\", false, \"" + text + L"\")";
+		}
+		return SUCCEEDED(m_webWindow[pane].ExecuteScript(script.c_str(), nullptr));
+	}
 
 	std::wstring GetUserDataFolderPath(int pane)
 	{
@@ -817,9 +941,11 @@ private:
 	POINT m_ptOrg{};
 	POINT m_ptPrev{};
 	SIZE m_size{ 1024, 600 };
-	bool m_fitToWindow = false;
+	bool m_fitToWindow = true;
 	double m_zoom = 1.0;
 	UserDataFolderType m_userDataFolderType = UserDataFolderType::APPDATA;
 	bool m_bUserDataFolderPerPane = true;
 	std::vector<ComPtr<IWebDiffEventHandler>> m_listeners;
+
+	int m_diffCount = 0;
 };

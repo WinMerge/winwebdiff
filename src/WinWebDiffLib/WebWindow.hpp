@@ -341,7 +341,7 @@ public:
 	void SetFitToWindow(bool fitToWindow)
 	{
 		m_fitToWindow = fitToWindow;
-		ShowScrollBar(m_hWebViewParent, SB_BOTH, !m_fitToWindow);
+		ShowScrollbar();
 		ResizeWebView();
 		CalcScrollBarRange(m_nHScrollPos, m_nVScrollPos);
 	}
@@ -349,7 +349,9 @@ public:
 	SIZE GetSize() const
 	{
 		RECT rc{};
-		GetActiveWebViewController()->get_Bounds(&rc);
+		auto* pWebViewController = GetActiveWebViewController();
+		if (pWebViewController)
+			pWebViewController->get_Bounds(&rc);
 		return { rc.right - rc.left, rc.bottom - rc.top };
 	}
 
@@ -358,6 +360,7 @@ public:
 		m_size = size;
 		if (m_fitToWindow)
 			return;
+		ShowScrollbar();
 		ResizeWebView();
 		CalcScrollBarRange(m_nHScrollPos, m_nVScrollPos);
 	}
@@ -365,13 +368,18 @@ public:
 	double GetZoom() const
 	{
 		double zoom = 1.0;
-		GetActiveWebViewController()->get_ZoomFactor(&zoom);
+		auto* pWebViewController = GetActiveWebViewController();
+		if (pWebViewController)
+			pWebViewController->get_ZoomFactor(&zoom);
 		return zoom;
 	}
 
 	void SetZoom(double zoom)
 	{
-		GetActiveWebViewController()->put_ZoomFactor(std::clamp(zoom, 0.25, 5.0));
+		auto* pWebViewController = GetActiveWebViewController();
+		if (!pWebViewController)
+			return;
+		pWebViewController->put_ZoomFactor(std::clamp(zoom, 0.25, 5.0));
 	}
 
 	bool IsFocused() const
@@ -406,9 +414,10 @@ public:
 
 	void SetFocus()
 	{
-		if (m_activeTab < 0)
+		auto* pWebViewController = GetActiveWebViewController();
+		if (!pWebViewController)
 			return;
-		GetActiveWebViewController()->MoveFocus(COREWEBVIEW2_MOVE_FOCUS_REASON_PROGRAMMATIC);
+		pWebViewController->MoveFocus(COREWEBVIEW2_MOVE_FOCUS_REASON_PROGRAMMATIC);
 	}
 
 	HRESULT SaveScreenshot(const wchar_t* filename, bool fullSize, IWebDiffCallback* callback)
@@ -788,6 +797,19 @@ toJSON(document.documentElement)
 		return true;
 	}
 
+	HRESULT ExecuteScript(const wchar_t* script, IWebDiffCallback *callback)
+	{
+		ComPtr<IWebDiffCallback> callback2(callback);
+		HRESULT hr = GetActiveWebView()->ExecuteScript(script,
+			Callback<ICoreWebView2ExecuteScriptCompletedHandler>(
+				[callback2](HRESULT errorCode, LPCWSTR resultObjectAsJson) -> HRESULT {
+					if (callback2)
+						callback2->Invoke(errorCode);
+					return S_OK;
+				}).Get());
+		return hr;
+	}
+
 private:
 
 	HRESULT InitializeWebView(const wchar_t *url, double zoom, const wchar_t *userDataFolder, IWebDiffCallback* callback)
@@ -842,10 +864,11 @@ private:
 			TabCtrl_SetCurSel(m_hTabCtrl, tabIndex);
 		m_activeTab = tabIndex;
 		GetActiveWebViewController()->put_IsVisible(true);
-		ShowScrollBar(m_hWebViewParent, SB_BOTH, !m_fitToWindow);
+		ShowScrollbar();
 		ResizeWebView();
 		CalcScrollBarRange(m_nHScrollPos, m_nVScrollPos);
 		UpdateToolbarControls();
+		m_eventHandler(WebDiffEvent::TabChanged);
 	}
 
 	CWebTab* GetActiveTab() const
@@ -898,19 +921,44 @@ private:
 		MoveWindow(m_hWebViewParent, rcWebViewParent.left, rcWebViewParent.top, rcWebViewParent.right - rcWebViewParent.left, rcWebViewParent.bottom - rcWebViewParent.top, TRUE);
 	}
 
+	void ShowScrollbar()
+	{
+		if (m_fitToWindow)
+		{
+			ShowScrollBar(m_hWebViewParent, SB_BOTH, false);
+		}
+		else
+		{
+			ShowScrollBar(m_hWebViewParent, SB_BOTH, true);
+			RECT rc{};
+			GetClientRect(m_hWebViewParent, &rc);
+			if (m_size.cx < rc.right - rc.left)
+				ShowScrollBar(m_hWebViewParent, SB_HORZ, false);
+			if (m_size.cy < rc.bottom - rc.top)
+				ShowScrollBar(m_hWebViewParent, SB_VERT, false);
+		}
+	}
+
 	void ResizeWebView()
 	{
+		auto* pWebViewController = GetActiveWebViewController();
+		if (!pWebViewController)
+			return;
 		RECT bounds;
 		GetClientRect(m_hWebViewParent, &bounds);
 		if (m_fitToWindow)
 		{
-			GetActiveWebViewController()->put_Bounds(bounds);
+			pWebViewController->put_Bounds(bounds);
 		}
 		else
 		{
+			if (m_size.cx < bounds.right - bounds.left)
+				bounds.left += (bounds.right - bounds.left - m_size.cx) / 2;
+			if (m_size.cy < bounds.bottom - bounds.top)
+				bounds.top += (bounds.bottom - bounds.top - m_size.cy) / 2;
 			bounds.right = bounds.left + m_size.cx;
 			bounds.bottom = bounds.top + m_size.cy;
-			GetActiveWebViewController()->put_Bounds(bounds);
+			pWebViewController->put_Bounds(bounds);
 		}
 	}
 
@@ -988,7 +1036,7 @@ private:
 			wcex.cbWndExtra = 0;
 			wcex.hInstance = hInstance;
 			wcex.hCursor = LoadCursor(nullptr, IDC_ARROW);
-			wcex.hbrBackground = (HBRUSH)(COLOR_3DFACE + 1);
+			wcex.hbrBackground = CreateSolidBrush(RGB(206, 215, 230));
 			wcex.lpszClassName = L"WebViewParentClass";
 		}
 		return RegisterClassExW(&wcex) != 0;
