@@ -338,7 +338,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 					pfilenames[pane] = filenames[pane].c_str();
 				}
 				m_pWebDiffWindow->SaveScreenshots(pfilenames, wmId == IDM_COMPARE_FULLSIZE_SCREENSHOTS,
-					Callback<IWebDiffCallback>([filenames](HRESULT hr) -> HRESULT
+					Callback<IWebDiffCallback>([filenames](const WebDiffCallbackResult& result) -> HRESULT
 						{
 							CompareFiles(filenames, L"");
 							return S_OK;
@@ -358,7 +358,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 					pfilenames[pane] = filenames[pane].c_str();
 				}
 				m_pWebDiffWindow->SaveHTMLs(pfilenames,
-					Callback<IWebDiffCallback>([filenames](HRESULT hr) -> HRESULT
+					Callback<IWebDiffCallback>([filenames](const WebDiffCallbackResult& result) -> HRESULT
 						{
 							CompareFiles(filenames, L"/unpacker PrettifyHTML");
 							return S_OK;
@@ -378,7 +378,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 					pdirnames[pane] = dirnames[pane].c_str();
 				}
 				m_pWebDiffWindow->SaveResourceTrees(pdirnames,
-					Callback<IWebDiffCallback>([dirnames](HRESULT hr) -> HRESULT
+					Callback<IWebDiffCallback>([dirnames](const WebDiffCallbackResult& result) -> HRESULT
 						{
 							CompareFiles(dirnames, L"/r");
 							return S_OK;

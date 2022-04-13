@@ -87,7 +87,7 @@ public:
 				ComPtr<IWebDiffCallback> callback2(callback);
 				hr = m_webWindow[i].Create(m_hInstance, m_hWnd, urls[i], userDataFolder.c_str(),
 						m_size, m_fitToWindow, m_zoom,
-						Callback<IWebDiffCallback>([this, counter, callback2](HRESULT hr) -> HRESULT
+						Callback<IWebDiffCallback>([this, counter, callback2](const WebDiffCallbackResult& result) -> HRESULT
 							{
 								*counter = *counter - 1;
 								if (*counter == 0)
@@ -173,23 +173,54 @@ public:
 
 	HRESULT Recompare(IWebDiffCallback* callback) override
 	{
-		std::shared_ptr<int> counter(new int{ m_nPanes });
-		for (int i = 0; i < m_nPanes; ++i)
-		{
-			ComPtr<IWebDiffCallback> callback2(callback);
-			/*
-			hr = m_webWindow[i].DOMtoJSON(Create(m_hInstance, m_hWnd, urls[i], userDataFolder.c_str(),
-					m_size, m_fitToWindow, m_zoom,
-					Callback<IWebDiffCallback>([this, counter, callback2](HRESULT hr) -> HRESULT
-						{
-							*counter = *counter - 1;
-							if (*counter == 0)
-								Recompare(callback2.Get());
-							return S_OK;
-						}).Get()
-						*/
-		}
-		return S_OK;
+		static const wchar_t *script = L"document.documentElement.outerHTML";
+		ComPtr<IWebDiffCallback> callback2(callback);
+		HRESULT hr = m_webWindow[0].ExecuteScript(script,
+			Callback<IWebDiffCallback>([this, callback2](const WebDiffCallbackResult& result) -> HRESULT
+				{
+					HRESULT hr = result.errorCode;
+					if (SUCCEEDED(hr))
+					{
+						std::wstring json0 = result.returnObjectAsJson;
+						hr = m_webWindow[1].ExecuteScript(script,
+							Callback<IWebDiffCallback>([this, callback2, json0](const WebDiffCallbackResult& result) -> HRESULT
+								{
+									HRESULT hr = result.errorCode;
+									if (m_nPanes < 3)
+									{
+										m_diffCount = (json0 == result.returnObjectAsJson) ? 0 : 1;
+										if (callback2)
+											callback2->Invoke(result);
+										return S_OK;
+									}
+									if (SUCCEEDED(hr))
+									{
+										std::wstring json1 = result.returnObjectAsJson;
+										hr = m_webWindow[2].ExecuteScript(script,
+											Callback<IWebDiffCallback>([this, callback2, json0, json1](const WebDiffCallbackResult& result) -> HRESULT
+												{
+													m_diffCount = (json0 == json1 && json1 == result.returnObjectAsJson) ? 0 : 1;
+													if (callback2)
+														callback2->Invoke(result);
+													return S_OK;
+												}).Get());
+									}
+									if (FAILED(hr))
+									{
+										if (callback2)
+											callback2->Invoke({ hr, nullptr });
+									}
+									return S_OK;
+								}).Get());
+					}
+					if (FAILED(hr))
+					{
+						if (callback2)
+							callback2->Invoke({ hr, nullptr });
+					}
+					return S_OK;
+				}).Get());
+		return hr;
 	}
 
 	HRESULT SaveScreenshot(int pane, const wchar_t* filename, bool fullSize, IWebDiffCallback* callback) override
@@ -206,43 +237,45 @@ public:
 			sfilenames.push_back(filenames[pane]);
 		ComPtr<IWebDiffCallback> callback2(callback);
 		HRESULT hr = SaveScreenshot(0, sfilenames[0].c_str(), fullSize,
-			Callback<IWebDiffCallback>([this, sfilenames, fullSize, callback2](HRESULT hr) -> HRESULT
+			Callback<IWebDiffCallback>([this, sfilenames, fullSize, callback2](const WebDiffCallbackResult& result) -> HRESULT
 				{
+					HRESULT hr = result.errorCode;
 					if (SUCCEEDED(hr))
 					{
 						hr = SaveScreenshot(1, sfilenames[1].c_str(), fullSize,
-							Callback<IWebDiffCallback>([this, sfilenames, fullSize, callback2](HRESULT hr) -> HRESULT
+							Callback<IWebDiffCallback>([this, sfilenames, fullSize, callback2](const WebDiffCallbackResult& result) -> HRESULT
 								{
+									HRESULT hr = result.errorCode;
 									if (m_nPanes < 3)
 									{
 										if (callback2)
-											callback2->Invoke(hr);
+											callback2->Invoke(result);
 										return S_OK;
 									}
 									if (SUCCEEDED(hr))
 									{
 										hr = SaveScreenshot(2, sfilenames[2].c_str(), fullSize,
-											Callback<IWebDiffCallback>([this, sfilenames, fullSize, callback2](HRESULT hr) -> HRESULT
+											Callback<IWebDiffCallback>([this, sfilenames, fullSize, callback2](const WebDiffCallbackResult& result) -> HRESULT
 												{
 													if (callback2)
-														callback2->Invoke(hr);
-													return hr;
+														callback2->Invoke(result);
+													return S_OK;
 												}).Get());
 									}
 									if (FAILED(hr))
 									{
 										if (callback2)
-											callback2->Invoke(E_FAIL);
+											callback2->Invoke({ hr, nullptr });
 									}
-									return hr;
+									return S_OK;
 								}).Get());
 					}
 					if (FAILED(hr))
 					{
 						if (callback2)
-							callback2->Invoke(E_FAIL);
+							callback2->Invoke({ hr, nullptr });
 					}
-					return hr;
+					return S_OK;
 				}).Get());
 		return hr;
 	}
@@ -261,43 +294,45 @@ public:
 			sfilenames.push_back(filenames[pane]);
 		ComPtr<IWebDiffCallback> callback2(callback);
 		HRESULT hr = SaveHTML(0, sfilenames[0].c_str(),
-			Callback<IWebDiffCallback>([this, sfilenames, callback2](HRESULT hr) -> HRESULT
+			Callback<IWebDiffCallback>([this, sfilenames, callback2](const WebDiffCallbackResult& result) -> HRESULT
 				{
+					HRESULT hr = result.errorCode;
 					if (SUCCEEDED(hr))
 					{
 						hr = SaveHTML(1, sfilenames[1].c_str(),
-							Callback<IWebDiffCallback>([this, sfilenames, callback2](HRESULT hr) -> HRESULT
+							Callback<IWebDiffCallback>([this, sfilenames, callback2](const WebDiffCallbackResult& result) -> HRESULT
 								{
+									HRESULT hr = result.errorCode;
 									if (m_nPanes < 3)
 									{
 										if (callback2)
-											callback2->Invoke(hr);
-										return hr;
+											callback2->Invoke(result);
+										return S_OK;
 									}
 									if (SUCCEEDED(hr))
 									{
 										hr = SaveHTML(2, sfilenames[2].c_str(),
-											Callback<IWebDiffCallback>([this, sfilenames, callback2](HRESULT hr) -> HRESULT
+											Callback<IWebDiffCallback>([this, sfilenames, callback2](const WebDiffCallbackResult& result) -> HRESULT
 												{
 													if (callback2)
-														callback2->Invoke(hr);
+														callback2->Invoke(result);
 													return S_OK;
 												}).Get());
 									}
 									if (FAILED(hr))
 									{
 										if (callback2)
-											callback2->Invoke(E_FAIL);
+											callback2->Invoke({ hr, nullptr });
 									}
-									return hr;
+									return S_OK;
 								}).Get());
 					}
 					if (FAILED(hr))
 					{
 						if (callback2)
-							callback2->Invoke(E_FAIL);
+							callback2->Invoke({ hr, nullptr });
 					}
-					return hr;
+					return S_OK;
 			}).Get());
 		return hr;
 	}
@@ -315,43 +350,45 @@ public:
 			sdirnames.push_back(dirnames[pane]);
 		ComPtr<IWebDiffCallback> callback2(callback);
 		HRESULT hr = SaveResourceTree(0, sdirnames[0].c_str(),
-			Callback<IWebDiffCallback>([this, sdirnames, callback2](HRESULT hr) -> HRESULT
+			Callback<IWebDiffCallback>([this, sdirnames, callback2](const WebDiffCallbackResult& result) -> HRESULT
 				{
+					HRESULT hr = result.errorCode;
 					if (SUCCEEDED(hr))
 					{
 						hr = SaveResourceTree(1, sdirnames[1].c_str(),
-							Callback<IWebDiffCallback>([this, sdirnames, callback2](HRESULT hr) -> HRESULT
+							Callback<IWebDiffCallback>([this, sdirnames, callback2](const WebDiffCallbackResult& result) -> HRESULT
 								{
+									HRESULT hr = result.errorCode;
 									if (m_nPanes < 3)
 									{
 										if (callback2)
-											callback2->Invoke(hr);
-										return hr;
+											callback2->Invoke(result);
+										return S_OK;
 									}
 									if (SUCCEEDED(hr))
 									{
 										hr = SaveResourceTree(2, sdirnames[2].c_str(),
-											Callback<IWebDiffCallback>([this, sdirnames, callback2](HRESULT hr) -> HRESULT
+											Callback<IWebDiffCallback>([this, sdirnames, callback2](const WebDiffCallbackResult& result) -> HRESULT
 												{
 													if (callback2)
-														callback2->Invoke(hr);
+														callback2->Invoke(result);
 													return S_OK;
 												}).Get());
 									}
 									if (FAILED(hr))
 									{
 										if (callback2)
-											callback2->Invoke(E_FAIL);
+											callback2->Invoke({ hr, nullptr });
 									}
-									return hr;
+									return S_OK;
 								}).Get());
 					}
 					if (FAILED(hr))
 					{
 						if (callback2)
-							callback2->Invoke(E_FAIL);
+							callback2->Invoke({ hr, nullptr });
 					}
-					return hr;
+					return S_OK;
 			}).Get());
 		return hr;
 	}
@@ -508,7 +545,7 @@ public:
 
 	int  GetDiffCount() const
 	{
-		return 0;
+		return m_diffCount;
 	}
 
 	int  GetConflictCount() const
@@ -946,6 +983,5 @@ private:
 	UserDataFolderType m_userDataFolderType = UserDataFolderType::APPDATA;
 	bool m_bUserDataFolderPerPane = true;
 	std::vector<ComPtr<IWebDiffEventHandler>> m_listeners;
-
 	int m_diffCount = 0;
 };

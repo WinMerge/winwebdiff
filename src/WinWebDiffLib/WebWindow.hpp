@@ -6,6 +6,8 @@
 #define  RAPIDJSON_ENDIAN RAPIDJSON_LITTLEENDIAN
 #endif
 #include <rapidjson/document.h>
+#include <rapidjson/prettywriter.h>
+#include <rapidjson/stringbuffer.h>
 #include <WebView2.h>
 #include <Windows.h>
 #include <CommCtrl.h>
@@ -27,8 +29,10 @@
 #pragma comment(lib, "crypt32.lib")
 
 using namespace Microsoft::WRL;
-using WDocument = rapidjson::GenericDocument < rapidjson::UTF16 < >>;
-using WValue = rapidjson::GenericValue < rapidjson::UTF16 < >>;
+using WDocument = rapidjson::GenericDocument<rapidjson::UTF16<>>;
+using WValue = rapidjson::GenericValue<rapidjson::UTF16<>>;
+using WStringBuffer = rapidjson::GenericStringBuffer<rapidjson::UTF16<>>;
+using WPrettyWriter = rapidjson::PrettyWriter<WStringBuffer, rapidjson::UTF16<>>;
 
 class CWebWindow
 {
@@ -61,7 +65,7 @@ class CWebWindow
 					if (!m_webview)
 					{
 						if (callback2)
-							callback2->Invoke(result);
+							callback2->Invoke({ result, nullptr });
 						return result;
 					}
 					
@@ -157,8 +161,10 @@ class CWebWindow
 							})
 						.Get(), nullptr);
 
+					m_webview->CallDevToolsProtocolMethod(L"Page.enable", L"{}", nullptr);
+
 					if (callback2)
-						callback2->Invoke(S_OK);
+						callback2->Invoke({ S_OK, nullptr });
 					return S_OK;
 				}).Get());
 			return SUCCEEDED(hr);
@@ -197,7 +203,7 @@ public:
 			WS_CHILD | WS_VISIBLE,
 			0, 0, 0, 0, hWndParent, nullptr, hInstance, this);
 		if (!m_hWnd)
-			return false;
+			return E_FAIL;
 		m_hTabCtrl = CreateWindowEx(0, WC_TABCONTROL, nullptr,
 			WS_CHILD | WS_VISIBLE | WS_CLIPSIBLINGS | TCS_FLATBUTTONS | TCS_FOCUSNEVER,
 			0, 0, 4, 4, m_hWnd, (HMENU)1, hInstance, nullptr);
@@ -458,7 +464,7 @@ public:
 										stream->Commit(STGC_DEFAULT);
 										GetActiveWebViewController()->put_Bounds(rcOrg);
 										if (callback2)
-											callback2->Invoke(errorCode);
+											callback2->Invoke({ errorCode, nullptr });
 										return S_OK;
 									})
 								.Get());
@@ -467,7 +473,7 @@ public:
 					if (FAILED(hr))
 					{
 						if (callback2)
-							callback2->Invoke(hr);
+							callback2->Invoke({ hr, nullptr });
 					}
 					return S_OK;
 				})
@@ -476,7 +482,7 @@ public:
 		if (FAILED(hr))
 		{
 			if (callback2)
-				callback2->Invoke(hr);
+				callback2->Invoke({ hr, nullptr });
 			return hr;
 		}
 		return hr;
@@ -516,31 +522,42 @@ public:
 						fwprintf(fp.get(), L"%s", document.GetString());
 					}
 					if (callback2)
-						callback2->Invoke(errorCode);
+						callback2->Invoke({ errorCode, resultObjectAsJson });
 					return S_OK;
 				})
 			.Get());
 		if (FAILED(hr))
 		{
 			if (callback2)
-				callback2->Invoke(hr);
+				callback2->Invoke({ hr, nullptr });
 			return hr;
 		}
 		return hr;
 	}
 
-	std::wstring EscapeUrl(const std::wstring& text)
+	std::wstring Escape(const std::wstring& text)
 	{
-		wchar_t buf[INTERNET_MAX_URL_LENGTH];
-		DWORD cchEscaped = sizeof(buf)/sizeof(buf[0]);
-		UrlEscape(text.c_str(), buf, &cchEscaped, URL_ESCAPE_AS_UTF8);
-		return std::wstring(buf, cchEscaped);
+		std::wstring result;
+		for (auto c : text)
+		{
+			switch (c)
+			{
+			case '*':  result += L"%2A"; break;
+			case '?':  result += L"%3F"; break;
+			case ':':  result += L"%3A"; break;
+			case '/':  result += L"%2F"; break;
+			case '\\': result += L"%5C"; break;
+			default:   result += c; break;
+			}
+
+		}
+		return result;
 	}
 
 	std::vector<BYTE> DecodeBase64(const std::wstring& base64)
 	{
 		std::vector<BYTE> data;
-		DWORD cbBinary;
+		DWORD cbBinary = 0;
 		if (CryptStringToBinary(base64.c_str(), static_cast<DWORD>(base64.size()), CRYPT_STRING_BASE64_ANY, nullptr, &cbBinary, nullptr, nullptr))
 		{
 			data.resize(cbBinary);
@@ -564,11 +581,12 @@ public:
 			return E_FAIL;
 		std::wstring dirname2(dirname);
 		std::wstring url(resource[L"url"].GetString());
+		std::wstring mimeType(resource[L"mimeType"].GetString());
 		std::wstring args = L"{ \"frameId\": \"" + std::wstring(frameId) + L"\", \"url\": \"" + url + L"\" }";
 		ComPtr<IWebDiffCallback> callback2(callback);
 		HRESULT hr = GetActiveWebView()->CallDevToolsProtocolMethod(L"Page.getResourceContent", args.c_str(),
 			Callback<ICoreWebView2CallDevToolsProtocolMethodCompletedHandler>(
-				[this, dirname2, url, callback2, counter](HRESULT errorCode, LPCWSTR returnObjectAsJson) -> HRESULT {
+				[this, dirname2, url, mimeType, callback2, counter](HRESULT errorCode, LPCWSTR returnObjectAsJson) -> HRESULT {
 					wil::unique_file fp;
 					std::filesystem::path path(dirname2);
 					if (SUCCEEDED(errorCode))
@@ -586,7 +604,18 @@ public:
 							else
 								filename = filename.substr(pos + 1);
 						}
-						path /= EscapeUrl(filename);
+						path /= Escape(filename);
+						if (!path.has_extension())
+						{
+							if (mimeType == L"image/png")
+								path += L".png";
+							else if (mimeType == L"image/gif")
+								path += L".gif";
+							else if (mimeType == L"image/jpeg")
+								path += L".jpg";
+							else if (mimeType == L"image/svg")
+								path += L".svg";
+						}
 
 						WDocument document;
 						document.Parse(returnObjectAsJson);
@@ -614,7 +643,7 @@ public:
 					}
 					*counter = *counter - 1;
 					if (*counter == 0 && callback2)
-						callback2->Invoke(errorCode);
+						callback2->Invoke({ errorCode, returnObjectAsJson });
 					return S_OK;
 				})
 			.Get());
@@ -622,7 +651,7 @@ public:
 		{
 			*counter = *counter - 1;
 			if (*counter == 0 && callback2)
-				callback2->Invoke(hr);
+				callback2->Invoke({ hr, nullptr });
 			return hr;
 		}
 		return hr;
@@ -631,7 +660,7 @@ public:
 	uint32_t GetResourceTreeItemCount(const WValue& frameTree)
 	{
 		uint32_t count = 0;
-		if (frameTree.HasMember(L"childFrames") && frameTree.IsArray())
+		if (frameTree.HasMember(L"childFrames") && frameTree[L"childFrames"].IsArray())
 		{
 			for (const auto& frame : frameTree[L"childFrames"].GetArray())
 				count += GetResourceTreeItemCount(frame);
@@ -649,10 +678,16 @@ public:
 	{
 		if (frameTree.HasMember(L"childFrames"))
 		{
+			int i = 1;
+			size_t siz = frameTree[L"childFrames"].GetArray().Size();
+			int n = ([](size_t siz) { int n = 1; while (siz /= 10) ++n; return n; })(siz);
 			for (const auto& frame : frameTree[L"childFrames"].GetArray())
 			{
-				std::wstring frameId = frame[L"frame"][L"id"].GetString();
+				wchar_t buf[32];
+				swprintf_s(buf, L"%0*d", n, i);
+				std::wstring frameId = buf;
 				SaveResourceTree((std::filesystem::path(dirname) / (L"frameId_" + frameId)).c_str(), frame, callback, counter);
+				++i;
 			}
 		}
 		if (frameTree.HasMember(L"frame"))
@@ -676,14 +711,7 @@ public:
 			return E_FAIL;
 		std::wstring dirname2(dirname);
 		ComPtr<IWebDiffCallback> callback2(callback);
-		HRESULT hr = GetActiveWebView()->CallDevToolsProtocolMethod(L"Page.enable", L"{}", nullptr);
-		if (FAILED(hr))
-		{
-			if (callback2)
-				callback2->Invoke(hr);
-			return hr;
-		}
-		hr = GetActiveWebView()->CallDevToolsProtocolMethod(L"Page.getResourceTree", L"{}",
+		HRESULT hr = GetActiveWebView()->CallDevToolsProtocolMethod(L"Page.getResourceTree", L"{}",
 			Callback<ICoreWebView2CallDevToolsProtocolMethodCompletedHandler>(
 				[this, dirname2, callback2](HRESULT errorCode, LPCWSTR returnObjectAsJson) -> HRESULT {
 					WDocument document;
@@ -694,16 +722,24 @@ public:
 					std::shared_ptr<unsigned> counter(new unsigned{ size });
 					SaveResourceTree(dirname2.c_str(), tree, callback2.Get(), counter);
 
+					std::filesystem::path path(dirname2);
+					path /= L"resourceTree.json";
 					wil::unique_file fp;
-					_wfopen_s(&fp, (dirname2 + L"resourceTree.json").c_str(), L"wt,ccs=UTF-8");
-					fwprintf(fp.get(), L"%s", returnObjectAsJson);
+					_wfopen_s(&fp, path.c_str(), L"wt,ccs=UTF-8");
+					if (fp)
+					{
+						WStringBuffer buffer;
+						WPrettyWriter writer(buffer);
+						document.Accept(writer);
+						fwprintf(fp.get(), L"%s", buffer.GetString());
+					}
 					return S_OK;
 				})
 			.Get());
 		if (FAILED(hr))
 		{
 			if (callback2)
-				callback2->Invoke(hr);
+				callback2->Invoke({ hr, nullptr });
 			return hr;
 		}
 		return hr;
@@ -797,6 +833,20 @@ toJSON(document.documentElement)
 		return true;
 	}
 
+	HRESULT CallDevToolsProtocolMethod(const wchar_t* methodName, const wchar_t* params, IWebDiffCallback *callback)
+	{
+		ComPtr<IWebDiffCallback> callback2(callback);
+		HRESULT hr = GetActiveWebView()->CallDevToolsProtocolMethod(methodName, params,
+			Callback<ICoreWebView2CallDevToolsProtocolMethodCompletedHandler>(
+				[callback2](HRESULT errorCode, LPCWSTR returnObjectAsJson) -> HRESULT {
+					if (callback2)
+						callback2->Invoke({ errorCode, returnObjectAsJson });
+					return S_OK;
+				})
+			.Get());
+		return hr;
+	}
+
 	HRESULT ExecuteScript(const wchar_t* script, IWebDiffCallback *callback)
 	{
 		ComPtr<IWebDiffCallback> callback2(callback);
@@ -804,7 +854,7 @@ toJSON(document.documentElement)
 			Callback<ICoreWebView2ExecuteScriptCompletedHandler>(
 				[callback2](HRESULT errorCode, LPCWSTR resultObjectAsJson) -> HRESULT {
 					if (callback2)
-						callback2->Invoke(errorCode);
+						callback2->Invoke({ errorCode, resultObjectAsJson });
 					return S_OK;
 				}).Get());
 		return hr;
