@@ -15,6 +15,7 @@
 #include <rapidjson/prettywriter.h>
 #include <rapidjson/stringbuffer.h>
 #include <WebView2.h>
+#include <WebView2Experimental.h>
 #include <CommCtrl.h>
 #include <Shlwapi.h>
 #include <WinInet.h>
@@ -222,7 +223,7 @@ public:
 		lfToolbar.lfOutPrecision = OUT_TT_ONLY_PRECIS;
 		lfToolbar.lfQuality = PROOF_QUALITY;
 		lfToolbar.lfPitchAndFamily = VARIABLE_PITCH | FF_DECORATIVE;
-		wcscpy_s(lfToolbar.lfFaceName, L"Segoe UI Symbol");
+		wcscpy_s(lfToolbar.lfFaceName, L"Segoe MDL2 Assets");
 		NONCLIENTMETRICS info;
 		info.cbSize = sizeof(info);
 		SystemParametersInfo(SPI_GETNONCLIENTMETRICS, sizeof(info), &info, 0);
@@ -232,10 +233,10 @@ public:
 		m_hEditFont = CreateFontIndirect(&lfEdit);
 		SendMessage(m_hToolbar, TB_BUTTONSTRUCTSIZE, sizeof(TBBUTTON), 0);
 		TBBUTTON tbb[] = {
-			{I_IMAGENONE, ID_GOBACK,    TBSTATE_ENABLED, BTNS_BUTTON | BTNS_AUTOSIZE, {}, 0, (INT_PTR)L"<"},
-			{I_IMAGENONE, ID_GOFORWARD, TBSTATE_ENABLED, BTNS_BUTTON | BTNS_AUTOSIZE, {}, 0, (INT_PTR)L">"},
-			{I_IMAGENONE, ID_RELOAD,    TBSTATE_ENABLED, BTNS_BUTTON | BTNS_AUTOSIZE, {}, 0, (INT_PTR)L"\u21BB"},
-			{I_IMAGENONE, ID_STOP,      TBSTATE_ENABLED, BTNS_BUTTON | BTNS_AUTOSIZE, {}, 0, (INT_PTR)L"\u00D7"},
+			{I_IMAGENONE, ID_GOBACK,    TBSTATE_ENABLED, BTNS_BUTTON | BTNS_AUTOSIZE, {}, 0, (INT_PTR)L"\uE0A6"},
+			{I_IMAGENONE, ID_GOFORWARD, TBSTATE_ENABLED, BTNS_BUTTON | BTNS_AUTOSIZE, {}, 0, (INT_PTR)L"\uE0AB"},
+			{I_IMAGENONE, ID_RELOAD,    TBSTATE_ENABLED, BTNS_BUTTON | BTNS_AUTOSIZE, {}, 0, (INT_PTR)L"\uE149"},
+			{I_IMAGENONE, ID_STOP,      TBSTATE_ENABLED, BTNS_BUTTON | BTNS_AUTOSIZE, {}, 0, (INT_PTR)L"\uE106"},
 		};
 		m_hEdit = CreateWindowEx(0, TEXT("EDIT"), TEXT(""),
 			WS_CHILD | WS_VISIBLE | WS_BORDER | ES_AUTOHSCROLL,
@@ -707,6 +708,21 @@ public:
 					return S_OK;
 				}).Get());
 		return hr;
+	}
+
+	HRESULT ClearBrowsingData(IWebDiffWindow::BrowsingDataKinds dataKinds)
+	{
+		if (m_activeTab < 0)
+			return E_FAIL;
+		auto webView2Experimental8 = GetActiveTab()->m_webview.try_query<ICoreWebView2Experimental8>();
+		if (!webView2Experimental8)
+			return E_FAIL;
+		wil::com_ptr<ICoreWebView2ExperimentalProfile> webView2Profile;
+		webView2Experimental8->get_Profile(&webView2Profile);
+		if (!webView2Profile)
+			return E_FAIL;
+		auto webView2ExperimentalProfile4 = webView2Profile.try_query<ICoreWebView2ExperimentalProfile4>();
+		return webView2ExperimentalProfile4->ClearBrowsingData(static_cast<COREWEBVIEW2_BROWSING_DATA_KINDS>(dataKinds), nullptr);
 	}
 
 private:

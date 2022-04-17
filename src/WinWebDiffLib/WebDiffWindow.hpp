@@ -402,24 +402,9 @@ public:
 			epane = m_nPanes - 1;
 		}
 		HRESULT hr = S_OK;
-		const wchar_t* method = nullptr;
-		switch (datakinds)
-		{
-		case BrowsingDataKinds::CACHE:
-			method = L"Network.clearBrowserCache";
-			break;
-		case BrowsingDataKinds::COOKIES:
-			method = L"Network.clearBrowserCookies";
-			break;
-		case BrowsingDataKinds::NAVIGATIONHISTORYFORCURRENTPAGE:
-			method = L"Page.resetNavigationHistory";
-			break;
-		default:
-			return E_INVALIDARG;
-		}
 		for (int i = spane; i <= epane; ++i)
 		{
-			if (FAILED(hr = m_webWindow[i].CallDevToolsProtocolMethod(method, L"{}", nullptr)))
+			if (FAILED(hr = m_webWindow[i].ClearBrowsingData(datakinds)))
 				return hr;
 		}
 		return hr;

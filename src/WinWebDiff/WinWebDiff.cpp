@@ -394,11 +394,17 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 					.Get());
 				break;
 			}
-			case IDM_CLEAR_CACHE:
-				m_pWebDiffWindow->ClearBrowsingData(-1, IWebDiffWindow::BrowsingDataKinds::CACHE);
+			case IDM_CLEAR_DISK_CACHE:
+				m_pWebDiffWindow->ClearBrowsingData(-1, IWebDiffWindow::BrowsingDataKinds::DISK_CACHE);
 				break;
 			case IDM_CLEAR_COOKIES:
 				m_pWebDiffWindow->ClearBrowsingData(-1, IWebDiffWindow::BrowsingDataKinds::COOKIES);
+				break;
+			case IDM_CLEAR_BROWSING_HISTORY:
+				m_pWebDiffWindow->ClearBrowsingData(-1, IWebDiffWindow::BrowsingDataKinds::BROWSING_HISTORY);
+				break;
+			case IDM_CLEAR_ALL_PROFILE:
+				m_pWebDiffWindow->ClearBrowsingData(-1, IWebDiffWindow::BrowsingDataKinds::ALL_PROFILE);
 				break;
 			default:
 				return DefWindowProc(hWnd, message, wParam, lParam);
