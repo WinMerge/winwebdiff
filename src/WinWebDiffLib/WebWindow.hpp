@@ -5,23 +5,22 @@
 #ifdef _M_ARM64
 #define  RAPIDJSON_ENDIAN RAPIDJSON_LITTLEENDIAN
 #endif
-#include <rapidjson/document.h>
-#include <rapidjson/prettywriter.h>
-#include <rapidjson/stringbuffer.h>
-#include <WebView2.h>
-#include <Windows.h>
-#include <CommCtrl.h>
-#include <Shlwapi.h>
-#include <WinInet.h>
-#include <wrl.h>
-#include <wil/com.h>
-#include <wincrypt.h>
 #include <string>
 #include <vector>
 #include <filesystem>
 #include <memory>
 #include <cassert>
 #include <functional>
+#include <rapidjson/document.h>
+#include <rapidjson/prettywriter.h>
+#include <rapidjson/stringbuffer.h>
+#include <WebView2.h>
+#include <CommCtrl.h>
+#include <Shlwapi.h>
+#include <WinInet.h>
+#include <wrl.h>
+#include <wil/com.h>
+#include <wincrypt.h>
 #include "WinWebDiffLib.h"
 #include "resource.h"
 
@@ -38,6 +37,7 @@ class CWebWindow
 {
 	class CWebTab
 	{
+		friend CWebWindow;
 	public:
 		CWebTab(CWebWindow* parent, const wchar_t* url, double zoom, IWebDiffCallback* callback)
 			: m_parent(parent)
@@ -170,6 +170,7 @@ class CWebWindow
 			return SUCCEEDED(hr);
 		}
 
+	private:
 		wil::com_ptr<ICoreWebView2Controller> m_webviewController;
 		wil::com_ptr<ICoreWebView2> m_webview;
 		CWebWindow* m_parent;
@@ -203,7 +204,7 @@ public:
 			WS_CHILD | WS_VISIBLE,
 			0, 0, 0, 0, hWndParent, nullptr, hInstance, this);
 		if (!m_hWnd)
-			return E_FAIL;
+			return HRESULT_FROM_WIN32(GetLastError());
 		m_hTabCtrl = CreateWindowEx(0, WC_TABCONTROL, nullptr,
 			WS_CHILD | WS_VISIBLE | WS_CLIPSIBLINGS | TCS_FLATBUTTONS | TCS_FOCUSNEVER,
 			0, 0, 4, 4, m_hWnd, (HMENU)1, hInstance, nullptr);
@@ -217,11 +218,11 @@ public:
 		LOGFONT lfToolbar{};
 		lfToolbar.lfHeight = MulDiv(-14, GetDeviceCaps(hDC, LOGPIXELSX), 72);
 		lfToolbar.lfWeight = FW_NORMAL;
-		lfToolbar.lfCharSet = SYMBOL_CHARSET;
+		lfToolbar.lfCharSet = DEFAULT_CHARSET;
 		lfToolbar.lfOutPrecision = OUT_TT_ONLY_PRECIS;
 		lfToolbar.lfQuality = PROOF_QUALITY;
 		lfToolbar.lfPitchAndFamily = VARIABLE_PITCH | FF_DECORATIVE;
-		wcscpy_s(lfToolbar.lfFaceName, L"Webdings");
+		wcscpy_s(lfToolbar.lfFaceName, L"Segoe UI Symbol");
 		NONCLIENTMETRICS info;
 		info.cbSize = sizeof(info);
 		SystemParametersInfo(SPI_GETNONCLIENTMETRICS, sizeof(info), &info, 0);
@@ -231,10 +232,10 @@ public:
 		m_hEditFont = CreateFontIndirect(&lfEdit);
 		SendMessage(m_hToolbar, TB_BUTTONSTRUCTSIZE, sizeof(TBBUTTON), 0);
 		TBBUTTON tbb[] = {
-			{I_IMAGENONE, ID_GOBACK,    TBSTATE_ENABLED, BTNS_BUTTON | BTNS_AUTOSIZE, {}, 0, (INT_PTR)L"\x33"},
-			{I_IMAGENONE, ID_GOFORWARD, TBSTATE_ENABLED, BTNS_BUTTON | BTNS_AUTOSIZE, {}, 0, (INT_PTR)L"\x34"},
-			{I_IMAGENONE, ID_RELOAD,    TBSTATE_ENABLED, BTNS_BUTTON | BTNS_AUTOSIZE, {}, 0, (INT_PTR)L"\x71"},
-			{I_IMAGENONE, ID_STOP,      TBSTATE_ENABLED, BTNS_BUTTON | BTNS_AUTOSIZE, {}, 0, (INT_PTR)L"\x72"},
+			{I_IMAGENONE, ID_GOBACK,    TBSTATE_ENABLED, BTNS_BUTTON | BTNS_AUTOSIZE, {}, 0, (INT_PTR)L"<"},
+			{I_IMAGENONE, ID_GOFORWARD, TBSTATE_ENABLED, BTNS_BUTTON | BTNS_AUTOSIZE, {}, 0, (INT_PTR)L">"},
+			{I_IMAGENONE, ID_RELOAD,    TBSTATE_ENABLED, BTNS_BUTTON | BTNS_AUTOSIZE, {}, 0, (INT_PTR)L"\u21BB"},
+			{I_IMAGENONE, ID_STOP,      TBSTATE_ENABLED, BTNS_BUTTON | BTNS_AUTOSIZE, {}, 0, (INT_PTR)L"\u00D7"},
 		};
 		m_hEdit = CreateWindowEx(0, TEXT("EDIT"), TEXT(""),
 			WS_CHILD | WS_VISIBLE | WS_BORDER | ES_AUTOHSCROLL,
@@ -435,7 +436,6 @@ public:
 		HRESULT hr = GetActiveWebView()->CallDevToolsProtocolMethod(L"Page.getLayoutMetrics", L"{}",
 			Callback<ICoreWebView2CallDevToolsProtocolMethodCompletedHandler>(
 				[this, filepath, fullSize, callback2](HRESULT errorCode, LPCWSTR returnObjectAsJson) -> HRESULT {
-
 					HRESULT hr = errorCode;
 					if (SUCCEEDED(hr))
 					{
@@ -460,9 +460,10 @@ public:
 							hr = GetActiveWebView()->CapturePreview(
 								COREWEBVIEW2_CAPTURE_PREVIEW_IMAGE_FORMAT_PNG, stream.get(),
 								Callback<ICoreWebView2CapturePreviewCompletedHandler>(
-									[this, rcOrg, callback2, stream](HRESULT errorCode) -> HRESULT {
+									[this, rcOrg, fullSize, callback2, stream](HRESULT errorCode) -> HRESULT {
 										stream->Commit(STGC_DEFAULT);
-										GetActiveWebViewController()->put_Bounds(rcOrg);
+										if (fullSize)
+											GetActiveWebViewController()->put_Bounds(rcOrg);
 										if (callback2)
 											callback2->Invoke({ errorCode, nullptr });
 										return S_OK;
@@ -492,20 +493,6 @@ public:
 	{
 		if (m_activeTab < 0)
 			return E_FAIL;
-		/*
-		HRESULT hr2 = GetActiveWebView()->CallDevToolsProtocolMethod(L"Page.captureSnapshot", L"{\"format\": \"mhtml\"}",
-			Callback<ICoreWebView2CallDevToolsProtocolMethodCompletedHandler>(
-				[this, filename](HRESULT errorCode, LPCWSTR returnObjectAsJson) -> HRESULT {
-					WDocument document;
-					document.Parse(returnObjectAsJson);
-
-					wil::unique_file fp;
-					_wfopen_s(&fp, (filename + std::wstring(L".mhtml")).c_str(), L"wt,ccs=UTF-8");
-					fwprintf(fp.get(), L"%s", document[L"data"].GetString());
-					return S_OK;
-				})
-			.Get());
-			*/
 
 		const wchar_t *script = L"document.documentElement.outerHTML";
 		ComPtr<IWebDiffCallback> callback2(callback);
@@ -517,9 +504,7 @@ public:
 					{
 						WDocument document;
 						document.Parse(resultObjectAsJson);
-						wil::unique_file fp;
-						_wfopen_s(&fp, filename2.c_str(), L"wt,ccs=UTF-8");
-						fwprintf(fp.get(), L"%s", document.GetString());
+						errorCode = WriteToTextFile(filename2, document.GetString());
 					}
 					if (callback2)
 						callback2->Invoke({ errorCode, resultObjectAsJson });
@@ -535,46 +520,6 @@ public:
 		return hr;
 	}
 
-	std::wstring Escape(const std::wstring& text)
-	{
-		std::wstring result;
-		for (auto c : text)
-		{
-			switch (c)
-			{
-			case '*':  result += L"%2A"; break;
-			case '?':  result += L"%3F"; break;
-			case ':':  result += L"%3A"; break;
-			case '/':  result += L"%2F"; break;
-			case '\\': result += L"%5C"; break;
-			default:   result += c; break;
-			}
-
-		}
-		return result;
-	}
-
-	std::vector<BYTE> DecodeBase64(const std::wstring& base64)
-	{
-		std::vector<BYTE> data;
-		DWORD cbBinary = 0;
-		if (CryptStringToBinary(base64.c_str(), static_cast<DWORD>(base64.size()), CRYPT_STRING_BASE64_ANY, nullptr, &cbBinary, nullptr, nullptr))
-		{
-			data.resize(cbBinary);
-			CryptStringToBinary(base64.c_str(), static_cast<DWORD>(base64.size()), CRYPT_STRING_BASE64_ANY, data.data(), &cbBinary, nullptr, nullptr);
-		}
-		return data;
-	}
-
-	void WriteToErrorLog(const wchar_t* dirname, const wchar_t* url, HRESULT hr)
-	{
-		wil::unique_file fp;
-		std::filesystem::path path(dirname);
-		path /= L"error.log";
-		_wfopen_s(&fp, path.c_str(), L"at,ccs=UTF-8");
-		fwprintf(fp.get(), L"url=%s hr=%08x\n", url, hr);
-	}
-
 	HRESULT SaveResourceContent(const wchar_t* frameId, const WValue& resource, const wchar_t* dirname, IWebDiffCallback* callback, std::shared_ptr<uint32_t> counter)
 	{
 		if (m_activeTab < 0)
@@ -587,7 +532,6 @@ public:
 		HRESULT hr = GetActiveWebView()->CallDevToolsProtocolMethod(L"Page.getResourceContent", args.c_str(),
 			Callback<ICoreWebView2CallDevToolsProtocolMethodCompletedHandler>(
 				[this, dirname2, url, mimeType, callback2, counter](HRESULT errorCode, LPCWSTR returnObjectAsJson) -> HRESULT {
-					wil::unique_file fp;
 					std::filesystem::path path(dirname2);
 					if (SUCCEEDED(errorCode))
 					{
@@ -621,19 +565,12 @@ public:
 						document.Parse(returnObjectAsJson);
 						if (document[L"base64Encoded"].GetBool())
 						{
-							std::vector<BYTE> data = DecodeBase64(document[L"content"].GetString());
-							_wfopen_s(&fp, path.c_str(), L"wb");
-							if (fp)
-								fwrite(data.data(), data.size(), 1, fp.get());
-							else
+							if (FAILED(errorCode = WriteToBinaryFile(path, document[L"content"].GetString())))
 								WriteToErrorLog(dirname2.c_str(), url.c_str(), errorCode);
 						}
 						else
 						{
-							_wfopen_s(&fp, path.c_str(), L"wt,ccs=UTF-8");
-							if (fp)
-								fwprintf(fp.get(), L"%s", document[L"content"].GetString());
-							else
+							if (FAILED(errorCode = WriteToTextFile(path, document[L"content"].GetString())))
 								WriteToErrorLog(dirname2.c_str(), url.c_str(), errorCode);
 						}
 					}
@@ -724,15 +661,11 @@ public:
 
 					std::filesystem::path path(dirname2);
 					path /= L"resourceTree.json";
-					wil::unique_file fp;
-					_wfopen_s(&fp, path.c_str(), L"wt,ccs=UTF-8");
-					if (fp)
-					{
-						WStringBuffer buffer;
-						WPrettyWriter writer(buffer);
-						document.Accept(writer);
-						fwprintf(fp.get(), L"%s", buffer.GetString());
-					}
+					WStringBuffer buffer;
+					WPrettyWriter writer(buffer);
+					document.Accept(writer);
+					if (FAILED(errorCode = WriteToTextFile(path, buffer.GetString())))
+						WriteToErrorLog(dirname2.c_str(), L"resourceTree.json", errorCode);
 					return S_OK;
 				})
 			.Get());
@@ -745,96 +678,10 @@ public:
 		return hr;
 	}
 
-	bool DOMtoJSON(const wchar_t *filename)
-	{
-		// https://gist.github.com/sstur/7379870
-		const wchar_t *script = LR"(
-function toJSON(node) {
-  let propFix = { for: 'htmlFor', class: 'className' };
-  let specialGetters = {
-    style: (node) => node.style.cssText,
-  };
-  let attrDefaultValues = { style: '' };
-  let obj = {
-    nodeType: node.nodeType,
-  };
-  if (node.tagName) {
-    obj.tagName = node.tagName.toLowerCase();
-  } else if (node.nodeName) {
-    obj.nodeName = node.nodeName;
-  }
-  if (node.nodeValue) {
-    obj.nodeValue = node.nodeValue;
-  }
-  let attrs = node.attributes;
-  if (attrs) {
-    let defaultValues = new Map();
-    for (let i = 0; i < attrs.length; i++) {
-      let name = attrs[i].nodeName;
-      defaultValues.set(name, attrDefaultValues[name]);
-    }
-    // Add some special cases that might not be included by enumerating
-    // attributes above. Note: this list is probably not exhaustive.
-    switch (obj.tagName) {
-      case 'input': {
-        if (node.type === 'checkbox' || node.type === 'radio') {
-          defaultValues.set('checked', false);
-        } else if (node.type !== 'file') {
-          // Don't store the value for a file input.
-          defaultValues.set('value', '');
-        }
-        break;
-      }
-      case 'option': {
-        defaultValues.set('selected', false);
-        break;
-      }
-      case 'textarea': {
-        defaultValues.set('value', '');
-        break;
-      }
-    }
-    let arr = [];
-    for (let [name, defaultValue] of defaultValues) {
-      let propName = propFix[name] || name;
-      let specialGetter = specialGetters[propName];
-      let value = specialGetter ? specialGetter(node) : node[propName];
-      if (value !== defaultValue) {
-        arr.push([name, value]);
-      }
-    }
-    if (arr.length) {
-      obj.attributes = arr;
-    }
-  }
-  let childNodes = node.childNodes;
-  // Don't process children for a textarea since we used `value` above.
-  if (obj.tagName !== 'textarea' && childNodes && childNodes.length) {
-    let arr = (obj.childNodes = []);
-    for (let i = 0; i < childNodes.length; i++) {
-      arr[i] = toJSON(childNodes[i]);
-    }
-  }
-  return obj;
-}
-toJSON(document.documentElement)
-)";
-		GetActiveWebView()->ExecuteScript(script,
-			Callback<ICoreWebView2ExecuteScriptCompletedHandler>(
-				[filename](HRESULT errorCode, LPCWSTR resultObjectAsJson) -> HRESULT {
-					WDocument document;
-					document.Parse(resultObjectAsJson);
-					wil::unique_file fp;
-					_wfopen_s(&fp, filename, L"wt,ccs=UTF-8");
-					fwprintf(fp.get(), L"%s", resultObjectAsJson);
-					return S_OK;
-				})
-			.Get());
-		return true;
-	}
-
 	HRESULT CallDevToolsProtocolMethod(const wchar_t* methodName, const wchar_t* params, IWebDiffCallback *callback)
 	{
+		if (m_activeTab < 0)
+			return E_FAIL;
 		ComPtr<IWebDiffCallback> callback2(callback);
 		HRESULT hr = GetActiveWebView()->CallDevToolsProtocolMethod(methodName, params,
 			Callback<ICoreWebView2CallDevToolsProtocolMethodCompletedHandler>(
@@ -849,6 +696,8 @@ toJSON(document.documentElement)
 
 	HRESULT ExecuteScript(const wchar_t* script, IWebDiffCallback *callback)
 	{
+		if (m_activeTab < 0)
+			return E_FAIL;
 		ComPtr<IWebDiffCallback> callback2(callback);
 		HRESULT hr = GetActiveWebView()->ExecuteScript(script,
 			Callback<ICoreWebView2ExecuteScriptCompletedHandler>(
@@ -1057,6 +906,65 @@ private:
 			SetScrollInfo(m_hWebViewParent, SB_HORZ, &si, TRUE);
 			m_nHScrollPos = GetScrollPos(m_hWebViewParent, SB_HORZ);
 		}
+	}
+
+	static std::wstring Escape(const std::wstring& text)
+	{
+		std::wstring result;
+		for (auto c : text)
+		{
+			switch (c)
+			{
+			case '*':  result += L"%2A"; break;
+			case '?':  result += L"%3F"; break;
+			case ':':  result += L"%3A"; break;
+			case '/':  result += L"%2F"; break;
+			case '\\': result += L"%5C"; break;
+			default:   result += c; break;
+			}
+
+		}
+		return result;
+	}
+
+	static std::vector<BYTE> DecodeBase64(const std::wstring& base64)
+	{
+		std::vector<BYTE> data;
+		DWORD cbBinary = 0;
+		if (CryptStringToBinary(base64.c_str(), static_cast<DWORD>(base64.size()), CRYPT_STRING_BASE64_ANY, nullptr, &cbBinary, nullptr, nullptr))
+		{
+			data.resize(cbBinary);
+			CryptStringToBinary(base64.c_str(), static_cast<DWORD>(base64.size()), CRYPT_STRING_BASE64_ANY, data.data(), &cbBinary, nullptr, nullptr);
+		}
+		return data;
+	}
+
+	static void WriteToErrorLog(const wchar_t* dirname, const wchar_t* url, HRESULT hr)
+	{
+		wil::unique_file fp;
+		std::filesystem::path path(dirname);
+		path /= L"error.log";
+		_wfopen_s(&fp, path.c_str(), L"at,ccs=UTF-8");
+		fwprintf(fp.get(), L"url=%s hr=%08x: %S\n", url, hr, std::system_category().message(hr).c_str());
+	}
+
+	static HRESULT WriteToTextFile(const std::wstring& path, const std::wstring& data)
+	{
+		wil::unique_file fp;
+		_wfopen_s(&fp, path.c_str(), L"wt,ccs=UTF-8");
+		if (fp)
+			fwprintf(fp.get(), L"%s", data.c_str());
+		return fp != nullptr ? S_OK : (GetLastError() == 0 ? E_FAIL : HRESULT_FROM_WIN32(GetLastError()));
+	}
+
+	static HRESULT WriteToBinaryFile(const std::wstring& path, const std::wstring& base64)
+	{
+		wil::unique_file fp;
+		std::vector<BYTE> data = DecodeBase64(base64);
+		_wfopen_s(&fp, path.c_str(), L"wb");
+		if (fp)
+			fwrite(data.data(), data.size(), 1, fp.get());
+		return fp != nullptr ? S_OK : (GetLastError() == 0 ? E_FAIL : HRESULT_FROM_WIN32(GetLastError()));
 	}
 
 	bool MyRegisterClass(HINSTANCE hInstance)

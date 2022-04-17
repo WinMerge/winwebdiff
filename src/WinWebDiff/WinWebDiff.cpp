@@ -310,9 +310,17 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 			case IDM_VIEW_SIZE_FIT_TO_WINDOW:
 				m_pWebDiffWindow->SetFitToWindow(true);
 				break;
-			case IDM_VIEW_SIZE_1024x600:
+			case IDM_VIEW_SIZE_320x512:
 				m_pWebDiffWindow->SetFitToWindow(false);
-				m_pWebDiffWindow->SetSize({ 1024, 600 });
+				m_pWebDiffWindow->SetSize({ 320, 512 });
+				break;
+			case IDM_VIEW_SIZE_375x600:
+				m_pWebDiffWindow->SetFitToWindow(false);
+				m_pWebDiffWindow->SetSize({ 375, 600 });
+				break;
+			case IDM_VIEW_SIZE_1024x640:
+				m_pWebDiffWindow->SetFitToWindow(false);
+				m_pWebDiffWindow->SetSize({ 1024, 640 });
 				break;
 			case IDM_VIEW_SIZE_1280x800:
 				m_pWebDiffWindow->SetFitToWindow(false);
@@ -386,6 +394,12 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 					.Get());
 				break;
 			}
+			case IDM_CLEAR_CACHE:
+				m_pWebDiffWindow->ClearBrowsingData(-1, IWebDiffWindow::BrowsingDataKinds::CACHE);
+				break;
+			case IDM_CLEAR_COOKIES:
+				m_pWebDiffWindow->ClearBrowsingData(-1, IWebDiffWindow::BrowsingDataKinds::COOKIES);
+				break;
 			default:
 				return DefWindowProc(hWnd, message, wParam, lParam);
 			}
