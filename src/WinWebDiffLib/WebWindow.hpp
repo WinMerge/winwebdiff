@@ -288,13 +288,18 @@ public:
 		TabCtrl_InsertItem(m_hTabCtrl, tabIndex, &tcItem);
 	}
 
-	HRESULT Navigate(const wchar_t* url)
+	HRESULT Navigate(const std::wstring& url)
 	{
 		if (m_activeTab < 0)
 			return E_FAIL;
-		HRESULT hr = GetActiveWebView()->Navigate(url);
+		HRESULT hr = GetActiveWebView()->Navigate(url.c_str());
 		if (hr == E_INVALIDARG)
-			hr = GetActiveWebView()->Navigate((L"http://" + std::wstring(url)).c_str());
+		{
+			if (url.find(' ') == std::wstring::npos && url.find('.') != std::wstring::npos)
+				hr = GetActiveWebView()->Navigate((L"http://" + url).c_str());
+			else
+				hr = GetActiveWebView()->Navigate((L"https://www.google.com/search?q=" + url).c_str());
+		}
 		return hr;
 	}
 
@@ -538,7 +543,7 @@ public:
 					{
 						std::wstring filename;
 						if (url.compare(0, 5, L"data:") == 0)
-							filename = L"inline";
+							filename = L"[inline-data]";
 						else
 							filename = std::filesystem::path(url).filename();
 						size_t pos = filename.find('?');
@@ -549,6 +554,12 @@ public:
 							else
 								filename = filename.substr(pos + 1);
 						}
+
+						if (filename.length() > 64)
+						{
+							std::filesystem::path orgfilename = filename;
+							filename = orgfilename.stem().wstring().substr(0, 61) + L"\u2026" + orgfilename.extension().wstring();
+						}
 						path /= Escape(filename);
 						if (!path.has_extension())
 						{
@@ -556,11 +567,14 @@ public:
 								path += L".png";
 							else if (mimeType == L"image/gif")
 								path += L".gif";
-							else if (mimeType == L"image/jpeg")
+							else if (mimeType == L"image/jpeg" || mimeType == L"image/jpg")
 								path += L".jpg";
 							else if (mimeType == L"image/svg")
 								path += L".svg";
 						}
+
+						if (std::filesystem::exists(path))
+							path = RenameFile(path);
 
 						WDocument document;
 						document.Parse(returnObjectAsJson);
@@ -955,13 +969,34 @@ private:
 		return data;
 	}
 
+	static std::filesystem::path RenameFile(const std::filesystem::path& path)
+	{
+		int i = 1;
+		std::filesystem::path path2 = path;
+		std::wstring orgstem = path2.stem();
+		std::wstring orgext = path2.extension();
+		while (std::filesystem::exists(path2))
+			path2.replace_filename(orgstem + L"(" + std::to_wstring(i++) + L")" + orgext);
+		return path2;
+	}
+
 	static void WriteToErrorLog(const wchar_t* dirname, const wchar_t* url, HRESULT hr)
 	{
+		std::wstring msg;
+		LPTSTR errorText = nullptr;
+		FormatMessage(
+			FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_IGNORE_INSERTS,
+			nullptr, hr, MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT), (LPTSTR)&errorText, 0, nullptr);
+		if (errorText)
+		{
+			msg = errorText;
+			LocalFree(errorText);
+		}
 		wil::unique_file fp;
 		std::filesystem::path path(dirname);
 		path /= L"error.log";
 		_wfopen_s(&fp, path.c_str(), L"at,ccs=UTF-8");
-		fwprintf(fp.get(), L"url=%s hr=%08x: %S\n", url, hr, std::system_category().message(hr).c_str());
+		fwprintf(fp.get(), L"url=%s hr=%08x: %s", url, hr, msg.c_str());
 	}
 
 	static HRESULT WriteToTextFile(const std::wstring& path, const std::wstring& data)
@@ -1020,18 +1055,35 @@ private:
 	{
 		COREWEBVIEW2_KEY_EVENT_KIND kind{};
 		UINT virtualKey = 0;
+		int lParam = 0;
 		args->get_KeyEventKind(&kind);
 		args->get_VirtualKey(&virtualKey);
+		args->get_KeyEventLParam(&lParam);
+		bool handled = false;
 		if (kind == COREWEBVIEW2_KEY_EVENT_KIND_KEY_DOWN || kind == COREWEBVIEW2_KEY_EVENT_KIND_SYSTEM_KEY_DOWN)
 		{
-			if (GetKeyState(VK_MENU) && virtualKey == 'D')
+			short vkmenu = GetKeyState(VK_MENU);
+			short vkctrl = GetKeyState(VK_CONTROL);
+			if (vkmenu &&virtualKey == 'D')
 			{
 				::SendMessage(m_hEdit, EM_SETSEL, 0, -1);
 				::SetFocus(m_hEdit);
+				handled = true;
 			}
-			m_eventHandler(WebDiffEvent::AcceleratorKeyPressed);
+			else if (vkmenu && 'A' <= virtualKey && virtualKey <= 'Z')
+			{
+				PostMessage(m_hWnd, WM_SYSKEYDOWN, virtualKey, lParam);
+				handled = true;
+			}
+			else if (vkctrl && (virtualKey == 'K' || virtualKey == 'E'))
+			{
+				SetWindowText(m_hEdit, L"");
+				::SetFocus(m_hEdit);
+				handled = true;
+			}
 		}
 
+		args->put_Handled(handled);
 		return S_OK;
 	}
 
@@ -1268,7 +1320,7 @@ private:
 			int length = GetWindowTextLength(m_hEdit);
 			std::wstring url(length, 0);
 			GetWindowText(m_hEdit, const_cast<wchar_t*>(url.data()), length + 1);
-			Navigate(url.c_str());
+			Navigate(url);
 			return 0;
 		}
 		return CallWindowProc(m_oldEditWndProc, hWnd, iMsg, wParam, lParam);
