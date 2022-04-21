@@ -36,12 +36,6 @@ using WPrettyWriter = rapidjson::PrettyWriter<WStringBuffer, rapidjson::UTF16<>>
 
 class CWebWindow
 {
-	struct FrameInfo
-	{
-		wil::com_ptr<ICoreWebView2Frame> m_frame;
-		std::wstring m_url;
-	};
-
 	class CWebTab
 	{
 		friend CWebWindow;
@@ -82,16 +76,14 @@ class CWebWindow
 						Callback<ICoreWebView2AcceleratorKeyPressedEventHandler>(
 							[this](ICoreWebView2Controller* sender, ICoreWebView2AcceleratorKeyPressedEventArgs* args) {
 								return m_parent->OnAcceleratorKeyPressed(sender, args);
-							})
-						.Get(), nullptr);
+							}).Get(), nullptr);
 
 					m_webviewController->add_ZoomFactorChanged(
 						Callback<ICoreWebView2ZoomFactorChangedEventHandler>(
 							[this](ICoreWebView2Controller* sender, IUnknown* args) -> HRESULT {
 								m_navigationCompleted = true;
 								return m_parent->OnZoomFactorChanged(sender, args);
-							})
-						.Get(), nullptr);
+							}).Get(), nullptr);
 
 					ICoreWebView2Settings* Settings;
 					m_webview->get_Settings(&Settings);
@@ -103,122 +95,48 @@ class CWebWindow
 						Callback<ICoreWebView2NewWindowRequestedEventHandler>(
 							[this](ICoreWebView2* sender, ICoreWebView2NewWindowRequestedEventArgs* args) {
 								return m_parent->OnNewWindowRequested(sender, args);
-							})
-						.Get(), nullptr);
+							}).Get(), nullptr);
 
 					m_webview->add_WindowCloseRequested(
 						Callback<ICoreWebView2WindowCloseRequestedEventHandler>(
 							[this](ICoreWebView2* sender, IUnknown* args) {
 								return m_parent->OnWindowCloseRequested(sender, args);
-							})
-						.Get(), nullptr);
+							}).Get(), nullptr);
 
 					m_webview->add_NavigationStarting(
 						Callback<ICoreWebView2NavigationStartingEventHandler>(
 							[this](ICoreWebView2* sender, ICoreWebView2NavigationStartingEventArgs* args) -> HRESULT {
 								m_navigationCompleted = false;
 								return m_parent->OnNavigationStarting(sender, args);
-							})
-						.Get(), nullptr);
+							}).Get(), nullptr);
 
 					m_webview->add_HistoryChanged(
 						Callback<ICoreWebView2HistoryChangedEventHandler>(
 							[this](ICoreWebView2* sender, IUnknown* args) -> HRESULT {
 								return m_parent->OnHistoryChanged(sender, args);
-							})
-						.Get(), nullptr);
+							}).Get(), nullptr);
 
 					m_webview->add_SourceChanged(
 						Callback<ICoreWebView2SourceChangedEventHandler>(
 							[this](ICoreWebView2* sender, ICoreWebView2SourceChangedEventArgs* args) -> HRESULT {
 								return m_parent->OnSourceChanged(sender, args);
-							})
-						.Get(), nullptr);
+							}).Get(), nullptr);
 
 					m_webview->add_DocumentTitleChanged(
 						Callback<ICoreWebView2DocumentTitleChangedEventHandler>(
 							[this](ICoreWebView2* sender, IUnknown* args) -> HRESULT {
 								return m_parent->OnDocumentTitleChanged(sender, args);
-							})
-						.Get(), nullptr);
+							}).Get(), nullptr);
 
 					m_webview->add_NavigationCompleted(
 						Callback<ICoreWebView2NavigationCompletedEventHandler>(
 							[this](ICoreWebView2* sender, ICoreWebView2NavigationCompletedEventArgs* args) -> HRESULT {
 								m_navigationCompleted = true;
 								return m_parent->OnNavigationCompleted(sender, args);
-							})
-						.Get(), nullptr);
+							}).Get(), nullptr);
 
 					HRESULT hr = m_webview->CallDevToolsProtocolMethod(L"DOM.enable", L"{}", nullptr);
 					m_webview->CallDevToolsProtocolMethod(L"Page.enable", L"{}", nullptr);
-
-					wil::com_ptr<ICoreWebView2_4> webview2_4 = m_webview.try_query<ICoreWebView2_4>();
-					if (webview2_4)
-					{
-						webview2_4->add_FrameCreated(
-							Callback<ICoreWebView2FrameCreatedEventHandler>(
-								[this](ICoreWebView2* sender, ICoreWebView2FrameCreatedEventArgs* args) -> HRESULT
-								{
-									m_frames.emplace_back();
-									auto frame = m_frames.back().m_frame;
-
-									args->get_Frame(&frame);
-
-									wil::com_ptr<ICoreWebView2Frame2> webviewFrame2 = frame.try_query<ICoreWebView2Frame2>();
-									if (webviewFrame2)
-									{
-										/*
-										webviewFrame2->add_NavigationStarting(
-											Callback<ICoreWebView2FrameNavigationStartingEventHandler>(
-												[this, &frameInfo](ICoreWebView2Frame* sender, ICoreWebView2NavigationStartingEventArgs* args) -> HRESULT
-												{
-													wil::unique_cotaskmem_string url;
-													args->get_Uri(&url);
-													frameInfo.m_url = url.get();
-													return S_OK;
-												}).Get(), nullptr);
-												*/
-										webviewFrame2->add_NavigationCompleted(
-											Callback<ICoreWebView2FrameNavigationCompletedEventHandler>(
-												[webviewFrame2, this](ICoreWebView2Frame* sender, ICoreWebView2NavigationCompletedEventArgs* args) -> HRESULT
-												{
-													webviewFrame2->ExecuteScript(L"document.URL",
-														Callback<ICoreWebView2ExecuteScriptCompletedHandler>(
-															[this, sender](HRESULT errorCode, LPCWSTR resultObjectAsJson) -> HRESULT
-															{
-																WDocument document;
-																//document.Parse((std::wstring(L"{ \"result\": ") + resultObjectAsJson + L"}").c_str());
-																//frameInfo.m_url = document[L"result"].GetString();
-																document.Parse(resultObjectAsJson);
-																std::wstring url = document.GetString();
-																auto it =
-																	std::find_if(m_frames.begin(), m_frames.end(),
-																		[sender](const auto& frameInfo) { return frameInfo.m_frame.get() == sender; });
-																if (it != m_frames.end())
-																	it->m_url = url;
-																return S_OK;
-															}).Get());
-													return S_OK;
-												}).Get(), nullptr);
-									}
-
-									frame->add_Destroyed(
-										Callback<ICoreWebView2FrameDestroyedEventHandler>(
-											[this](ICoreWebView2Frame* sender, IUnknown* args) -> HRESULT
-											{
-												auto frame =
-													std::find_if(m_frames.begin(), m_frames.end(),
-														[sender](const auto& frame) { return frame.m_frame.get() == sender; });
-												if (frame != m_frames.end())
-												{
-													m_frames.erase(frame);
-												}
-												return S_OK;
-											}).Get(), nullptr);
-									return S_OK;
-								}).Get(), nullptr);
-					}
 
 					if (args && deferral)
 					{
@@ -244,7 +162,6 @@ class CWebWindow
 	private:
 		wil::com_ptr<ICoreWebView2Controller> m_webviewController;
 		wil::com_ptr<ICoreWebView2> m_webview;
-		std::vector<FrameInfo> m_frames;
 		CWebWindow* m_parent;
 		bool m_navigationCompleted = false;
 	};
@@ -503,20 +420,19 @@ public:
 		pWebViewController->MoveFocus(COREWEBVIEW2_MOVE_FOCUS_REASON_PROGRAMMATIC);
 	}
 
-	HRESULT SaveScreenshot(const wchar_t* filename, bool fullSize, IWebDiffCallback* callback)
+	HRESULT SaveScreenshot(const std::wstring& filename, bool fullSize, IWebDiffCallback* callback)
 	{
 		if (m_activeTab < 0)
 			return E_FAIL;
-		std::wstring filepath = filename;
 		ComPtr<IWebDiffCallback> callback2(callback);
 		HRESULT hr = GetActiveWebView()->CallDevToolsProtocolMethod(L"Page.getLayoutMetrics", L"{}",
 			Callback<ICoreWebView2CallDevToolsProtocolMethodCompletedHandler>(
-				[this, filepath, fullSize, callback2](HRESULT errorCode, LPCWSTR returnObjectAsJson) -> HRESULT {
+				[this, filename, fullSize, callback2](HRESULT errorCode, LPCWSTR returnObjectAsJson) -> HRESULT {
 					HRESULT hr = errorCode;
 					if (SUCCEEDED(hr))
 					{
 						wil::com_ptr<IStream> stream;
-						hr = SHCreateStreamOnFileEx(filepath.c_str(), STGM_READWRITE | STGM_CREATE, FILE_ATTRIBUTE_NORMAL, TRUE, nullptr, &stream);
+						hr = SHCreateStreamOnFileEx(filename.c_str(), STGM_READWRITE | STGM_CREATE, FILE_ATTRIBUTE_NORMAL, TRUE, nullptr, &stream);
 						if (SUCCEEDED(hr))
 						{
 							RECT rcOrg;
@@ -543,164 +459,117 @@ public:
 										if (callback2)
 											callback2->Invoke({ errorCode, nullptr });
 										return S_OK;
-									})
-								.Get());
+									}).Get());
 						}
 					}
-					if (FAILED(hr))
-					{
-						if (callback2)
-							callback2->Invoke({ hr, nullptr });
-					}
+					if (FAILED(hr) && callback2)
+						callback2->Invoke({ hr, nullptr });
 					return S_OK;
-				})
-			.Get());
-
-		if (FAILED(hr))
-		{
-			if (callback2)
-				callback2->Invoke({ hr, nullptr });
-			return hr;
-		}
+				}).Get());
+		if (FAILED(hr) && callback2)
+			callback2->Invoke({ hr, nullptr });
 		return hr;
 	}
 
-	HRESULT SaveHTML(const wchar_t* filename, IWebDiffCallback* callback)
+	HRESULT SaveHTML(const std::wstring& filename, IWebDiffCallback* callback)
 	{
 		if (m_activeTab < 0)
 			return E_FAIL;
-
 		const wchar_t *script = L"document.documentElement.outerHTML";
 		ComPtr<IWebDiffCallback> callback2(callback);
-		std::wstring filename2(filename);
-		HRESULT hr3 = GetActiveWebView()->CallDevToolsProtocolMethod(L"DOM.getDocument", L"{\"depth\": -1, \"pierce\": true }",
-			Callback<ICoreWebView2CallDevToolsProtocolMethodCompletedHandler>(
-				[this, filename2](HRESULT errorCode, LPCWSTR returnObjectAsJson) -> HRESULT {
-					WDocument document;
-					document.Parse(returnObjectAsJson);
-					std::wstring params;
-					params = L"{ \"nodeId\": " + std::to_wstring(document[L"root"][L"nodeId"].GetInt()) + L"}";
-					
-					HRESULT hr4 = GetActiveWebView()->CallDevToolsProtocolMethod(L"DOM.getOuterHTML", params.c_str(),
-						Callback<ICoreWebView2CallDevToolsProtocolMethodCompletedHandler>(
-							[filename2](HRESULT errorCode, LPCWSTR returnObjectAsJson) -> HRESULT {
-								return S_OK;
-							})
-						.Get());
-					return S_OK;
-				})
-			.Get());
-
-		HRESULT hr2 = GetActiveWebView()->CallDevToolsProtocolMethod(L"DOMSnapshot.captureSnapshot", L"{\"computedStyles\": [] }",
-			Callback<ICoreWebView2CallDevToolsProtocolMethodCompletedHandler>(
-				[filename2](HRESULT errorCode, LPCWSTR returnObjectAsJson) -> HRESULT {
-					return S_OK;
-				})
-			.Get());
-
 		HRESULT hr = GetActiveWebView()->ExecuteScript(script,
 			Callback<ICoreWebView2ExecuteScriptCompletedHandler>(
-				[filename2, callback2](HRESULT errorCode, LPCWSTR resultObjectAsJson) -> HRESULT {
+				[filename, callback2](HRESULT errorCode, LPCWSTR resultObjectAsJson) -> HRESULT {
 					if (SUCCEEDED(errorCode))
 					{
 						WDocument document;
 						document.Parse(resultObjectAsJson);
-						errorCode = WriteToTextFile(filename2, document.GetString());
+						errorCode = WriteToTextFile(filename, document.GetString());
 					}
 					if (callback2)
 						callback2->Invoke({ errorCode, resultObjectAsJson });
 					return S_OK;
-				})
-			.Get());
-		if (FAILED(hr))
-		{
-			if (callback2)
-				callback2->Invoke({ hr, nullptr });
-			return hr;
-		}
+				}).Get());
+		if (FAILED(hr) && callback2)
+			callback2->Invoke({ hr, nullptr });
 		return hr;
 	}
 
-	HRESULT SaveFrameHTML(const wchar_t* frameId, const wchar_t* filename, IWebDiffCallback* callback)
+	HRESULT SaveFrameHTML(const std::wstring& frameId, const std::wstring& dirname, IWebDiffCallback* callback)
 	{
 		if (m_activeTab < 0)
 			return E_FAIL;
-
 		ComPtr<IWebDiffCallback> callback2(callback);
-		std::wstring filename2(filename);
-		std::wstring frameId2(frameId);
-		HRESULT hr = GetActiveWebView()->CallDevToolsProtocolMethod(L"DOM.getDocument", L"{\"depth\": -1, \"pierce\": true }",
+		std::wstring params = L"{ \"frameId\": \"" + frameId + L"\" }";
+		HRESULT hr = GetActiveWebView()->CallDevToolsProtocolMethod(L"DOM.getFrameOwner", params.c_str(),
 			Callback<ICoreWebView2CallDevToolsProtocolMethodCompletedHandler>(
-				[this, frameId2, filename2, callback2](HRESULT errorCode, LPCWSTR returnObjectAsJson) -> HRESULT {
-					WDocument document;
-					document.Parse(returnObjectAsJson);
-					std::wstring params = L"{ \"frameId\": \"" + frameId2 + L"\" }";
-					HRESULT hr = GetActiveWebView()->CallDevToolsProtocolMethod(L"DOM.getFrameOwner", params.c_str(),
-						Callback<ICoreWebView2CallDevToolsProtocolMethodCompletedHandler>(
-							[this, filename2, callback2](HRESULT errorCode, LPCWSTR returnObjectAsJson) -> HRESULT {
-								WDocument document;
-								document.Parse(returnObjectAsJson);
-								HRESULT hr = errorCode;
-								if (!document.IsObject())
-								{
-									hr = E_FAIL;
-								}
-								else
-								{
-									int nodeId = document[L"nodeId"].GetInt();
-									std::wstring params = L"{ \"nodeId\": " + std::to_wstring(nodeId) + L"}";
-									hr = GetActiveWebView()->CallDevToolsProtocolMethod(L"DOM.getOuterHTML", params.c_str(),
-										Callback<ICoreWebView2CallDevToolsProtocolMethodCompletedHandler>(
-											[this, filename2, callback2](HRESULT errorCode, LPCWSTR returnObjectAsJson) -> HRESULT {
-												HRESULT hr = errorCode;
-												if (callback2)
-													callback2->Invoke({ hr, nullptr });
-												return S_OK;
-											})
-										.Get());
-								}
-								if (FAILED(hr))
-								{
-									if (callback2)
-										callback2->Invoke({ hr, nullptr });
-								}
-								return S_OK;
-							})
-						.Get());
-					if (FAILED(hr))
+				[this, dirname, callback2](HRESULT errorCode, LPCWSTR returnObjectAsJson) -> HRESULT {
+					HRESULT hr = errorCode;
+					if (SUCCEEDED(hr))
 					{
-						if (callback2)
-							callback2->Invoke({ hr, nullptr });
+						WDocument document;
+						document.Parse(returnObjectAsJson);
+						int backendNodeId = document[L"backendNodeId"].GetInt();
+						std::wstring params = L"{ \"backendNodeId\": " + std::to_wstring(backendNodeId) + L"}";
+						hr = GetActiveWebView()->CallDevToolsProtocolMethod(L"DOM.describeNode", params.c_str(),
+							Callback<ICoreWebView2CallDevToolsProtocolMethodCompletedHandler>(
+								[this, dirname, callback2](HRESULT errorCode, LPCWSTR returnObjectAsJson) -> HRESULT {
+									HRESULT hr = errorCode;
+									if (SUCCEEDED(hr))
+									{
+										WDocument document;
+										document.Parse(returnObjectAsJson);
+										int backendNodeId = document[L"node"][L"contentDocument"][L"backendNodeId"].GetInt();
+										std::wstring params = L"{ \"backendNodeId\": " + std::to_wstring(backendNodeId) + L"}";
+										hr = GetActiveWebView()->CallDevToolsProtocolMethod(L"DOM.getOuterHTML", params.c_str(),
+											Callback<ICoreWebView2CallDevToolsProtocolMethodCompletedHandler>(
+												[this, dirname, callback2](HRESULT errorCode, LPCWSTR returnObjectAsJson) -> HRESULT {
+													HRESULT hr = errorCode;
+													if (SUCCEEDED(hr))
+													{
+														WDocument document;
+														document.Parse(returnObjectAsJson);
+														std::filesystem::path path = dirname;
+														path /= L"[Source].html";
+														if (FAILED(hr = WriteToTextFile(path, document[L"outerHTML"].GetString())))
+															WriteToErrorLog(dirname, path, hr);
+													}
+													if (callback2)
+														callback2->Invoke({ hr, nullptr });
+													return S_OK;
+												}).Get());
+									}
+									if (FAILED(hr) && callback2)
+										callback2->Invoke({ hr, nullptr });
+									return S_OK;
+								}).Get());
 					}
+					if (FAILED(hr) && callback2)
+						callback2->Invoke({ hr, nullptr });
 					return S_OK;
-				})
-			.Get());
-		if (FAILED(hr))
-		{
-			if (callback2)
-				callback2->Invoke({ hr, nullptr });
-		}
+				}).Get());
+		if (FAILED(hr) && callback2)
+			callback2->Invoke({ hr, nullptr });
 		return hr;
 	}
 
-	HRESULT SaveResourceContent(const wchar_t* frameId, const WValue& resource, const wchar_t* dirname, IWebDiffCallback* callback, std::shared_ptr<uint32_t> counter)
+	HRESULT SaveResourceContent(const std::wstring& frameId, const WValue& resource, const std::wstring& dirname, IWebDiffCallback* callback)
 	{
 		if (m_activeTab < 0)
 			return E_FAIL;
-		std::wstring dirname2(dirname);
 		std::wstring url(resource[L"url"].GetString());
 		std::wstring mimeType(resource[L"mimeType"].GetString());
-		std::wstring args = L"{ \"frameId\": \"" + std::wstring(frameId) + L"\", \"url\": \"" + url + L"\" }";
+		std::wstring args = L"{ \"frameId\": \"" + frameId + L"\", \"url\": \"" + url + L"\" }";
 		ComPtr<IWebDiffCallback> callback2(callback);
 		HRESULT hr = GetActiveWebView()->CallDevToolsProtocolMethod(L"Page.getResourceContent", args.c_str(),
 			Callback<ICoreWebView2CallDevToolsProtocolMethodCompletedHandler>(
-				[this, dirname2, url, mimeType, callback2, counter](HRESULT errorCode, LPCWSTR returnObjectAsJson) -> HRESULT {
-					std::filesystem::path path(dirname2);
+				[this, dirname, url, mimeType, callback2](HRESULT errorCode, LPCWSTR returnObjectAsJson) -> HRESULT {
+					std::filesystem::path path(dirname);
 					if (SUCCEEDED(errorCode))
 					{
 						std::wstring filename;
 						if (url.compare(0, 5, L"data:") == 0)
-							filename = L"[inline-data]";
+							filename = L"[InlineData]";
 						else
 							filename = std::filesystem::path(url).filename();
 						size_t pos = filename.find('?');
@@ -738,31 +607,24 @@ public:
 						if (document[L"base64Encoded"].GetBool())
 						{
 							if (FAILED(errorCode = WriteToBinaryFile(path, document[L"content"].GetString())))
-								WriteToErrorLog(dirname2.c_str(), url.c_str(), errorCode);
+								WriteToErrorLog(dirname, url, errorCode);
 						}
 						else
 						{
 							if (FAILED(errorCode = WriteToTextFile(path, document[L"content"].GetString())))
-								WriteToErrorLog(dirname2.c_str(), url.c_str(), errorCode);
+								WriteToErrorLog(dirname, url, errorCode);
 						}
 					}
 					else
 					{
-						WriteToErrorLog(dirname2.c_str(), url.c_str(), errorCode);
+						WriteToErrorLog(dirname, url, errorCode);
 					}
-					*counter = *counter - 1;
-					if (*counter == 0 && callback2)
+					if (callback2)
 						callback2->Invoke({ errorCode, returnObjectAsJson });
 					return S_OK;
-				})
-			.Get());
-		if (FAILED(hr))
-		{
-			*counter = *counter - 1;
-			if (*counter == 0 && callback2)
-				callback2->Invoke({ hr, nullptr });
-			return hr;
-		}
+				}).Get());
+		if (FAILED(hr) && callback2)
+			callback2->Invoke({ hr, nullptr });
 		return hr;
 	}
 
@@ -779,20 +641,12 @@ public:
 			std::wstring id = frameTree[L"frame"][L"id"].GetString();
 			for (const auto& resource : frameTree[L"resources"].GetArray())
 				++count;
-			std::wstring url = frameTree[L"frame"][L"url"].GetString();
-			for (const auto& frameInfo : GetActiveTab()->m_frames)
-			{
-				if (frameInfo.m_url == url)
-				{
-					++count;
-					break;
-				}
-			}
+			++count;
 		}
 		return count;
 	}
 
-	HRESULT SaveResourceTree(const wchar_t* dirname, const WValue& frameTree, IWebDiffCallback* callback, std::shared_ptr<uint32_t> counter)
+	HRESULT SaveResourceTree(bool root, const std::wstring& dirname, const WValue& frameTree, IWebDiffCallback* callback)
 	{
 		if (frameTree.HasMember(L"childFrames"))
 		{
@@ -804,98 +658,66 @@ public:
 				wchar_t buf[32];
 				swprintf_s(buf, L"%0*d", n, i);
 				std::wstring frameId = buf;
-				SaveResourceTree((std::filesystem::path(dirname) / (L"frameId" + frameId)).c_str(), frame, callback, counter);
+				SaveResourceTree(false, (std::filesystem::path(dirname) / (L"frameId" + frameId)), frame, callback);
 				++i;
 			}
 		}
 		if (frameTree.HasMember(L"frame"))
 		{
-			std::wstring id = frameTree[L"frame"][L"id"].GetString();
+			if (!std::filesystem::exists(dirname))
+				std::filesystem::create_directories(dirname);
+			std::wstring frameId = frameTree[L"frame"][L"id"].GetString();
 			for (const auto& resource : frameTree[L"resources"].GetArray())
 			{
 				std::filesystem::path path = dirname;
 				path /= resource[L"type"].GetString();
 				if (!std::filesystem::exists(path))
 					std::filesystem::create_directories(path);
-				SaveResourceContent(id.c_str(), resource, path.c_str(), callback, counter);
+				SaveResourceContent(frameId, resource, path, callback);
 			}
-			std::filesystem::path path = dirname;
-			path /= L"[source].html";
-			SaveFrameHTML(id.c_str(), path.c_str(), nullptr);
-			std::wstring url = frameTree[L"frame"][L"url"].GetString();
-			for (const auto& frameInfo : GetActiveTab()->m_frames)
-			{
-				if (frameInfo.m_url == url)
-				{
-					wil::com_ptr<ICoreWebView2Frame2> frame2 = frameInfo.m_frame.try_query<ICoreWebView2Frame2>();
-					if (frame2)
-					{
-						const wchar_t *script = L"document.documentElement.outerHTML";
-						ComPtr<IWebDiffCallback> callback2(callback);
-						std::wstring filename = (std::filesystem::path(dirname) / L"[source].html").wstring();
-						HRESULT hr = frame2->ExecuteScript(script,
-							Callback<ICoreWebView2ExecuteScriptCompletedHandler>(
-								[filename, callback2, counter](HRESULT errorCode, LPCWSTR resultObjectAsJson) -> HRESULT {
-									if (SUCCEEDED(errorCode))
-									{
-										WDocument document;
-										document.Parse(resultObjectAsJson);
-										errorCode = WriteToTextFile(filename, document.GetString());
-									}
-									*counter = *counter - 1;
-									if (*counter == 0 && callback2)
-										callback2->Invoke({ errorCode, resultObjectAsJson });
-									return S_OK;
-								})
-							.Get());
-					}
-					break;
-				}
-			}
+			if (root)
+				SaveHTML(std::filesystem::path(dirname) / L"[Source].html", callback);
+			else
+				SaveFrameHTML(frameId, dirname, callback);
 		}
 		return S_OK;
 	}
 
-	HRESULT SaveResourceTree(const wchar_t* dirname, IWebDiffCallback* callback)
+	HRESULT SaveResourceTree(const std::wstring& dirname, IWebDiffCallback* callback)
 	{
 		if (m_activeTab < 0)
 			return E_FAIL;
-		std::wstring dirname2(dirname);
 		ComPtr<IWebDiffCallback> callback2(callback);
 		HRESULT hr = GetActiveWebView()->CallDevToolsProtocolMethod(L"Page.getResourceTree", L"{}",
 			Callback<ICoreWebView2CallDevToolsProtocolMethodCompletedHandler>(
-				[this, dirname2, callback2](HRESULT errorCode, LPCWSTR returnObjectAsJson) -> HRESULT {
+				[this, dirname, callback2](HRESULT errorCode, LPCWSTR returnObjectAsJson) -> HRESULT {
 					WDocument document;
 					document.Parse(returnObjectAsJson);
 					const WValue& tree = document[L"frameTree"];
 
-					std::filesystem::path path(dirname2);
-					path /= L"resourceTree.json";
+					std::filesystem::path path(dirname);
+					path /= L"[ResourceTree].json";
 					WStringBuffer buffer;
 					WPrettyWriter writer(buffer);
 					document.Accept(writer);
 					if (FAILED(errorCode = WriteToTextFile(path, buffer.GetString())))
-						WriteToErrorLog(dirname2.c_str(), L"resourceTree.json", errorCode);
+						WriteToErrorLog(dirname, L"[ResourceTree].json", errorCode);
 
 					uint32_t size = GetResourceTreeItemCount(tree);
 					std::shared_ptr<unsigned> counter(new unsigned{ size });
-					SaveResourceTree(dirname2.c_str(), tree, callback2.Get(), counter);
-
+					SaveResourceTree(true, dirname, tree,
+						Callback<IWebDiffCallback>(
+							[this, counter, callback2](const WebDiffCallbackResult& result) -> HRESULT {
+								--*counter;
+								if (*counter == 0)
+									callback2->Invoke(result);
+								return S_OK;
+							}).Get());
 					return S_OK;
-				})
-			.Get());
-		if (FAILED(hr))
-		{
-			if (callback2)
-				callback2->Invoke({ hr, nullptr });
-			return hr;
-		}
+				}).Get());
+		if (FAILED(hr) && callback2)
+			callback2->Invoke({ hr, nullptr });
 		return hr;
-	}
-
-	HRESULT SaveDOMSnapshot(const wchar_t* filename, IWebDiffCallback* callback)
-	{
-		return S_OK;
 	}
 
 	HRESULT CallDevToolsProtocolMethod(const wchar_t* methodName, const wchar_t* params, IWebDiffCallback *callback)
@@ -909,8 +731,7 @@ public:
 					if (callback2)
 						callback2->Invoke({ errorCode, returnObjectAsJson });
 					return S_OK;
-				})
-			.Get());
+				}).Get());
 		return hr;
 	}
 
@@ -1185,7 +1006,7 @@ private:
 		return path2;
 	}
 
-	static void WriteToErrorLog(const wchar_t* dirname, const wchar_t* url, HRESULT hr)
+	static void WriteToErrorLog(const std::wstring& dirname, const std::wstring& url, HRESULT hr)
 	{
 		std::wstring msg;
 		LPTSTR errorText = nullptr;
@@ -1201,7 +1022,7 @@ private:
 		std::filesystem::path path(dirname);
 		path /= L"error.log";
 		_wfopen_s(&fp, path.c_str(), L"at,ccs=UTF-8");
-		fwprintf(fp.get(), L"url=%s hr=%08x: %s", url, hr, msg.c_str());
+		fwprintf(fp.get(), L"url=%s hr=%08x: %s", url.c_str(), hr, msg.c_str());
 	}
 
 	static HRESULT WriteToTextFile(const std::wstring& path, const std::wstring& data)
