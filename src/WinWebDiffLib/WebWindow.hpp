@@ -36,6 +36,12 @@ using WPrettyWriter = rapidjson::PrettyWriter<WStringBuffer, rapidjson::UTF16<>>
 
 class CWebWindow
 {
+	struct FrameInfo
+	{
+		wil::com_ptr<ICoreWebView2Frame> m_frame;
+		std::wstring m_url;
+	};
+
 	class CWebTab
 	{
 		friend CWebWindow;
@@ -81,8 +87,7 @@ class CWebWindow
 
 					m_webviewController->add_ZoomFactorChanged(
 						Callback<ICoreWebView2ZoomFactorChangedEventHandler>(
-							[this](ICoreWebView2Controller* sender, IUnknown* args)
-							-> HRESULT {
+							[this](ICoreWebView2Controller* sender, IUnknown* args) -> HRESULT {
 								m_navigationCompleted = true;
 								return m_parent->OnZoomFactorChanged(sender, args);
 							})
@@ -93,20 +98,6 @@ class CWebWindow
 					Settings->put_IsScriptEnabled(TRUE);
 					Settings->put_AreDefaultScriptDialogsEnabled(TRUE);
 					Settings->put_IsWebMessageEnabled(TRUE);
-
-					if (args && deferral)
-					{
-						args->put_NewWindow(m_webview.get());
-						args->put_Handled(true);
-						deferral->Complete();
-						deferral->Release();
-					}
-					else
-					{
-						m_webview->Navigate(url2->c_str());
-					}
-
-					m_parent->SetActiveTab(this);
 
 					m_webview->add_NewWindowRequested(
 						Callback<ICoreWebView2NewWindowRequestedEventHandler>(
@@ -124,8 +115,7 @@ class CWebWindow
 
 					m_webview->add_NavigationStarting(
 						Callback<ICoreWebView2NavigationStartingEventHandler>(
-							[this](ICoreWebView2* sender, ICoreWebView2NavigationStartingEventArgs* args)
-							-> HRESULT {
+							[this](ICoreWebView2* sender, ICoreWebView2NavigationStartingEventArgs* args) -> HRESULT {
 								m_navigationCompleted = false;
 								return m_parent->OnNavigationStarting(sender, args);
 							})
@@ -140,8 +130,7 @@ class CWebWindow
 
 					m_webview->add_SourceChanged(
 						Callback<ICoreWebView2SourceChangedEventHandler>(
-							[this](ICoreWebView2* sender, ICoreWebView2SourceChangedEventArgs* args)
-							-> HRESULT {
+							[this](ICoreWebView2* sender, ICoreWebView2SourceChangedEventArgs* args) -> HRESULT {
 								return m_parent->OnSourceChanged(sender, args);
 							})
 						.Get(), nullptr);
@@ -155,14 +144,95 @@ class CWebWindow
 
 					m_webview->add_NavigationCompleted(
 						Callback<ICoreWebView2NavigationCompletedEventHandler>(
-							[this](ICoreWebView2* sender, ICoreWebView2NavigationCompletedEventArgs* args)
-							-> HRESULT {
+							[this](ICoreWebView2* sender, ICoreWebView2NavigationCompletedEventArgs* args) -> HRESULT {
 								m_navigationCompleted = true;
 								return m_parent->OnNavigationCompleted(sender, args);
 							})
 						.Get(), nullptr);
 
+					HRESULT hr = m_webview->CallDevToolsProtocolMethod(L"DOM.enable", L"{}", nullptr);
 					m_webview->CallDevToolsProtocolMethod(L"Page.enable", L"{}", nullptr);
+
+					wil::com_ptr<ICoreWebView2_4> webview2_4 = m_webview.try_query<ICoreWebView2_4>();
+					if (webview2_4)
+					{
+						webview2_4->add_FrameCreated(
+							Callback<ICoreWebView2FrameCreatedEventHandler>(
+								[this](ICoreWebView2* sender, ICoreWebView2FrameCreatedEventArgs* args) -> HRESULT
+								{
+									m_frames.emplace_back();
+									auto frame = m_frames.back().m_frame;
+
+									args->get_Frame(&frame);
+
+									wil::com_ptr<ICoreWebView2Frame2> webviewFrame2 = frame.try_query<ICoreWebView2Frame2>();
+									if (webviewFrame2)
+									{
+										/*
+										webviewFrame2->add_NavigationStarting(
+											Callback<ICoreWebView2FrameNavigationStartingEventHandler>(
+												[this, &frameInfo](ICoreWebView2Frame* sender, ICoreWebView2NavigationStartingEventArgs* args) -> HRESULT
+												{
+													wil::unique_cotaskmem_string url;
+													args->get_Uri(&url);
+													frameInfo.m_url = url.get();
+													return S_OK;
+												}).Get(), nullptr);
+												*/
+										webviewFrame2->add_NavigationCompleted(
+											Callback<ICoreWebView2FrameNavigationCompletedEventHandler>(
+												[webviewFrame2, this](ICoreWebView2Frame* sender, ICoreWebView2NavigationCompletedEventArgs* args) -> HRESULT
+												{
+													webviewFrame2->ExecuteScript(L"document.URL",
+														Callback<ICoreWebView2ExecuteScriptCompletedHandler>(
+															[this, sender](HRESULT errorCode, LPCWSTR resultObjectAsJson) -> HRESULT
+															{
+																WDocument document;
+																//document.Parse((std::wstring(L"{ \"result\": ") + resultObjectAsJson + L"}").c_str());
+																//frameInfo.m_url = document[L"result"].GetString();
+																document.Parse(resultObjectAsJson);
+																std::wstring url = document.GetString();
+																auto it =
+																	std::find_if(m_frames.begin(), m_frames.end(),
+																		[sender](const auto& frameInfo) { return frameInfo.m_frame.get() == sender; });
+																if (it != m_frames.end())
+																	it->m_url = url;
+																return S_OK;
+															}).Get());
+													return S_OK;
+												}).Get(), nullptr);
+									}
+
+									frame->add_Destroyed(
+										Callback<ICoreWebView2FrameDestroyedEventHandler>(
+											[this](ICoreWebView2Frame* sender, IUnknown* args) -> HRESULT
+											{
+												auto frame =
+													std::find_if(m_frames.begin(), m_frames.end(),
+														[sender](const auto& frame) { return frame.m_frame.get() == sender; });
+												if (frame != m_frames.end())
+												{
+													m_frames.erase(frame);
+												}
+												return S_OK;
+											}).Get(), nullptr);
+									return S_OK;
+								}).Get(), nullptr);
+					}
+
+					if (args && deferral)
+					{
+						args->put_NewWindow(m_webview.get());
+						args->put_Handled(true);
+						deferral->Complete();
+						deferral->Release();
+					}
+					else
+					{
+						m_webview->Navigate(url2->c_str());
+					}
+
+					m_parent->SetActiveTab(this);
 
 					if (callback2)
 						callback2->Invoke({ S_OK, nullptr });
@@ -174,6 +244,7 @@ class CWebWindow
 	private:
 		wil::com_ptr<ICoreWebView2Controller> m_webviewController;
 		wil::com_ptr<ICoreWebView2> m_webview;
+		std::vector<FrameInfo> m_frames;
 		CWebWindow* m_parent;
 		bool m_navigationCompleted = false;
 	};
@@ -295,10 +366,9 @@ public:
 		HRESULT hr = GetActiveWebView()->Navigate(url.c_str());
 		if (hr == E_INVALIDARG)
 		{
-			if (url.find(' ') == std::wstring::npos && url.find('.') != std::wstring::npos)
-				hr = GetActiveWebView()->Navigate((L"http://" + url).c_str());
-			else
-				hr = GetActiveWebView()->Navigate((L"https://www.google.com/search?q=" + url).c_str());
+			std::wstring url2 = (url.find(' ') == std::wstring::npos && url.find('.') != std::wstring::npos) ?
+				L"http://" + url : L"https://www.google.com/search?q=" + url;
+			hr = GetActiveWebView()->Navigate(url2.c_str());
 		}
 		return hr;
 	}
@@ -503,6 +573,31 @@ public:
 		const wchar_t *script = L"document.documentElement.outerHTML";
 		ComPtr<IWebDiffCallback> callback2(callback);
 		std::wstring filename2(filename);
+		HRESULT hr3 = GetActiveWebView()->CallDevToolsProtocolMethod(L"DOM.getDocument", L"{\"depth\": -1, \"pierce\": true }",
+			Callback<ICoreWebView2CallDevToolsProtocolMethodCompletedHandler>(
+				[this, filename2](HRESULT errorCode, LPCWSTR returnObjectAsJson) -> HRESULT {
+					WDocument document;
+					document.Parse(returnObjectAsJson);
+					std::wstring params;
+					params = L"{ \"nodeId\": " + std::to_wstring(document[L"root"][L"nodeId"].GetInt()) + L"}";
+					
+					HRESULT hr4 = GetActiveWebView()->CallDevToolsProtocolMethod(L"DOM.getOuterHTML", params.c_str(),
+						Callback<ICoreWebView2CallDevToolsProtocolMethodCompletedHandler>(
+							[filename2](HRESULT errorCode, LPCWSTR returnObjectAsJson) -> HRESULT {
+								return S_OK;
+							})
+						.Get());
+					return S_OK;
+				})
+			.Get());
+
+		HRESULT hr2 = GetActiveWebView()->CallDevToolsProtocolMethod(L"DOMSnapshot.captureSnapshot", L"{\"computedStyles\": [] }",
+			Callback<ICoreWebView2CallDevToolsProtocolMethodCompletedHandler>(
+				[filename2](HRESULT errorCode, LPCWSTR returnObjectAsJson) -> HRESULT {
+					return S_OK;
+				})
+			.Get());
+
 		HRESULT hr = GetActiveWebView()->ExecuteScript(script,
 			Callback<ICoreWebView2ExecuteScriptCompletedHandler>(
 				[filename2, callback2](HRESULT errorCode, LPCWSTR resultObjectAsJson) -> HRESULT {
@@ -522,6 +617,68 @@ public:
 			if (callback2)
 				callback2->Invoke({ hr, nullptr });
 			return hr;
+		}
+		return hr;
+	}
+
+	HRESULT SaveFrameHTML(const wchar_t* frameId, const wchar_t* filename, IWebDiffCallback* callback)
+	{
+		if (m_activeTab < 0)
+			return E_FAIL;
+
+		ComPtr<IWebDiffCallback> callback2(callback);
+		std::wstring filename2(filename);
+		std::wstring frameId2(frameId);
+		HRESULT hr = GetActiveWebView()->CallDevToolsProtocolMethod(L"DOM.getDocument", L"{\"depth\": -1, \"pierce\": true }",
+			Callback<ICoreWebView2CallDevToolsProtocolMethodCompletedHandler>(
+				[this, frameId2, filename2, callback2](HRESULT errorCode, LPCWSTR returnObjectAsJson) -> HRESULT {
+					WDocument document;
+					document.Parse(returnObjectAsJson);
+					std::wstring params = L"{ \"frameId\": \"" + frameId2 + L"\" }";
+					HRESULT hr = GetActiveWebView()->CallDevToolsProtocolMethod(L"DOM.getFrameOwner", params.c_str(),
+						Callback<ICoreWebView2CallDevToolsProtocolMethodCompletedHandler>(
+							[this, filename2, callback2](HRESULT errorCode, LPCWSTR returnObjectAsJson) -> HRESULT {
+								WDocument document;
+								document.Parse(returnObjectAsJson);
+								HRESULT hr = errorCode;
+								if (!document.IsObject())
+								{
+									hr = E_FAIL;
+								}
+								else
+								{
+									int nodeId = document[L"nodeId"].GetInt();
+									std::wstring params = L"{ \"nodeId\": " + std::to_wstring(nodeId) + L"}";
+									hr = GetActiveWebView()->CallDevToolsProtocolMethod(L"DOM.getOuterHTML", params.c_str(),
+										Callback<ICoreWebView2CallDevToolsProtocolMethodCompletedHandler>(
+											[this, filename2, callback2](HRESULT errorCode, LPCWSTR returnObjectAsJson) -> HRESULT {
+												HRESULT hr = errorCode;
+												if (callback2)
+													callback2->Invoke({ hr, nullptr });
+												return S_OK;
+											})
+										.Get());
+								}
+								if (FAILED(hr))
+								{
+									if (callback2)
+										callback2->Invoke({ hr, nullptr });
+								}
+								return S_OK;
+							})
+						.Get());
+					if (FAILED(hr))
+					{
+						if (callback2)
+							callback2->Invoke({ hr, nullptr });
+					}
+					return S_OK;
+				})
+			.Get());
+		if (FAILED(hr))
+		{
+			if (callback2)
+				callback2->Invoke({ hr, nullptr });
 		}
 		return hr;
 	}
@@ -569,7 +726,7 @@ public:
 								path += L".gif";
 							else if (mimeType == L"image/jpeg" || mimeType == L"image/jpg")
 								path += L".jpg";
-							else if (mimeType == L"image/svg")
+							else if (mimeType == L"image/svg" || mimeType == L"image/svg+xml")
 								path += L".svg";
 						}
 
@@ -622,6 +779,15 @@ public:
 			std::wstring id = frameTree[L"frame"][L"id"].GetString();
 			for (const auto& resource : frameTree[L"resources"].GetArray())
 				++count;
+			std::wstring url = frameTree[L"frame"][L"url"].GetString();
+			for (const auto& frameInfo : GetActiveTab()->m_frames)
+			{
+				if (frameInfo.m_url == url)
+				{
+					++count;
+					break;
+				}
+			}
 		}
 		return count;
 	}
@@ -638,7 +804,7 @@ public:
 				wchar_t buf[32];
 				swprintf_s(buf, L"%0*d", n, i);
 				std::wstring frameId = buf;
-				SaveResourceTree((std::filesystem::path(dirname) / (L"frameId_" + frameId)).c_str(), frame, callback, counter);
+				SaveResourceTree((std::filesystem::path(dirname) / (L"frameId" + frameId)).c_str(), frame, callback, counter);
 				++i;
 			}
 		}
@@ -652,6 +818,39 @@ public:
 				if (!std::filesystem::exists(path))
 					std::filesystem::create_directories(path);
 				SaveResourceContent(id.c_str(), resource, path.c_str(), callback, counter);
+			}
+			std::filesystem::path path = dirname;
+			path /= L"[source].html";
+			SaveFrameHTML(id.c_str(), path.c_str(), nullptr);
+			std::wstring url = frameTree[L"frame"][L"url"].GetString();
+			for (const auto& frameInfo : GetActiveTab()->m_frames)
+			{
+				if (frameInfo.m_url == url)
+				{
+					wil::com_ptr<ICoreWebView2Frame2> frame2 = frameInfo.m_frame.try_query<ICoreWebView2Frame2>();
+					if (frame2)
+					{
+						const wchar_t *script = L"document.documentElement.outerHTML";
+						ComPtr<IWebDiffCallback> callback2(callback);
+						std::wstring filename = (std::filesystem::path(dirname) / L"[source].html").wstring();
+						HRESULT hr = frame2->ExecuteScript(script,
+							Callback<ICoreWebView2ExecuteScriptCompletedHandler>(
+								[filename, callback2, counter](HRESULT errorCode, LPCWSTR resultObjectAsJson) -> HRESULT {
+									if (SUCCEEDED(errorCode))
+									{
+										WDocument document;
+										document.Parse(resultObjectAsJson);
+										errorCode = WriteToTextFile(filename, document.GetString());
+									}
+									*counter = *counter - 1;
+									if (*counter == 0 && callback2)
+										callback2->Invoke({ errorCode, resultObjectAsJson });
+									return S_OK;
+								})
+							.Get());
+					}
+					break;
+				}
 			}
 		}
 		return S_OK;
@@ -670,10 +869,6 @@ public:
 					document.Parse(returnObjectAsJson);
 					const WValue& tree = document[L"frameTree"];
 
-					uint32_t size = GetResourceTreeItemCount(tree);
-					std::shared_ptr<unsigned> counter(new unsigned{ size });
-					SaveResourceTree(dirname2.c_str(), tree, callback2.Get(), counter);
-
 					std::filesystem::path path(dirname2);
 					path /= L"resourceTree.json";
 					WStringBuffer buffer;
@@ -681,6 +876,11 @@ public:
 					document.Accept(writer);
 					if (FAILED(errorCode = WriteToTextFile(path, buffer.GetString())))
 						WriteToErrorLog(dirname2.c_str(), L"resourceTree.json", errorCode);
+
+					uint32_t size = GetResourceTreeItemCount(tree);
+					std::shared_ptr<unsigned> counter(new unsigned{ size });
+					SaveResourceTree(dirname2.c_str(), tree, callback2.Get(), counter);
+
 					return S_OK;
 				})
 			.Get());
@@ -691,6 +891,11 @@ public:
 			return hr;
 		}
 		return hr;
+	}
+
+	HRESULT SaveDOMSnapshot(const wchar_t* filename, IWebDiffCallback* callback)
+	{
+		return S_OK;
 	}
 
 	HRESULT CallDevToolsProtocolMethod(const wchar_t* methodName, const wchar_t* params, IWebDiffCallback *callback)
