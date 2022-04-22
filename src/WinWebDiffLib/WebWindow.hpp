@@ -135,7 +135,6 @@ class CWebWindow
 								return m_parent->OnNavigationCompleted(sender, args);
 							}).Get(), nullptr);
 
-					HRESULT hr = m_webview->CallDevToolsProtocolMethod(L"DOM.enable", L"{}", nullptr);
 					m_webview->CallDevToolsProtocolMethod(L"Page.enable", L"{}", nullptr);
 
 					if (args && deferral)
@@ -658,7 +657,7 @@ public:
 				wchar_t buf[32];
 				swprintf_s(buf, L"%0*d", n, i);
 				std::wstring frameId = buf;
-				SaveResourceTree(false, (std::filesystem::path(dirname) / (L"frameId" + frameId)), frame, callback);
+				SaveResourceTree(false, (std::filesystem::path(dirname) / (L"Frame" + frameId)), frame, callback);
 				++i;
 			}
 		}
@@ -1085,12 +1084,21 @@ private:
 		args->get_KeyEventKind(&kind);
 		args->get_VirtualKey(&virtualKey);
 		args->get_KeyEventLParam(&lParam);
-		bool handled = false;
 		if (kind == COREWEBVIEW2_KEY_EVENT_KIND_KEY_DOWN || kind == COREWEBVIEW2_KEY_EVENT_KIND_SYSTEM_KEY_DOWN)
 		{
-			short vkmenu = GetKeyState(VK_MENU);
-			short vkctrl = GetKeyState(VK_CONTROL);
-			if (vkmenu &&virtualKey == 'D')
+			bool handled = false;
+			short vkmenu = GetAsyncKeyState(VK_MENU);
+			short vkctrl = GetAsyncKeyState(VK_CONTROL);
+			if (virtualKey == VK_F6 ||
+			    virtualKey == VK_ESCAPE ||
+			    (vkctrl && virtualKey == 'O') ||
+			    (vkctrl && virtualKey == 'J') ||
+			    (vkctrl && virtualKey == 'W'))
+			{
+				PostMessage(m_hWnd, WM_KEYDOWN, virtualKey, lParam);
+				handled = true;
+			}
+			else if (vkmenu && virtualKey == 'D')
 			{
 				::SendMessage(m_hEdit, EM_SETSEL, 0, -1);
 				::SetFocus(m_hEdit);
@@ -1107,9 +1115,9 @@ private:
 				::SetFocus(m_hEdit);
 				handled = true;
 			}
+			if (handled)
+				args->put_Handled(handled);
 		}
-
-		args->put_Handled(handled);
 		return S_OK;
 	}
 
@@ -1346,6 +1354,7 @@ private:
 			int length = GetWindowTextLength(m_hEdit);
 			std::wstring url(length, 0);
 			GetWindowText(m_hEdit, const_cast<wchar_t*>(url.data()), length + 1);
+			SetFocus();
 			Navigate(url);
 			return 0;
 		}
