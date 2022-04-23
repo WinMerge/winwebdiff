@@ -86,7 +86,7 @@ public:
 				std::wstring userDataFolder = GetUserDataFolderPath(i);
 				ComPtr<IWebDiffCallback> callback2(callback);
 				hr = m_webWindow[i].Create(m_hInstance, m_hWnd, urls[i], userDataFolder.c_str(),
-						m_size, m_fitToWindow, m_zoom,
+						m_size, m_fitToWindow, m_zoom, m_userAgent,
 						Callback<IWebDiffCallback>([this, counter, callback2](const WebDiffCallbackResult& result) -> HRESULT
 							{
 								*counter = *counter - 1;
@@ -146,7 +146,7 @@ public:
 	{
 		if (pane < 0 || pane >= m_nPanes || !m_hWnd)
 			return;
-		m_webWindow[pane].NewTab(url, 1.0, callback);
+		m_webWindow[pane].NewTab(url, m_zoom, m_userAgent, callback);
 	}
 
 	void CloseActiveTab(int pane) override
@@ -525,6 +525,20 @@ public:
 		m_zoom = std::clamp(zoom, 0.25, 5.0);
 		for (int pane = 0; pane < m_nPanes; ++pane)
 			m_webWindow[pane].SetZoom(m_zoom);
+	}
+
+	const wchar_t *GetUserAgent() const
+	{
+		if (m_nPanes == 0)
+			return L"";
+		return m_userAgent.c_str();
+	}
+
+	void SetUserAgent(const wchar_t* userAgent)
+	{
+		m_userAgent = userAgent;
+		for (int pane = 0; pane < m_nPanes; ++pane)
+			m_webWindow[pane].SetUserAgent(m_userAgent);
 	}
 
 	bool GetFitToWindow() const
@@ -997,6 +1011,7 @@ private:
 	SIZE m_size{ 1024, 600 };
 	bool m_fitToWindow = true;
 	double m_zoom = 1.0;
+	std::wstring m_userAgent = L"";
 	UserDataFolderType m_userDataFolderType = UserDataFolderType::APPDATA;
 	bool m_bUserDataFolderPerPane = true;
 	std::vector<ComPtr<IWebDiffEventHandler>> m_listeners;

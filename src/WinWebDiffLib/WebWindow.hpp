@@ -40,24 +40,24 @@ class CWebWindow
 	{
 		friend CWebWindow;
 	public:
-		CWebTab(CWebWindow* parent, const wchar_t* url, double zoom, IWebDiffCallback* callback)
+		CWebTab(CWebWindow* parent, const wchar_t* url, double zoom, const std::wstring& userAgent, IWebDiffCallback* callback)
 			: m_parent(parent)
 		{
-			InitializeWebView(url, zoom, nullptr, nullptr, callback);
+			InitializeWebView(url, zoom, userAgent, nullptr, nullptr, callback);
 		}
 
-		CWebTab(CWebWindow* parent, double zoom, ICoreWebView2NewWindowRequestedEventArgs* args = nullptr, ICoreWebView2Deferral* deferral = nullptr, IWebDiffCallback* callback = nullptr)
+		CWebTab(CWebWindow* parent, double zoom, const std::wstring& userAgent, ICoreWebView2NewWindowRequestedEventArgs* args = nullptr, ICoreWebView2Deferral* deferral = nullptr, IWebDiffCallback* callback = nullptr)
 			: m_parent(parent)
 		{
-			InitializeWebView(nullptr, zoom, args, deferral, callback);
+			InitializeWebView(nullptr, zoom, userAgent, args, deferral, callback);
 		}
 
-		bool InitializeWebView(const wchar_t* url, double zoom, ICoreWebView2NewWindowRequestedEventArgs* args, ICoreWebView2Deferral* deferral, IWebDiffCallback* callback)
+		bool InitializeWebView(const wchar_t* url, double zoom, const std::wstring& userAgent, ICoreWebView2NewWindowRequestedEventArgs* args, ICoreWebView2Deferral* deferral, IWebDiffCallback* callback)
 		{
 			std::shared_ptr<std::wstring> url2(url ? new std::wstring(url) : nullptr);
 			ComPtr<IWebDiffCallback> callback2(callback);
 			HRESULT hr = m_parent->m_webviewEnvironment->CreateCoreWebView2Controller(m_parent->m_hWebViewParent, Callback<ICoreWebView2CreateCoreWebView2ControllerCompletedHandler>(
-				[this, url2, zoom, args, deferral, callback2](HRESULT result, ICoreWebView2Controller* controller) -> HRESULT {
+				[this, url2, zoom, userAgent, args, deferral, callback2](HRESULT result, ICoreWebView2Controller* controller) -> HRESULT {
 					if (controller != nullptr) {
 						m_webviewController = controller;
 						m_webviewController->get_CoreWebView2(&m_webview);
@@ -69,7 +69,7 @@ class CWebWindow
 							callback2->Invoke({ result, nullptr });
 						return result;
 					}
-					
+
 					m_webviewController->put_ZoomFactor(zoom);
 
 					m_webviewController->add_AcceleratorKeyPressed(
@@ -85,11 +85,15 @@ class CWebWindow
 								return m_parent->OnZoomFactorChanged(sender, args);
 							}).Get(), nullptr);
 
-					ICoreWebView2Settings* Settings;
-					m_webview->get_Settings(&Settings);
-					Settings->put_IsScriptEnabled(TRUE);
-					Settings->put_AreDefaultScriptDialogsEnabled(TRUE);
-					Settings->put_IsWebMessageEnabled(TRUE);
+					wil::com_ptr_t<ICoreWebView2Settings> settings;
+					m_webview->get_Settings(&settings);
+					settings->put_IsScriptEnabled(TRUE);
+					settings->put_AreDefaultScriptDialogsEnabled(TRUE);
+					settings->put_IsWebMessageEnabled(TRUE);
+					settings->put_AreDevToolsEnabled(TRUE);
+					auto settings2 = settings.try_query<ICoreWebView2Settings2>();
+					if (settings2)
+						settings2->put_UserAgent(userAgent.c_str());
 
 					m_webview->add_NewWindowRequested(
 						Callback<ICoreWebView2NewWindowRequestedEventHandler>(
@@ -136,6 +140,20 @@ class CWebWindow
 							}).Get(), nullptr);
 
 					m_webview->CallDevToolsProtocolMethod(L"Page.enable", L"{}", nullptr);
+					m_webview->CallDevToolsProtocolMethod(L"Network.enable", L"{}", nullptr);
+					m_webview->CallDevToolsProtocolMethod(L"Log.enable", L"{}", nullptr);
+
+					wil::com_ptr<ICoreWebView2DevToolsProtocolEventReceiver> receiver;
+					for (const auto* event : { L"Network.requestWillBeSent", L"Network.responseReceived", L"Log.entryAdded"})
+					{
+						std::wstring event2 = event;
+						m_webview->GetDevToolsProtocolEventReceiver(event, &receiver);
+						receiver->add_DevToolsProtocolEventReceived(
+							Callback<ICoreWebView2DevToolsProtocolEventReceivedEventHandler>(
+								[this, event2](ICoreWebView2* sender, ICoreWebView2DevToolsProtocolEventReceivedEventArgs* args) -> HRESULT {
+									return m_parent->OnDevToolsProtocolEventReceived(sender, args, event2);
+								}).Get(), nullptr);
+					}
 
 					if (args && deferral)
 					{
@@ -181,7 +199,7 @@ public:
 	}
 
 	HRESULT Create(HINSTANCE hInstance, HWND hWndParent, const wchar_t* url, const wchar_t* userDataFolder,
-		const SIZE& size, bool fitToWindow, double zoom,
+		const SIZE& size, bool fitToWindow, double zoom, std::wstring& userAgent,
 		IWebDiffCallback* callback, std::function<void (WebDiffEvent::EVENT_TYPE)> eventHandler)
 	{
 		m_fitToWindow = fitToWindow;
@@ -236,7 +254,7 @@ public:
 		SendMessage(m_hEdit, WM_SETFONT, (WPARAM)m_hEditFont, 0);
 		SendMessage(m_hToolbar, TB_ADDBUTTONS, (WPARAM)std::size(tbb), (LPARAM)&tbb);
 		SendMessage(m_hToolbar, WM_SETFONT, (WPARAM)m_hToolbarFont, 0);
-		return InitializeWebView(url, zoom, userDataFolder, callback);
+		return InitializeWebView(url, zoom, userAgent, userDataFolder, callback);
 	}
 
 	bool Destroy()
@@ -264,9 +282,9 @@ public:
 		return true;
 	}
 
-	void NewTab(const wchar_t* url, double zoom, IWebDiffCallback* callback)
+	void NewTab(const wchar_t* url, double zoom, const std::wstring& userAgent, IWebDiffCallback* callback)
 	{
-		m_tabs.emplace_back(new CWebTab(this, url, zoom, callback));
+		m_tabs.emplace_back(new CWebTab(this, url, zoom, userAgent, callback));
 
 		TCITEM tcItem{};
 		tcItem.mask = TCIF_TEXT;
@@ -379,6 +397,30 @@ public:
 		if (!pWebViewController)
 			return;
 		pWebViewController->put_ZoomFactor(std::clamp(zoom, 0.25, 5.0));
+	}
+
+	std::wstring GetUserAgent() const
+	{
+		if (m_activeTab < 0)
+			return L"";
+		wil::com_ptr_t<ICoreWebView2Settings> settings;
+		wil::unique_cotaskmem_string userAgent;
+		GetActiveWebView()->get_Settings(&settings);
+		auto settings2 = settings.try_query<ICoreWebView2Settings2>();
+		if (settings2)
+			settings2->get_UserAgent(&userAgent);
+		return userAgent.get();
+	}
+
+	void SetUserAgent(const std::wstring& userAgent)
+	{
+		if (m_activeTab < 0)
+			return;
+		wil::com_ptr_t<ICoreWebView2Settings> settings;
+		GetActiveWebView()->get_Settings(&settings);
+		auto settings2 = settings.try_query<ICoreWebView2Settings2>();
+		if (settings2)
+			settings2->put_UserAgent(userAgent.c_str());
 	}
 
 	bool IsFocused() const
@@ -766,14 +808,14 @@ public:
 
 private:
 
-	HRESULT InitializeWebView(const wchar_t *url, double zoom, const wchar_t *userDataFolder, IWebDiffCallback* callback)
+	HRESULT InitializeWebView(const wchar_t* url, double zoom, const std::wstring& userAgent, const wchar_t* userDataFolder, IWebDiffCallback* callback)
 	{
 		std::shared_ptr<std::wstring> url2(new std::wstring(url));
 		HRESULT hr = CreateCoreWebView2EnvironmentWithOptions(nullptr, userDataFolder, nullptr,
 			Callback<ICoreWebView2CreateCoreWebView2EnvironmentCompletedHandler>(
-				[this, url2, zoom, callback](HRESULT result, ICoreWebView2Environment* env) -> HRESULT {
+				[this, url2, zoom, userAgent, callback](HRESULT result, ICoreWebView2Environment* env) -> HRESULT {
 					m_webviewEnvironment = env;
-					m_tabs.emplace_back(new CWebTab(this, url2->c_str(), zoom, callback));
+					m_tabs.emplace_back(new CWebTab(this, url2->c_str(), zoom, userAgent, callback));
 
 					TCITEM tcItem{};
 					tcItem.mask = TCIF_TEXT;
@@ -1019,7 +1061,7 @@ private:
 		}
 		wil::unique_file fp;
 		std::filesystem::path path(dirname);
-		path /= L"error.log";
+		path /= L"[Error].log";
 		_wfopen_s(&fp, path.c_str(), L"at,ccs=UTF-8");
 		fwprintf(fp.get(), L"url=%s hr=%08x: %s", url.c_str(), hr, msg.c_str());
 	}
@@ -1098,6 +1140,10 @@ private:
 				PostMessage(m_hWnd, WM_KEYDOWN, virtualKey, lParam);
 				handled = true;
 			}
+			else if (virtualKey == VK_F12)
+			{
+				GetActiveWebView()->OpenDevToolsWindow();
+			}
 			else if (vkmenu && virtualKey == 'D')
 			{
 				::SendMessage(m_hEdit, EM_SETSEL, 0, -1);
@@ -1134,7 +1180,7 @@ private:
 		GetActiveWebViewController()->put_IsVisible(false);
 		ICoreWebView2Deferral* deferral;
 		args->GetDeferral(&deferral);
-		CWebTab* pWebTab{ new CWebTab(this, 1.0, args, deferral) };
+		CWebTab* pWebTab{ new CWebTab(this, GetZoom(), GetUserAgent(), args, deferral)};
 		m_tabs.emplace_back(pWebTab);
 		TCITEM tcItem{};
 		tcItem.mask = TCIF_TEXT;
@@ -1198,6 +1244,13 @@ private:
 	{
 		UpdateToolbarControls();
 		m_eventHandler(WebDiffEvent::NavigationCompleted);
+		return S_OK;
+	}
+
+	HRESULT OnDevToolsProtocolEventReceived(ICoreWebView2* sender, ICoreWebView2DevToolsProtocolEventReceivedEventArgs* args, const std::wstring& event)
+	{
+		wil::unique_cotaskmem_string parameterObjectAsJson;
+		args->get_ParameterObjectAsJson(&parameterObjectAsJson);
 		return S_OK;
 	}
 
