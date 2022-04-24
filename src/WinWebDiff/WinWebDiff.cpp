@@ -6,6 +6,7 @@
 #include <CommCtrl.h>
 #include <string>
 #include <vector>
+#include <list>
 #include <filesystem>
 #include <wrl.h>
 
@@ -125,8 +126,8 @@ HWND m_hWnd;
 WCHAR m_szTitle[256] = L"WinWebDiff";
 WCHAR m_szWindowClass[256] = L"WINWEBDIFF";
 IWebDiffWindow* m_pWebDiffWindow = nullptr;
-std::vector<TempFile> m_tempFiles;
-std::vector<TempFolder> m_tempFolders;
+std::list<TempFile> m_tempFiles;
+std::list<TempFolder> m_tempFolders;
 
 ATOM				MyRegisterClass(HINSTANCE hInstance);
 BOOL				InitInstance(HINSTANCE, int);

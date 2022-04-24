@@ -87,13 +87,16 @@ class CWebWindow
 
 					wil::com_ptr_t<ICoreWebView2Settings> settings;
 					m_webview->get_Settings(&settings);
-					settings->put_IsScriptEnabled(TRUE);
-					settings->put_AreDefaultScriptDialogsEnabled(TRUE);
-					settings->put_IsWebMessageEnabled(TRUE);
-					settings->put_AreDevToolsEnabled(TRUE);
-					auto settings2 = settings.try_query<ICoreWebView2Settings2>();
-					if (settings2)
-						settings2->put_UserAgent(userAgent.c_str());
+					if (settings)
+					{
+						settings->put_IsScriptEnabled(TRUE);
+						settings->put_AreDefaultScriptDialogsEnabled(TRUE);
+						settings->put_IsWebMessageEnabled(TRUE);
+						settings->put_AreDevToolsEnabled(TRUE);
+						auto settings2 = settings.try_query<ICoreWebView2Settings2>();
+						if (settings2)
+							settings2->put_UserAgent(userAgent.c_str());
+					}
 
 					m_webview->add_NewWindowRequested(
 						Callback<ICoreWebView2NewWindowRequestedEventHandler>(
@@ -140,6 +143,7 @@ class CWebWindow
 							}).Get(), nullptr);
 
 					m_webview->CallDevToolsProtocolMethod(L"Page.enable", L"{}", nullptr);
+					/*
 					m_webview->CallDevToolsProtocolMethod(L"Network.enable", L"{}", nullptr);
 					m_webview->CallDevToolsProtocolMethod(L"Log.enable", L"{}", nullptr);
 
@@ -154,6 +158,7 @@ class CWebWindow
 									return m_parent->OnDevToolsProtocolEventReceived(sender, args, event2);
 								}).Get(), nullptr);
 					}
+					*/
 
 					if (args && deferral)
 					{
@@ -533,30 +538,40 @@ public:
 
 	HRESULT SaveText(FILE *fp, const WValue& value)
 	{
-		HRESULT hr = S_OK;
+		const int nodeType = value[L"nodeType"].GetInt();
+		const auto* nodeName = value[L"nodeName"].GetString();
+		const bool fInline = IsInlineElement(nodeName);
+
 		if (value[L"nodeType"].GetInt() == 3 /* #text */)
 		{
 			if (fwprintf(fp, L"%s", value[L"nodeValue"].GetString()) < 0)
-				hr = HRESULT_FROM_WIN32(GetLastError());
-			if (!IsInlineElement(value[L"nodeName"].GetString()))
-				fwprintf(fp, L"\n");
+				return HRESULT_FROM_WIN32(GetLastError());
 		}
-		const auto& nodeName = value[L"nodeName"].GetString();
-		if (wcscmp(nodeName, L"SCRIPT") != 0 && wcscmp(nodeName, L"STYLE") != 0)
+		if (value.HasMember(L"children") && value[L"children"].IsArray())
 		{
-			if (value.HasMember(L"children") && value[L"children"].IsArray())
+			if (wcscmp(nodeName, L"SCRIPT") != 0 && wcscmp(nodeName, L"STYLE") != 0)
 			{
+				int textCount = 0;
 				for (const auto& child : value[L"children"].GetArray())
 				{
-					HRESULT hr2 = SaveText(fp, child);
-					if (FAILED(hr2))
-						hr = hr2;
+					int childNodeType = child[L"nodeType"].GetInt();
+					if (childNodeType == 3)
+						textCount++;
+					HRESULT hr = SaveText(fp, child);
+					if (FAILED(hr))
+						return hr;
 				}
+				if ((!fInline && textCount > 0) || wcscmp(nodeName, L"BR") == 0 || wcscmp(nodeName, L"HR") == 0)
+					fwprintf(fp, L"\n");
 			}
-			if (value.HasMember(L"contentDocument"))
-				hr = SaveText(fp, value[L"contentDocument"]);
 		}
-		return hr;
+		if (value.HasMember(L"contentDocument"))
+		{
+			HRESULT hr = SaveText(fp, value[L"contentDocument"]);
+			if (FAILED(hr))
+				return hr;
+		}
+		return S_OK;
 	}
 
 	HRESULT SaveText(const std::wstring& filename, IWebDiffCallback* callback)
@@ -1079,48 +1094,52 @@ private:
 		}
 	}
 
+	static int cmp(const void* a, const void* b)
+	{
+		const wchar_t* const* pa = reinterpret_cast<const wchar_t* const*>(a);
+		const wchar_t* const* pb = reinterpret_cast<const wchar_t* const*>(b);
+		return wcscmp(*pa, *pb);
+	}
+
 	static bool IsInlineElement(const wchar_t* name)
 	{
 		static const wchar_t* inlineElements[] =
 		{
-			L"B",
-			L"BIG",
-			L"I",
-			L"SMALL",
-			L"TT",
+			L"A",
 			L"ABBR",
 			L"ACRONYM",
+			L"B",
+			L"BDO",
+			L"BIG",
+			L"BR",
+			L"BUTTON",
 			L"CITE",
 			L"CODE",
 			L"DFN",
 			L"EM",
-			L"KBD",
-			L"STRONG",
-			L"SAMP",
-			L"VAR",
-			L"A",
-			L"BDO",
-			L"BR",
+			L"I",
 			L"IMG",
+			L"INPUT",
+			L"KBD",
+			L"LABEL",
 			L"MAP",
 			L"OBJECT",
 			L"Q",
+			L"SAMP",
 			L"SCRIPT",
+			L"SELECT",
+			L"SMALL",
 			L"SPAN",
+			L"STRONG",
 			L"SUB",
 			L"SUP",
-			L"BUTTON",
-			L"INPUT",
-			L"LABEL",
-			L"SELECT",
 			L"TEXTAREA",
+			L"TT",
+			L"VAR",
 		};
-		for (const auto* inlineName: inlineElements)
-		{
-			if (wcscmp(name, inlineName) == 0)
-				return true;
-		}
-		return false;
+		return bsearch(&name, inlineElements,
+			sizeof(inlineElements) / sizeof(inlineElements[0]),
+			sizeof(inlineElements[0]), cmp);
 	}
 
 	static std::wstring Escape(const std::wstring& text)
