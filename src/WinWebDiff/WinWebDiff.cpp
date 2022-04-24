@@ -345,7 +345,9 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 					filenames.push_back(m_tempFiles.back().m_path);
 					pfilenames[pane] = filenames[pane].c_str();
 				}
-				m_pWebDiffWindow->SaveScreenshots(pfilenames, wmId == IDM_COMPARE_FULLSIZE_SCREENSHOTS,
+				m_pWebDiffWindow->SaveFiles(
+					(wmId == IDM_COMPARE_FULLSIZE_SCREENSHOTS) ? IWebDiffWindow::FULLSIZE_SCREENSHOT : IWebDiffWindow::SCREENSHOT,
+					pfilenames,
 					Callback<IWebDiffCallback>([filenames](const WebDiffCallbackResult& result) -> HRESULT
 						{
 							CompareFiles(filenames, L"");
@@ -365,10 +367,30 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 					filenames.push_back(m_tempFiles.back().m_path);
 					pfilenames[pane] = filenames[pane].c_str();
 				}
-				m_pWebDiffWindow->SaveHTMLs(pfilenames,
+				m_pWebDiffWindow->SaveFiles(IWebDiffWindow::HTML, pfilenames,
 					Callback<IWebDiffCallback>([filenames](const WebDiffCallbackResult& result) -> HRESULT
 						{
 							CompareFiles(filenames, L"/unpacker PrettifyHTML");
+							return S_OK;
+						})
+					.Get());
+				break;
+			}
+			case IDM_COMPARE_TEXT:
+			{
+				const wchar_t* pfilenames[3]{};
+				std::vector<std::wstring> filenames;
+				for (int pane = 0; pane < m_pWebDiffWindow->GetPaneCount(); pane++)
+				{
+					m_tempFiles.emplace_back();
+					m_tempFiles.back().Create(L".txt");
+					filenames.push_back(m_tempFiles.back().m_path);
+					pfilenames[pane] = filenames[pane].c_str();
+				}
+				m_pWebDiffWindow->SaveFiles(IWebDiffWindow::TEXT, pfilenames,
+					Callback<IWebDiffCallback>([filenames](const WebDiffCallbackResult& result) -> HRESULT
+						{
+							CompareFiles(filenames, L"");
 							return S_OK;
 						})
 					.Get());
@@ -385,7 +407,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 					dirnames.push_back(m_tempFolders.back().m_path);
 					pdirnames[pane] = dirnames[pane].c_str();
 				}
-				m_pWebDiffWindow->SaveResourceTrees(pdirnames,
+				m_pWebDiffWindow->SaveFiles(IWebDiffWindow::RESOURCETREE, pdirnames,
 					Callback<IWebDiffCallback>([dirnames](const WebDiffCallbackResult& result) -> HRESULT
 						{
 							CompareFiles(dirnames, L"/r");
@@ -395,16 +417,16 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 				break;
 			}
 			case IDM_CLEAR_DISK_CACHE:
-				m_pWebDiffWindow->ClearBrowsingData(-1, IWebDiffWindow::BrowsingDataKinds::DISK_CACHE);
+				m_pWebDiffWindow->ClearBrowsingData(-1, IWebDiffWindow::BrowsingDataType::DISK_CACHE);
 				break;
 			case IDM_CLEAR_COOKIES:
-				m_pWebDiffWindow->ClearBrowsingData(-1, IWebDiffWindow::BrowsingDataKinds::COOKIES);
+				m_pWebDiffWindow->ClearBrowsingData(-1, IWebDiffWindow::BrowsingDataType::COOKIES);
 				break;
 			case IDM_CLEAR_BROWSING_HISTORY:
-				m_pWebDiffWindow->ClearBrowsingData(-1, IWebDiffWindow::BrowsingDataKinds::BROWSING_HISTORY);
+				m_pWebDiffWindow->ClearBrowsingData(-1, IWebDiffWindow::BrowsingDataType::BROWSING_HISTORY);
 				break;
 			case IDM_CLEAR_ALL_PROFILE:
-				m_pWebDiffWindow->ClearBrowsingData(-1, IWebDiffWindow::BrowsingDataKinds::ALL_PROFILE);
+				m_pWebDiffWindow->ClearBrowsingData(-1, IWebDiffWindow::BrowsingDataType::ALL_PROFILE);
 				break;
 			default:
 				return DefWindowProc(hWnd, message, wParam, lParam);

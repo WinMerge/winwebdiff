@@ -49,7 +49,7 @@ public:
 		m_listeners.push_back(handler);
 	}
 
-	void SetUserDataFolderType(UserDataFolderType userDataFolderType, bool perPane)
+	void SetUserDataFolderType(UserdataFolderType userDataFolderType, bool perPane)
 	{
 		m_userDataFolderType = userDataFolderType;
 		m_bUserDataFolderPerPane = perPane;
@@ -223,27 +223,27 @@ public:
 		return hr;
 	}
 
-	HRESULT SaveScreenshot(int pane, const wchar_t* filename, bool fullSize, IWebDiffCallback* callback) override
+	HRESULT SaveFile(int pane, FormatType kind, const wchar_t* filename, IWebDiffCallback* callback) override
 	{
 		if (pane < 0 || pane >= m_nPanes)
 			return false;
-		return m_webWindow[pane].SaveScreenshot(filename, fullSize, callback);
+		return m_webWindow[pane].SaveFile(filename, kind, callback);
 	}
 
-	HRESULT SaveScreenshots(const wchar_t* filenames[], bool fullSize, IWebDiffCallback* callback)
+	HRESULT SaveFiles(FormatType kind, const wchar_t* filenames[], IWebDiffCallback* callback)
 	{
 		std::vector<std::wstring> sfilenames;
 		for (int pane = 0; pane < m_nPanes; ++pane)
 			sfilenames.push_back(filenames[pane]);
 		ComPtr<IWebDiffCallback> callback2(callback);
-		HRESULT hr = SaveScreenshot(0, sfilenames[0].c_str(), fullSize,
-			Callback<IWebDiffCallback>([this, sfilenames, fullSize, callback2](const WebDiffCallbackResult& result) -> HRESULT
+		HRESULT hr = SaveFile(0, kind, sfilenames[0].c_str(),
+			Callback<IWebDiffCallback>([this, kind, sfilenames, callback2](const WebDiffCallbackResult& result) -> HRESULT
 				{
 					HRESULT hr = result.errorCode;
 					if (SUCCEEDED(hr))
 					{
-						hr = SaveScreenshot(1, sfilenames[1].c_str(), fullSize,
-							Callback<IWebDiffCallback>([this, sfilenames, fullSize, callback2](const WebDiffCallbackResult& result) -> HRESULT
+						hr = SaveFile(1, kind, sfilenames[1].c_str(),
+							Callback<IWebDiffCallback>([this, kind, sfilenames, callback2](const WebDiffCallbackResult& result) -> HRESULT
 								{
 									HRESULT hr = result.errorCode;
 									if (m_nPanes < 3)
@@ -254,8 +254,8 @@ public:
 									}
 									if (SUCCEEDED(hr))
 									{
-										hr = SaveScreenshot(2, sfilenames[2].c_str(), fullSize,
-											Callback<IWebDiffCallback>([this, sfilenames, fullSize, callback2](const WebDiffCallbackResult& result) -> HRESULT
+										hr = SaveFile(2, kind, sfilenames[2].c_str(),
+											Callback<IWebDiffCallback>([this, sfilenames, callback2](const WebDiffCallbackResult& result) -> HRESULT
 												{
 													if (callback2)
 														callback2->Invoke(result);
@@ -280,120 +280,7 @@ public:
 		return hr;
 	}
 
-	HRESULT SaveHTML(int pane, const wchar_t* filename, IWebDiffCallback* callback) override
-	{
-		if (pane < 0 || pane >= m_nPanes)
-			return false;
-		return m_webWindow[pane].SaveHTML(filename, callback);
-	}
-
-	HRESULT SaveHTMLs(const wchar_t* filenames[], IWebDiffCallback* callback)
-	{
-		std::vector<std::wstring> sfilenames;
-		for (int pane = 0; pane < m_nPanes; ++pane)
-			sfilenames.push_back(filenames[pane]);
-		ComPtr<IWebDiffCallback> callback2(callback);
-		HRESULT hr = SaveHTML(0, sfilenames[0].c_str(),
-			Callback<IWebDiffCallback>([this, sfilenames, callback2](const WebDiffCallbackResult& result) -> HRESULT
-				{
-					HRESULT hr = result.errorCode;
-					if (SUCCEEDED(hr))
-					{
-						hr = SaveHTML(1, sfilenames[1].c_str(),
-							Callback<IWebDiffCallback>([this, sfilenames, callback2](const WebDiffCallbackResult& result) -> HRESULT
-								{
-									HRESULT hr = result.errorCode;
-									if (m_nPanes < 3)
-									{
-										if (callback2)
-											callback2->Invoke(result);
-										return S_OK;
-									}
-									if (SUCCEEDED(hr))
-									{
-										hr = SaveHTML(2, sfilenames[2].c_str(),
-											Callback<IWebDiffCallback>([this, sfilenames, callback2](const WebDiffCallbackResult& result) -> HRESULT
-												{
-													if (callback2)
-														callback2->Invoke(result);
-													return S_OK;
-												}).Get());
-									}
-									if (FAILED(hr))
-									{
-										if (callback2)
-											callback2->Invoke({ hr, nullptr });
-									}
-									return S_OK;
-								}).Get());
-					}
-					if (FAILED(hr))
-					{
-						if (callback2)
-							callback2->Invoke({ hr, nullptr });
-					}
-					return S_OK;
-			}).Get());
-		return hr;
-	}
-
-	HRESULT SaveResourceTree(int pane, const wchar_t* dirname, IWebDiffCallback* callback) override {
-		if (pane < 0 || pane >= m_nPanes)
-			return false;
-		return m_webWindow[pane].SaveResourceTree(dirname, callback);
-	}
-
-	HRESULT SaveResourceTrees(const wchar_t* dirnames[], IWebDiffCallback* callback)
-	{
-		std::vector<std::wstring> sdirnames;
-		for (int pane = 0; pane < m_nPanes; ++pane)
-			sdirnames.push_back(dirnames[pane]);
-		ComPtr<IWebDiffCallback> callback2(callback);
-		HRESULT hr = SaveResourceTree(0, sdirnames[0].c_str(),
-			Callback<IWebDiffCallback>([this, sdirnames, callback2](const WebDiffCallbackResult& result) -> HRESULT
-				{
-					HRESULT hr = result.errorCode;
-					if (SUCCEEDED(hr))
-					{
-						hr = SaveResourceTree(1, sdirnames[1].c_str(),
-							Callback<IWebDiffCallback>([this, sdirnames, callback2](const WebDiffCallbackResult& result) -> HRESULT
-								{
-									HRESULT hr = result.errorCode;
-									if (m_nPanes < 3)
-									{
-										if (callback2)
-											callback2->Invoke(result);
-										return S_OK;
-									}
-									if (SUCCEEDED(hr))
-									{
-										hr = SaveResourceTree(2, sdirnames[2].c_str(),
-											Callback<IWebDiffCallback>([this, sdirnames, callback2](const WebDiffCallbackResult& result) -> HRESULT
-												{
-													if (callback2)
-														callback2->Invoke(result);
-													return S_OK;
-												}).Get());
-									}
-									if (FAILED(hr))
-									{
-										if (callback2)
-											callback2->Invoke({ hr, nullptr });
-									}
-									return S_OK;
-								}).Get());
-					}
-					if (FAILED(hr))
-					{
-						if (callback2)
-							callback2->Invoke({ hr, nullptr });
-					}
-					return S_OK;
-			}).Get());
-		return hr;
-	}
-
-	HRESULT ClearBrowsingData(int pane, BrowsingDataKinds datakinds)
+	HRESULT ClearBrowsingData(int pane, BrowsingDataType datakinds)
 	{
 		int spane = pane, epane = pane;
 		if (pane < 0 || pane >= m_nPanes)
@@ -699,6 +586,16 @@ public:
 		return execCommand(L"redo");
 	}
 
+	bool CanUndo() override
+	{
+		return true;
+	}
+
+	bool CanRedo() override
+	{
+		return true;
+	}
+
 private:
 
 	std::wstring getFromClipboard() const
@@ -778,7 +675,7 @@ private:
 	{
 		std::wstring path;
 		
-		if (m_userDataFolderType == UserDataFolderType::APPDATA)
+		if (m_userDataFolderType == UserdataFolderType::APPDATA)
 			path = wil::ExpandEnvironmentStringsW(L"%APPDATA%\\WinMerge\\WinWebDiff\\").get();
 		else
 			path = wil::GetModuleFileNameW(GetModuleHandle(nullptr)).get() + std::wstring(L".WebView2");
@@ -1010,7 +907,7 @@ private:
 	bool m_fitToWindow = true;
 	double m_zoom = 1.0;
 	std::wstring m_userAgent = L"";
-	UserDataFolderType m_userDataFolderType = UserDataFolderType::APPDATA;
+	UserdataFolderType m_userDataFolderType = UserdataFolderType::APPDATA;
 	bool m_bUserDataFolderPerPane = true;
 	std::vector<ComPtr<IWebDiffEventHandler>> m_listeners;
 	int m_diffCount = 0;

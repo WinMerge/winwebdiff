@@ -461,6 +461,25 @@ public:
 		pWebViewController->MoveFocus(COREWEBVIEW2_MOVE_FOCUS_REASON_PROGRAMMATIC);
 	}
 
+	HRESULT SaveFile(const std::wstring& filename, IWebDiffWindow::FormatType kind, IWebDiffCallback* callback)
+	{
+		switch (kind)
+		{
+		case IWebDiffWindow::SCREENSHOT:
+			return SaveScreenshot(filename, false, callback);
+		case IWebDiffWindow::FULLSIZE_SCREENSHOT:
+			return SaveScreenshot(filename, true, callback);
+		case IWebDiffWindow::HTML:
+			return SaveHTML(filename, callback);
+		case IWebDiffWindow::TEXT:
+			return SaveText(filename, callback);
+		case IWebDiffWindow::RESOURCETREE:
+			return SaveResourceTree(filename, callback);
+		default:
+			return E_INVALIDARG;
+		}
+	}
+
 	HRESULT SaveScreenshot(const std::wstring& filename, bool fullSize, IWebDiffCallback* callback)
 	{
 		if (!GetActiveWebView())
@@ -504,6 +523,61 @@ public:
 						}
 					}
 					if (FAILED(hr) && callback2)
+						callback2->Invoke({ hr, nullptr });
+					return S_OK;
+				}).Get());
+		if (FAILED(hr) && callback2)
+			callback2->Invoke({ hr, nullptr });
+		return hr;
+	}
+
+	HRESULT SaveText(FILE *fp, const WValue& value)
+	{
+		HRESULT hr = S_OK;
+		if (value[L"nodeType"].GetInt() == 3 /* #text */)
+		{
+			if (fwprintf(fp, L"%s", value[L"nodeValue"].GetString()) < 0)
+				hr = HRESULT_FROM_WIN32(GetLastError());
+			if (!IsInlineElement(value[L"nodeName"].GetString()))
+				fwprintf(fp, L"\n");
+		}
+		const auto& nodeName = value[L"nodeName"].GetString();
+		if (wcscmp(nodeName, L"SCRIPT") != 0 && wcscmp(nodeName, L"STYLE") != 0)
+		{
+			if (value.HasMember(L"children") && value[L"children"].IsArray())
+			{
+				for (const auto& child : value[L"children"].GetArray())
+				{
+					HRESULT hr2 = SaveText(fp, child);
+					if (FAILED(hr2))
+						hr = hr2;
+				}
+			}
+			if (value.HasMember(L"contentDocument"))
+				hr = SaveText(fp, value[L"contentDocument"]);
+		}
+		return hr;
+	}
+
+	HRESULT SaveText(const std::wstring& filename, IWebDiffCallback* callback)
+	{
+		if (!GetActiveWebView())
+			return E_FAIL;
+		ComPtr<IWebDiffCallback> callback2(callback);
+		std::wstring params = L"{ \"depth\": -1, \"pierce\": true }";
+		HRESULT hr = GetActiveWebView()->CallDevToolsProtocolMethod(L"DOM.getDocument", params.c_str(),
+			Callback<ICoreWebView2CallDevToolsProtocolMethodCompletedHandler>(
+				[this, filename, callback2](HRESULT errorCode, LPCWSTR returnObjectAsJson) -> HRESULT {
+					HRESULT hr = errorCode;
+					if (SUCCEEDED(hr))
+					{
+						WDocument document;
+						document.Parse(returnObjectAsJson);
+						wil::unique_file fp;
+						_wfopen_s(&fp, filename.c_str(), L"at,ccs=UTF-8");
+						hr = SaveText(fp.get(), document[L"root"]);
+					}
+					if (callback2)
 						callback2->Invoke({ hr, nullptr });
 					return S_OK;
 				}).Get());
@@ -791,7 +865,7 @@ public:
 		return hr;
 	}
 
-	HRESULT ClearBrowsingData(IWebDiffWindow::BrowsingDataKinds dataKinds)
+	HRESULT ClearBrowsingData(IWebDiffWindow::BrowsingDataType dataKinds)
 	{
 		if (!GetActiveWebView())
 			return E_FAIL;
@@ -1003,6 +1077,50 @@ private:
 			SetScrollInfo(m_hWebViewParent, SB_HORZ, &si, TRUE);
 			m_nHScrollPos = GetScrollPos(m_hWebViewParent, SB_HORZ);
 		}
+	}
+
+	static bool IsInlineElement(const wchar_t* name)
+	{
+		static const wchar_t* inlineElements[] =
+		{
+			L"B",
+			L"BIG",
+			L"I",
+			L"SMALL",
+			L"TT",
+			L"ABBR",
+			L"ACRONYM",
+			L"CITE",
+			L"CODE",
+			L"DFN",
+			L"EM",
+			L"KBD",
+			L"STRONG",
+			L"SAMP",
+			L"VAR",
+			L"A",
+			L"BDO",
+			L"BR",
+			L"IMG",
+			L"MAP",
+			L"OBJECT",
+			L"Q",
+			L"SCRIPT",
+			L"SPAN",
+			L"SUB",
+			L"SUP",
+			L"BUTTON",
+			L"INPUT",
+			L"LABEL",
+			L"SELECT",
+			L"TEXTAREA",
+		};
+		for (const auto* inlineName: inlineElements)
+		{
+			if (wcscmp(name, inlineName) == 0)
+				return true;
+		}
+		return false;
 	}
 
 	static std::wstring Escape(const std::wstring& text)
