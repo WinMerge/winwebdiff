@@ -513,9 +513,7 @@ public:
 
 	double GetZoom() const
 	{
-		if (m_nPanes == 0)
-			return m_zoom;
-		return m_webWindow[0].GetZoom();
+		return m_zoom;
 	}
 
 	void SetZoom(double zoom)

@@ -295,7 +295,7 @@ public:
 
 	HRESULT Navigate(const std::wstring& url)
 	{
-		if (m_activeTab < 0)
+		if (!GetActiveWebView())
 			return E_FAIL;
 		HRESULT hr = GetActiveWebView()->Navigate(url.c_str());
 		if (hr == E_INVALIDARG)
@@ -309,14 +309,14 @@ public:
 
 	HRESULT Reload()
 	{
-		if (m_activeTab < 0)
+		if (!GetActiveWebView())
 			return E_FAIL;
 		return GetActiveWebView()->Reload();
 	}
 
 	const wchar_t *GetCurrentUrl()
 	{
-		if (m_activeTab < 0)
+		if (!GetActiveWebView())
 			return L"";
 		wil::unique_cotaskmem_string uri;
 		GetActiveWebView()->get_Source(&uri);
@@ -326,7 +326,7 @@ public:
 
 	void CloseActiveTab()
 	{
-		if (m_activeTab < 0)
+		if (!GetActiveWebView())
 			return;
 		CloseTab(m_activeTab);
 	}
@@ -401,7 +401,7 @@ public:
 
 	std::wstring GetUserAgent() const
 	{
-		if (m_activeTab < 0)
+		if (!GetActiveWebView())
 			return L"";
 		wil::com_ptr_t<ICoreWebView2Settings> settings;
 		wil::unique_cotaskmem_string userAgent;
@@ -414,7 +414,7 @@ public:
 
 	void SetUserAgent(const std::wstring& userAgent)
 	{
-		if (m_activeTab < 0)
+		if (!GetActiveWebView())
 			return;
 		wil::com_ptr_t<ICoreWebView2Settings> settings;
 		GetActiveWebView()->get_Settings(&settings);
@@ -463,7 +463,7 @@ public:
 
 	HRESULT SaveScreenshot(const std::wstring& filename, bool fullSize, IWebDiffCallback* callback)
 	{
-		if (m_activeTab < 0)
+		if (!GetActiveWebView())
 			return E_FAIL;
 		ComPtr<IWebDiffCallback> callback2(callback);
 		HRESULT hr = GetActiveWebView()->CallDevToolsProtocolMethod(L"Page.getLayoutMetrics", L"{}",
@@ -514,7 +514,7 @@ public:
 
 	HRESULT SaveHTML(const std::wstring& filename, IWebDiffCallback* callback)
 	{
-		if (m_activeTab < 0)
+		if (!GetActiveWebView())
 			return E_FAIL;
 		const wchar_t *script = L"document.documentElement.outerHTML";
 		ComPtr<IWebDiffCallback> callback2(callback);
@@ -538,7 +538,7 @@ public:
 
 	HRESULT SaveFrameHTML(const std::wstring& frameId, const std::wstring& dirname, IWebDiffCallback* callback)
 	{
-		if (m_activeTab < 0)
+		if (!GetActiveWebView())
 			return E_FAIL;
 		ComPtr<IWebDiffCallback> callback2(callback);
 		std::wstring params = L"{ \"frameId\": \"" + frameId + L"\" }";
@@ -596,7 +596,7 @@ public:
 
 	HRESULT SaveResourceContent(const std::wstring& frameId, const WValue& resource, const std::wstring& dirname, IWebDiffCallback* callback)
 	{
-		if (m_activeTab < 0)
+		if (!GetActiveWebView())
 			return E_FAIL;
 		std::wstring url(resource[L"url"].GetString());
 		std::wstring mimeType(resource[L"mimeType"].GetString());
@@ -726,7 +726,7 @@ public:
 
 	HRESULT SaveResourceTree(const std::wstring& dirname, IWebDiffCallback* callback)
 	{
-		if (m_activeTab < 0)
+		if (!GetActiveWebView())
 			return E_FAIL;
 		ComPtr<IWebDiffCallback> callback2(callback);
 		HRESULT hr = GetActiveWebView()->CallDevToolsProtocolMethod(L"Page.getResourceTree", L"{}",
@@ -763,7 +763,7 @@ public:
 
 	HRESULT CallDevToolsProtocolMethod(const wchar_t* methodName, const wchar_t* params, IWebDiffCallback *callback)
 	{
-		if (m_activeTab < 0)
+		if (!GetActiveWebView())
 			return E_FAIL;
 		ComPtr<IWebDiffCallback> callback2(callback);
 		HRESULT hr = GetActiveWebView()->CallDevToolsProtocolMethod(methodName, params,
@@ -778,7 +778,7 @@ public:
 
 	HRESULT ExecuteScript(const wchar_t* script, IWebDiffCallback *callback)
 	{
-		if (m_activeTab < 0)
+		if (!GetActiveWebView())
 			return E_FAIL;
 		ComPtr<IWebDiffCallback> callback2(callback);
 		HRESULT hr = GetActiveWebView()->ExecuteScript(script,
@@ -793,7 +793,7 @@ public:
 
 	HRESULT ClearBrowsingData(IWebDiffWindow::BrowsingDataKinds dataKinds)
 	{
-		if (m_activeTab < 0)
+		if (!GetActiveWebView())
 			return E_FAIL;
 		auto webView2Experimental8 = GetActiveTab()->m_webview.try_query<ICoreWebView2Experimental8>();
 		if (!webView2Experimental8)
