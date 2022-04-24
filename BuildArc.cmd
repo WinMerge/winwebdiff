@@ -27,7 +27,7 @@ copy Build\%1\Release\WinWebDiff\cidiff.exe "%DISTDIR%\%1\WinWebDiff\"
 call :GET_EXE_VERSION %~dp0Build\%1\Release\WinWebDiff\WinWebDiff.exe
 copy LICENSE*.txt "%DISTDIR%\%1\WinWebDiff"
 
-7z.exe a -tzip "%DISTDIR%\winimerge-%EXE_VERSION%-%1.zip" "%DISTDIR%\%1\WinWebDiff"
+7z.exe a -tzip "%DISTDIR%\winwebdiff-%EXE_VERSION%-%1.zip" "%DISTDIR%\%1\WinWebDiff"
 
 goto :eof
 
