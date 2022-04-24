@@ -1,0 +1,48 @@
+//{{NO_DEPENDENCIES}}
+// Microsoft Visual C++ generated include file.
+// Used by WinWebDiff.rc
+
+#define IDR_MAINFRAME			128
+#define IDD_WINWEBDIFF_DIALOG	102
+#define IDD_ABOUTBOX			103
+#define IDM_ABOUT				104
+#define IDM_EXIT				105
+#define IDM_FILE_NEW            106
+#define IDM_FILE_NEW_TAB        107
+#define IDM_FILE_CLOSE_TAB      108
+#define IDM_FILE_RELOAD         109
+#define IDM_VIEW_SIZE_FIT_TO_WINDOW 120
+#define IDM_VIEW_SIZE_320x512   121
+#define IDM_VIEW_SIZE_375x600   122
+#define IDM_VIEW_SIZE_1024x640  123
+#define IDM_VIEW_SIZE_1280x800  124
+#define IDM_VIEW_SIZE_1440x900  125
+#define IDM_VIEW_SPLITHORIZONTALLY 126
+#define IDM_COMPARE_SCREENSHOTS 130
+#define IDM_COMPARE_FULLSIZE_SCREENSHOTS 131
+#define IDM_COMPARE_HTML        132
+#define IDM_COMPARE_TEXT        133
+#define IDM_COMPARE_RESOURCE_TREE         134
+#define IDM_CLEAR_DISK_CACHE    135
+#define IDM_CLEAR_COOKIES       136
+#define IDM_CLEAR_BROWSING_HISTORY 137
+#define IDM_CLEAR_ALL_PROFILE   138
+#define IDI_WINWEBDIFF			140
+#define IDI_SMALL				141
+#define IDC_WINWEBDIFF			142
+#define IDC_MYICON				2
+#ifndef IDC_STATIC
+#define IDC_STATIC				-1
+#endif
+// Next default values for new objects
+//
+#ifdef APSTUDIO_INVOKED
+#ifndef APSTUDIO_READONLY_SYMBOLS
+
+#define _APS_NO_MFC					130
+#define _APS_NEXT_RESOURCE_VALUE	129
+#define _APS_NEXT_COMMAND_VALUE		32771
+#define _APS_NEXT_CONTROL_VALUE		1000
+#define _APS_NEXT_SYMED_VALUE		111
+#endif
+#endif

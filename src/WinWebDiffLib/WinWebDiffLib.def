@@ -1,0 +1,3 @@
+EXPORTS
+	WinWebDiff_CreateWindow
+	WinWebDiff_DestroyWindow

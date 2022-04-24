@@ -2,3 +2,8 @@
 Build/
 BuildTmp/
 packages/
+Dist/
+*.user
+*.bak
+*.aps
+*.*~
