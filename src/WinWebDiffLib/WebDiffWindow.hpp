@@ -100,7 +100,11 @@ public:
 								WebDiffEvent ev;
 								ev.type = event;
 								ev.pane = i;
-								if (event == WebDiffEvent::ZoomFactorChanged)
+								if (event == WebDiffEvent::SourceChanged)
+								{
+									m_webWindow[ev.pane].SetZoom(m_zoom);
+								}
+								else if (event == WebDiffEvent::ZoomFactorChanged)
 								{
 									m_zoom = m_webWindow[ev.pane].GetZoom();
 									for (int pane = 0; pane < m_nPanes; ++pane)
