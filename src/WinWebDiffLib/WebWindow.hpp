@@ -539,38 +539,46 @@ public:
 		return hr;
 	}
 
-	HRESULT SaveText(FILE *fp, const WValue& value)
+	HRESULT SaveText(FILE *fp, const WValue& value, size_t& textLength)
 	{
 		const int nodeType = value[L"nodeType"].GetInt();
-		const auto* nodeName = value[L"nodeName"].GetString();
-		const bool fInline = IsInlineElement(nodeName);
 
-		if (value[L"nodeType"].GetInt() == 3 /* #text */)
+		if (nodeType == 3 /* TEXT_NODE */)
 		{
-			if (fwprintf(fp, L"%s", value[L"nodeValue"].GetString()) < 0)
+			std::wstring text = value[L"nodeValue"].GetString();
+			text =
+				((text.length() > 0 && iswspace(text.front())) ? L" " : L"") + 
+				trim_ws(text) +
+				((text.length() > 0 && iswspace(text.back())) ? L" " : L"");
+			if (fwprintf(fp, L"%s", text.c_str()) < 0)
 				return HRESULT_FROM_WIN32(GetLastError());
+			textLength += text.length();
 		}
 		if (value.HasMember(L"children") && value[L"children"].IsArray())
 		{
+			const auto* nodeName = value[L"nodeName"].GetString();
+			const bool fInline = IsInlineElement(nodeName);
 			if (wcscmp(nodeName, L"SCRIPT") != 0 && wcscmp(nodeName, L"STYLE") != 0)
 			{
-				int textCount = 0;
+				if (nodeType == 1)
+				{
+					if ((!fInline && textLength > 0) || wcscmp(nodeName, L"BR") == 0 || wcscmp(nodeName, L"HR") == 0)
+					{
+						fwprintf(fp, L"\n");
+						textLength = 0;
+					}
+				}
 				for (const auto& child : value[L"children"].GetArray())
 				{
-					int childNodeType = child[L"nodeType"].GetInt();
-					if (childNodeType == 3)
-						textCount++;
-					HRESULT hr = SaveText(fp, child);
+					HRESULT hr = SaveText(fp, child, textLength);
 					if (FAILED(hr))
 						return hr;
 				}
-				if ((!fInline && textCount > 0) || wcscmp(nodeName, L"BR") == 0 || wcscmp(nodeName, L"HR") == 0)
-					fwprintf(fp, L"\n");
 			}
 		}
 		if (value.HasMember(L"contentDocument"))
 		{
-			HRESULT hr = SaveText(fp, value[L"contentDocument"]);
+			HRESULT hr = SaveText(fp, value[L"contentDocument"], textLength);
 			if (FAILED(hr))
 				return hr;
 		}
@@ -593,7 +601,8 @@ public:
 						document.Parse(returnObjectAsJson);
 						wil::unique_file fp;
 						_wfopen_s(&fp, filename.c_str(), L"at,ccs=UTF-8");
-						hr = SaveText(fp.get(), document[L"root"]);
+						size_t textLength = 0;
+						hr = SaveText(fp.get(), document[L"root"], textLength);
 					}
 					if (callback2)
 						callback2->Invoke({ hr, nullptr });
@@ -1111,38 +1120,87 @@ private:
 			L"A",
 			L"ABBR",
 			L"ACRONYM",
+			L"AUDIO",
 			L"B",
+			L"BDI",
 			L"BDO",
 			L"BIG",
 			L"BR",
 			L"BUTTON",
+			L"CANVAS",
 			L"CITE",
 			L"CODE",
+			L"DATA",
+			L"DATALIST",
+			L"DEL",
 			L"DFN",
 			L"EM",
+			L"EMBED",
 			L"I",
+			L"IFRAME",
 			L"IMG",
 			L"INPUT",
+			L"INS",
 			L"KBD",
 			L"LABEL",
 			L"MAP",
+			L"MARK",
+			L"METER",
+			L"NOSCRIPT",
 			L"OBJECT",
+			L"OUTPUT",
+			L"PICTURE",
+			L"PROGRESS",
 			L"Q",
+			L"RUBY",
+			L"S",
 			L"SAMP",
 			L"SCRIPT",
 			L"SELECT",
+			L"SLOT",
 			L"SMALL",
 			L"SPAN",
 			L"STRONG",
 			L"SUB",
 			L"SUP",
+			L"SVG",
+			L"TEMPLATE",
 			L"TEXTAREA",
+			L"TIME",
 			L"TT",
+			L"U",
 			L"VAR",
+			L"VIDEO",
+			L"WBR",
 		};
 		return bsearch(&name, inlineElements,
 			sizeof(inlineElements) / sizeof(inlineElements[0]),
 			sizeof(inlineElements[0]), cmp);
+	}
+
+	static std::wstring trim_ws(const std::wstring& str)
+	{
+		if (str.empty())
+			return str;
+
+		std::wstring result(str);
+		std::wstring::iterator it = result.begin();
+		while (it != result.end() && *it < 0x100 && isspace(*it))
+			++it;
+
+		if (it != result.begin())
+			result.erase(result.begin(), it);
+
+		if (result.empty())
+			return result;
+
+		it = result.end() - 1;
+		while (it != result.begin() && *it < 0x100 && iswspace(*it))
+			--it;
+
+		if (it != result.end() - 1)
+			result.erase(it + 1, result.end());
+		return result;
 	}
 
 	static std::wstring Escape(const std::wstring& text)
