@@ -775,7 +775,8 @@ public:
 		uint32_t count = 0;
 		if (frameTree.HasMember(L"childFrames") && frameTree[L"childFrames"].IsArray())
 		{
-			count += frameTree[L"childFrames"].GetArray().Size();
+			for (const auto& frame : frameTree[L"childFrames"].GetArray())
+				count += GetResourceTreeItemCount(frame);
 		}
 		if (frameTree.HasMember(L"frame"))
 		{
