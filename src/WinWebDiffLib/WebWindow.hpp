@@ -505,8 +505,11 @@ public:
 
 							WDocument document;
 							document.Parse(returnObjectAsJson);
-							int width = document[L"cssContentSize"][L"width"].GetInt();
-							int height = document[L"cssContentSize"][L"height"].GetInt();
+							UINT dpi = GetDpiForWindow(m_hWnd);
+							int width = document[L"cssContentSize"][L"width"].GetInt()
+								* dpi / 96;
+							int height = document[L"cssContentSize"][L"height"].GetInt()
+								* dpi / 96;
 
 							if (fullSize)
 							{
