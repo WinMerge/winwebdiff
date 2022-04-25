@@ -240,7 +240,7 @@ std::wstring GetLastErrorString()
 	return buf;
 }
 
-bool CompareFiles(const std::vector<std::wstring> filenames, const std::wstring& options)
+bool CompareFiles(const std::vector<std::wstring>& filenames, const std::wstring& options)
 {
 	std::wstring cmdline = L"\"C:\\Program Files\\WinMerge\\WinMergeU.exe\" /ub ";
 	for (const auto& filename : filenames)

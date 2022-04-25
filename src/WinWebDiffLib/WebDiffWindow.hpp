@@ -44,18 +44,18 @@ public:
 		return ShellExecute(0, 0, L"https://go.microsoft.com/fwlink/p/?LinkId=2124703", 0, 0, SW_SHOW);
 	}
 
-	void AddEventListener(IWebDiffEventHandler* handler)
+	void AddEventListener(IWebDiffEventHandler* handler) override
 	{
 		m_listeners.push_back(handler);
 	}
 
-	void SetUserDataFolderType(UserdataFolderType userDataFolderType, bool perPane)
+	void SetUserDataFolderType(UserdataFolderType userDataFolderType, bool perPane) override
 	{
 		m_userDataFolderType = userDataFolderType;
 		m_bUserDataFolderPerPane = perPane;
 	}
 
-	HRESULT New(int nUrls, IWebDiffCallback* callback)
+	HRESULT New(int nUrls, IWebDiffCallback* callback) override
 	{
 		const wchar_t* urls[3] = { L"about:blank", L"about:blank", L"about:blank" };
 		return Open(nUrls, urls, callback);
@@ -230,7 +230,7 @@ public:
 		return m_webWindow[pane].SaveFile(filename, kind, callback);
 	}
 
-	HRESULT SaveFiles(FormatType kind, const wchar_t* filenames[], IWebDiffCallback* callback)
+	HRESULT SaveFiles(FormatType kind, const wchar_t* filenames[], IWebDiffCallback* callback) override
 	{
 		std::vector<std::wstring> sfilenames;
 		for (int pane = 0; pane < m_nPanes; ++pane)
@@ -280,7 +280,7 @@ public:
 		return hr;
 	}
 
-	HRESULT ClearBrowsingData(int pane, BrowsingDataType datakinds)
+	HRESULT ClearBrowsingData(int pane, BrowsingDataType datakinds) override
 	{
 		int spane = pane, epane = pane;
 		if (pane < 0 || pane >= m_nPanes)
@@ -297,7 +297,7 @@ public:
 		return hr;
 	}
 
-	const wchar_t* GetCurrentUrl(int pane)
+	const wchar_t* GetCurrentUrl(int pane) override
 	{
 		if (pane < 0 || pane >= m_nPanes)
 			return L"";
@@ -341,7 +341,7 @@ public:
 		return true;
 	}
 
-	int  GetActivePane() const
+	int  GetActivePane() const override
 	{
 		if (!m_hWnd)
 			return -1;
@@ -351,7 +351,7 @@ public:
 		return -1;
 	}
 
-	void SetActivePane(int pane)
+	void SetActivePane(int pane) override
 	{
 		m_webWindow[pane].SetFocus();
 	}
@@ -371,39 +371,39 @@ public:
 			m_webWindow[i].SetWindowRect(rects[i]);
 	}
 
-	COLORREF GetDiffColor() const
+	COLORREF GetDiffColor() const override
 	{
 		return RGB(0, 0, 0);
 	}
 
-	void SetDiffColor(COLORREF clrDiffColor)
+	void SetDiffColor(COLORREF clrDiffColor) override
 	{
 	}
 
-	COLORREF GetSelDiffColor() const
+	COLORREF GetSelDiffColor() const override
 	{
 		return RGB(0, 0, 0);
 	}
 
-	void SetSelDiffColor(COLORREF clrSelDiffColor)
+	void SetSelDiffColor(COLORREF clrSelDiffColor) override
 	{
 	}
 
-	double GetDiffColorAlpha() const
+	double GetDiffColorAlpha() const override
 	{
 		return 0.8;
 	}
 
-	void SetDiffColorAlpha(double diffColorAlpha)
+	void SetDiffColorAlpha(double diffColorAlpha) override
 	{
 	}
 
-	double GetZoom() const
+	double GetZoom() const override
 	{
 		return m_zoom;
 	}
 
-	void SetZoom(double zoom)
+	void SetZoom(double zoom) override
 	{
 		if (zoom == m_zoom)
 			return;
@@ -412,139 +412,139 @@ public:
 			m_webWindow[pane].SetZoom(m_zoom);
 	}
 
-	const wchar_t *GetUserAgent() const
+	const wchar_t *GetUserAgent() const override
 	{
 		if (m_nPanes == 0)
 			return L"";
 		return m_userAgent.c_str();
 	}
 
-	void SetUserAgent(const wchar_t* userAgent)
+	void SetUserAgent(const wchar_t* userAgent) override
 	{
 		m_userAgent = userAgent;
 		for (int pane = 0; pane < m_nPanes; ++pane)
 			m_webWindow[pane].SetUserAgent(m_userAgent);
 	}
 
-	bool GetFitToWindow() const
+	bool GetFitToWindow() const override
 	{
 		return m_fitToWindow;
 	}
 
-	void SetFitToWindow(bool fitToWindow)
+	void SetFitToWindow(bool fitToWindow) override
 	{
 		m_fitToWindow = fitToWindow;
 		for (int pane = 0; pane < m_nPanes; ++pane)
 			m_webWindow[pane].SetFitToWindow(fitToWindow);
 	}
 
-	SIZE GetSize() const
+	SIZE GetSize() const override
 	{
 		return m_size;
 	}
 
-	void SetSize(const SIZE size)
+	void SetSize(const SIZE size) override
 	{
 		m_size = size;
 		for (int pane = 0; pane < m_nPanes; ++pane)
 			m_webWindow[pane].SetSize(size);
 	}
 
-	bool GetShowDifferences() const
+	bool GetShowDifferences() const override
 	{
 		return true;
 	}
 
-	void SetShowDifferences(bool visible)
+	void SetShowDifferences(bool visible) override
 	{
 	}
 
-	int  GetDiffCount() const
+	int  GetDiffCount() const override
 	{
 		return m_diffCount;
 	}
 
-	int  GetConflictCount() const
+	int  GetConflictCount() const override
 	{
 		return 0;
 	}
 
-	int  GetCurrentDiffIndex() const
+	int  GetCurrentDiffIndex() const override
 	{
 		return 0;
 	}
 
-	bool FirstDiff()
+	bool FirstDiff() override
 	{
 		return true;
 	}
 
-	bool LastDiff()
+	bool LastDiff() override
 	{
 		return true;
 	}
 
-	bool NextDiff()
+	bool NextDiff() override
 	{
 		return true;
 	}
 	
-	bool PrevDiff()
+	bool PrevDiff() override
 	{
 		return true;
 	}
 
-	bool FirstConflict()
+	bool FirstConflict() override
 	{
 		return true;
 	}
 
-	bool LastConflict()
+	bool LastConflict() override
 	{
 		return true;
 	}
 
-	bool NextConflict()
+	bool NextConflict() override
 	{
 		return true;
 	}
 
-	bool PrevConflict() 
+	bool PrevConflict()  override
 	{
 		return true;
 	}
 
-	bool SelectDiff(int diffIndex)
+	bool SelectDiff(int diffIndex) override
 	{
 		return true;
 	}
 
-	int  GetNextDiffIndex() const
+	int  GetNextDiffIndex() const override
 	{
 		return 0;
 	}
 
-	int  GetPrevDiffIndex() const
+	int  GetPrevDiffIndex() const override
 	{
 		return 0;
 	}
 
-	int  GetNextConflictIndex() const
+	int  GetNextConflictIndex() const override
 	{
 		return 0;
 	}
 
-	int  GetPrevConflictIndex() const
+	int  GetPrevConflictIndex() const override
 	{
 		return 0;
 	}
 
-	HWND GetHWND() const
+	HWND GetHWND() const override
 	{
 		return m_hWnd;
 	}
 
-	HWND GetPaneHWND(int pane) const
+	HWND GetPaneHWND(int pane) const override
 	{
 		if (pane < 0 || pane >= m_nPanes)
 			return nullptr;
@@ -618,7 +618,7 @@ private:
 		return text;
 	}
 
-	std::wstring escape(const std::wstring text) const
+	std::wstring escape(const std::wstring& text) const
 	{
 		std::wstring result;
 		for (auto c : text)

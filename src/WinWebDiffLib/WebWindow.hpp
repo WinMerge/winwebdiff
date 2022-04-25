@@ -775,14 +775,11 @@ public:
 		uint32_t count = 0;
 		if (frameTree.HasMember(L"childFrames") && frameTree[L"childFrames"].IsArray())
 		{
-			for (const auto& frame : frameTree[L"childFrames"].GetArray())
-				count += GetResourceTreeItemCount(frame);
+			count += frameTree[L"childFrames"].GetArray().Size();
 		}
 		if (frameTree.HasMember(L"frame"))
 		{
-			std::wstring id = frameTree[L"frame"][L"id"].GetString();
-			for (const auto& resource : frameTree[L"resources"].GetArray())
-				++count;
+			count += frameTree[L"resources"].GetArray().Size();
 			++count;
 		}
 		return count;
