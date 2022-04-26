@@ -25,6 +25,7 @@ goto :eof
 :BuildBin
 
 del /s Build\%1\Release\WinWebDiff\*.exe
+MSBuild WinWebDiff.vs2019.sln /t:restore /p:RestorePackagesConfig=true  || pause
 MSBuild WinWebDiff.vs2019.sln /t:rebuild /p:Configuration=Release /p:Platform="%1" || pause
 
 if exist "%SIGNBAT_PATH%" (
