@@ -1598,14 +1598,27 @@ private:
 
 	LRESULT OnEditWndMsg(HWND hWnd, UINT iMsg, WPARAM wParam, LPARAM lParam)
 	{
-		if (iMsg == WM_CHAR && wParam == VK_RETURN && hWnd == m_hEdit)
+		if (hWnd == m_hEdit)
 		{
-			int length = GetWindowTextLength(m_hEdit);
-			std::wstring url(length, 0);
-			GetWindowText(m_hEdit, const_cast<wchar_t*>(url.data()), length + 1);
-			SetFocus();
-			Navigate(url);
-			return 0;
+			if (iMsg == WM_CHAR && wParam == VK_RETURN)
+			{
+				int length = GetWindowTextLength(m_hEdit);
+				std::wstring url(length, 0);
+				GetWindowText(m_hEdit, const_cast<wchar_t*>(url.data()), length + 1);
+				SetFocus();
+				Navigate(url);
+				return 0;
+			}
+			else if (iMsg == WM_KEYDOWN || iMsg == WM_SYSKEYDOWN)
+			{
+				short vkctrl = GetAsyncKeyState(VK_CONTROL);
+				short vkmenu = GetAsyncKeyState(VK_MENU);
+				if ((vkctrl && wParam == 'E' || wParam == 'K') || (vkmenu && wParam == 'D'))
+				{
+					SendMessage(m_hEdit, EM_SETSEL, 0, -1);
+					return 0;
+				}
+			}
 		}
 		return CallWindowProc(m_oldEditWndProc, hWnd, iMsg, wParam, lParam);
 	}
