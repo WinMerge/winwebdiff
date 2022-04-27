@@ -8,7 +8,7 @@
 
 ## How to build (Visual Studio 2022)
 ~~~
-git clone https://github.com/sdottaka/winwebdiff
+git clone https://github.com/WinMerge/winwebdiff
 cd winwebdiff
 buildbin.vs2022.cmd
 ~~~
