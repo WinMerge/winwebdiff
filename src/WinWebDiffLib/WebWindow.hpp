@@ -701,11 +701,12 @@ public:
 			return E_FAIL;
 		std::wstring url(resource[L"url"].GetString());
 		std::wstring mimeType(resource[L"mimeType"].GetString());
+		int64_t lastModified = resource.HasMember(L"lastModified") ? resource[L"lastModified"].GetInt64() : 0;
 		std::wstring args = L"{ \"frameId\": \"" + frameId + L"\", \"url\": \"" + url + L"\" }";
 		ComPtr<IWebDiffCallback> callback2(callback);
 		HRESULT hr = GetActiveWebView()->CallDevToolsProtocolMethod(L"Page.getResourceContent", args.c_str(),
 			Callback<ICoreWebView2CallDevToolsProtocolMethodCompletedHandler>(
-				[this, dirname, url, mimeType, callback2](HRESULT errorCode, LPCWSTR returnObjectAsJson) -> HRESULT {
+				[this, dirname, url, mimeType, lastModified, callback2](HRESULT errorCode, LPCWSTR returnObjectAsJson) -> HRESULT {
 					std::filesystem::path path(dirname);
 					if (SUCCEEDED(errorCode))
 					{
@@ -756,6 +757,8 @@ public:
 							if (FAILED(errorCode = WriteToTextFile(path, document[L"content"].GetString())))
 								WriteToErrorLog(dirname, url, errorCode);
 						}
+						if (lastModified > 0)
+							SetLastModifed(path, lastModified);
 					}
 					else
 					{
@@ -1279,6 +1282,28 @@ private:
 		if (fp)
 			fwrite(data.data(), data.size(), 1, fp.get());
 		return fp != nullptr ? S_OK : (GetLastError() == 0 ? E_FAIL : HRESULT_FROM_WIN32(GetLastError()));
+	}
+
+	static void TimetToFileTime(time_t t, LPFILETIME pft)
+	{
+		ULARGE_INTEGER time_value;
+		time_value.QuadPart = (t * 10000000LL) + 116444736000000000LL;
+		pft->dwLowDateTime = time_value.LowPart;
+		pft->dwHighDateTime = time_value.HighPart;
+	}
+
+	static bool SetLastModifed(const std::wstring& path, int64_t lastModified)
+	{
+		if (lastModified == 0)
+			return false;
+		wil::unique_hfile file(CreateFile(path.c_str(),
+			GENERIC_READ | GENERIC_WRITE, 0, nullptr, OPEN_EXISTING,
+			FILE_ATTRIBUTE_NORMAL, nullptr));
+		if (!file)
+			return false;
+		FILETIME ft{};
+		TimetToFileTime(lastModified, &ft);
+		return SetFileTime(file.get(), nullptr, nullptr, &ft);
 	}
 
 	bool MyRegisterClass(HINSTANCE hInstance)
