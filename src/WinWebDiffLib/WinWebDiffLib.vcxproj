@@ -285,6 +285,10 @@
     <None Include="WinWebDiffLib.def" />
   </ItemGroup>
   <ItemGroup>
+    <CustomBuild Include="..\GIT-VS-VERSION-GEN.bat">
+      <Command>"$(ProjectDir)..\GIT-VS-VERSION-GEN.bat" --force "$(IntDir)\" "$(ProjectDir)..\gen-versioninfo.h"</Command>
+      <Outputs>$(ProjectDir)..\gen-versioninfo.h</Outputs>
+    </CustomBuild>
     <ResourceCompile Include="WinWebDiffLib.rc" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
