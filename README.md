@@ -1,5 +1,7 @@
 # WinWebDiff
 
+WinWebDiff is a web page comparison component for WinMerge.
+
 ## Dependencies
 
 - WebView2
