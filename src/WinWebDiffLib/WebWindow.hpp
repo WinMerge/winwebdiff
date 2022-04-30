@@ -1340,7 +1340,7 @@ private:
 			{
 				GetActiveWebView()->OpenDevToolsWindow();
 			}
-			else if (vkmenu && virtualKey == 'D')
+			else if ((vkmenu && virtualKey == 'D') || (vkctrl && virtualKey == 'L'))
 			{
 				::SendMessage(m_hEdit, EM_SETSEL, 0, -1);
 				::SetFocus(m_hEdit);
