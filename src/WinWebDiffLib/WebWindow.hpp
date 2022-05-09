@@ -1638,7 +1638,7 @@ private:
 			{
 				short vkctrl = GetAsyncKeyState(VK_CONTROL);
 				short vkmenu = GetAsyncKeyState(VK_MENU);
-				if ((vkctrl && wParam == 'E' || wParam == 'K') || (vkmenu && wParam == 'D'))
+				if ((vkctrl && (wParam == 'E' || wParam == 'K')) || (vkmenu && wParam == 'D'))
 				{
 					SendMessage(m_hEdit, EM_SETSEL, 0, -1);
 					return 0;
