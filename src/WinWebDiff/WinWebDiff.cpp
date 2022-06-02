@@ -265,12 +265,22 @@ bool CompareFiles(const std::vector<std::wstring>& filenames, const std::wstring
 	return true;
 }
 
+void UpdateMenuState(HWND hWnd)
+{
+	HMENU hMenu = GetMenu(hWnd);
+	CheckMenuItem(hMenu, IDM_VIEW_VIEWDIFFERENCES,    m_pWebDiffWindow->GetShowDifferences() ? MF_CHECKED : MF_UNCHECKED);
+	CheckMenuItem(hMenu, IDM_VIEW_SPLITHORIZONTALLY,  m_pWebDiffWindow->GetHorizontalSplit() ? MF_CHECKED : MF_UNCHECKED);
+	CheckMenuRadioItem(hMenu, IDM_VIEW_DIFF_ALGORITHM_MYERS, IDM_VIEW_DIFF_ALGORITHM_NONE,
+		m_pWebDiffWindow->GetDiffAlgorithm() + IDM_VIEW_DIFF_ALGORITHM_MYERS, MF_BYCOMMAND);
+}
+
 LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 {
 	switch (message)
 	{
 	case WM_CREATE:
 		m_pWebDiffWindow = WinWebDiff_CreateWindow(hInstDLL, hWnd);
+		UpdateMenuState(hWnd);
 		break;
 	case WM_SIZE:
 	{
@@ -280,160 +290,191 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 		break;
 	}
 	case WM_COMMAND:
+	{
+		int wmId = LOWORD(wParam);
+		switch (wmId)
 		{
-			int wmId = LOWORD(wParam);
-			switch (wmId)
+		case IDM_ABOUT:
+			DialogBox(m_hInstance, MAKEINTRESOURCE(IDD_ABOUTBOX), hWnd, About);
+			break;
+		case IDM_FILE_NEW:
+			m_pWebDiffWindow->New(2, nullptr);
+			break;
+		case IDM_FILE_NEW_TAB:
+		{
+			int nActivePane = m_pWebDiffWindow->GetActivePane();
+			m_pWebDiffWindow->NewTab(nActivePane < 0 ? 0 : nActivePane, L"about:blank", nullptr);
+			break;
+		}
+		case IDM_FILE_CLOSE_TAB:
+		{
+			int nActivePane = m_pWebDiffWindow->GetActivePane();
+			m_pWebDiffWindow->CloseActiveTab(nActivePane < 0 ? 0 : nActivePane);
+			break;
+		}
+		case IDM_FILE_RELOAD:
+			m_pWebDiffWindow->ReloadAll();
+			break;
+		case IDM_EXIT:
+			DestroyWindow(hWnd);
+			break;
+		case IDM_VIEW_VIEWDIFFERENCES:
+			m_pWebDiffWindow->SetShowDifferences(!m_pWebDiffWindow->GetShowDifferences());
+			UpdateMenuState(hWnd);
+			break;
+		case IDM_VIEW_SIZE_FIT_TO_WINDOW:
+			m_pWebDiffWindow->SetFitToWindow(true);
+			break;
+		case IDM_VIEW_SIZE_320x512:
+			m_pWebDiffWindow->SetFitToWindow(false);
+			m_pWebDiffWindow->SetSize({ 320, 512 });
+			break;
+		case IDM_VIEW_SIZE_375x600:
+			m_pWebDiffWindow->SetFitToWindow(false);
+			m_pWebDiffWindow->SetSize({ 375, 600 });
+			break;
+		case IDM_VIEW_SIZE_1024x640:
+			m_pWebDiffWindow->SetFitToWindow(false);
+			m_pWebDiffWindow->SetSize({ 1024, 640 });
+			break;
+		case IDM_VIEW_SIZE_1280x800:
+			m_pWebDiffWindow->SetFitToWindow(false);
+			m_pWebDiffWindow->SetSize({ 1280, 800 });
+			break;
+		case IDM_VIEW_SIZE_1440x900:
+			m_pWebDiffWindow->SetFitToWindow(false);
+			m_pWebDiffWindow->SetSize({ 1440, 900});
+			break;
+		case IDM_VIEW_SPLITHORIZONTALLY:
+			m_pWebDiffWindow->SetHorizontalSplit(!m_pWebDiffWindow->GetHorizontalSplit());
+			UpdateMenuState(m_hWnd);
+			break;
+		case IDM_VIEW_DIFF_ALGORITHM_MYERS:
+		case IDM_VIEW_DIFF_ALGORITHM_MINIMAL:
+		case IDM_VIEW_DIFF_ALGORITHM_PATIENCE:
+		case IDM_VIEW_DIFF_ALGORITHM_HISTOGRAM:
+		case IDM_VIEW_DIFF_ALGORITHM_NONE:
+			m_pWebDiffWindow->SetDiffAlgorithm(static_cast<IWebDiffWindow::DiffAlgorithm>(wmId - IDM_VIEW_DIFF_ALGORITHM_MYERS));
+			UpdateMenuState(hWnd);
+			break;
+		case IDM_COMPARE_SCREENSHOTS:
+		case IDM_COMPARE_FULLSIZE_SCREENSHOTS:
+		{
+			const wchar_t* pfilenames[3]{};
+			std::vector<std::wstring> filenames;
+			for (int pane = 0; pane < m_pWebDiffWindow->GetPaneCount(); pane++)
 			{
-			case IDM_ABOUT:
-				DialogBox(m_hInstance, MAKEINTRESOURCE(IDD_ABOUTBOX), hWnd, About);
-				break;
-			case IDM_FILE_NEW:
-				m_pWebDiffWindow->New(2, nullptr);
-				break;
-			case IDM_FILE_NEW_TAB:
+				m_tempFiles.emplace_back();
+				m_tempFiles.back().Create(L".png");
+				filenames.push_back(m_tempFiles.back().m_path);
+				pfilenames[pane] = filenames[pane].c_str();
+			}
+			m_pWebDiffWindow->SaveFiles(
+				(wmId == IDM_COMPARE_FULLSIZE_SCREENSHOTS) ? IWebDiffWindow::FULLSIZE_SCREENSHOT : IWebDiffWindow::SCREENSHOT,
+				pfilenames,
+				Callback<IWebDiffCallback>([filenames](const WebDiffCallbackResult& result) -> HRESULT
+					{
+						CompareFiles(filenames, L"");
+						return S_OK;
+					})
+				.Get());
+			break;
+		}
+		case IDM_COMPARE_HTML:
+		{
+			const wchar_t* pfilenames[3]{};
+			std::vector<std::wstring> filenames;
+			for (int pane = 0; pane < m_pWebDiffWindow->GetPaneCount(); pane++)
 			{
-				int nActivePane = m_pWebDiffWindow->GetActivePane();
-				m_pWebDiffWindow->NewTab(nActivePane < 0 ? 0 : nActivePane, L"about:blank", nullptr);
-				break;
+				m_tempFiles.emplace_back();
+				m_tempFiles.back().Create(L".html");
+				filenames.push_back(m_tempFiles.back().m_path);
+				pfilenames[pane] = filenames[pane].c_str();
 			}
-			case IDM_FILE_CLOSE_TAB:
+			m_pWebDiffWindow->SaveFiles(IWebDiffWindow::HTML, pfilenames,
+				Callback<IWebDiffCallback>([filenames](const WebDiffCallbackResult& result) -> HRESULT
+					{
+						CompareFiles(filenames, L"/unpacker PrettifyHTML");
+						return S_OK;
+					})
+				.Get());
+			break;
+		}
+		case IDM_COMPARE_TEXT:
+		{
+			const wchar_t* pfilenames[3]{};
+			std::vector<std::wstring> filenames;
+			for (int pane = 0; pane < m_pWebDiffWindow->GetPaneCount(); pane++)
 			{
-				int nActivePane = m_pWebDiffWindow->GetActivePane();
-				m_pWebDiffWindow->CloseActiveTab(nActivePane < 0 ? 0 : nActivePane);
-				break;
+				m_tempFiles.emplace_back();
+				m_tempFiles.back().Create(L".txt");
+				filenames.push_back(m_tempFiles.back().m_path);
+				pfilenames[pane] = filenames[pane].c_str();
 			}
-			case IDM_FILE_RELOAD:
-				m_pWebDiffWindow->ReloadAll();
-				break;
-			case IDM_EXIT:
-				DestroyWindow(hWnd);
-				break;
-			case IDM_VIEW_SIZE_FIT_TO_WINDOW:
-				m_pWebDiffWindow->SetFitToWindow(true);
-				break;
-			case IDM_VIEW_SIZE_320x512:
-				m_pWebDiffWindow->SetFitToWindow(false);
-				m_pWebDiffWindow->SetSize({ 320, 512 });
-				break;
-			case IDM_VIEW_SIZE_375x600:
-				m_pWebDiffWindow->SetFitToWindow(false);
-				m_pWebDiffWindow->SetSize({ 375, 600 });
-				break;
-			case IDM_VIEW_SIZE_1024x640:
-				m_pWebDiffWindow->SetFitToWindow(false);
-				m_pWebDiffWindow->SetSize({ 1024, 640 });
-				break;
-			case IDM_VIEW_SIZE_1280x800:
-				m_pWebDiffWindow->SetFitToWindow(false);
-				m_pWebDiffWindow->SetSize({ 1280, 800 });
-				break;
-			case IDM_VIEW_SIZE_1440x900:
-				m_pWebDiffWindow->SetFitToWindow(false);
-				m_pWebDiffWindow->SetSize({ 1440, 900});
-				break;
-			case IDM_VIEW_SPLITHORIZONTALLY:
-				m_pWebDiffWindow->SetHorizontalSplit(!m_pWebDiffWindow->GetHorizontalSplit());
-				break;
-			case IDM_COMPARE_SCREENSHOTS:
-			case IDM_COMPARE_FULLSIZE_SCREENSHOTS:
+			m_pWebDiffWindow->SaveFiles(IWebDiffWindow::TEXT, pfilenames,
+				Callback<IWebDiffCallback>([filenames](const WebDiffCallbackResult& result) -> HRESULT
+					{
+						CompareFiles(filenames, L"");
+						return S_OK;
+					})
+				.Get());
+			break;
+		}
+		case IDM_COMPARE_RESOURCE_TREE:
+		{
+			const wchar_t* pdirnames[3]{};
+			std::vector<std::wstring> dirnames;
+			for (int pane = 0; pane < m_pWebDiffWindow->GetPaneCount(); pane++)
 			{
-				const wchar_t* pfilenames[3]{};
-				std::vector<std::wstring> filenames;
-				for (int pane = 0; pane < m_pWebDiffWindow->GetPaneCount(); pane++)
-				{
-					m_tempFiles.emplace_back();
-					m_tempFiles.back().Create(L".png");
-					filenames.push_back(m_tempFiles.back().m_path);
-					pfilenames[pane] = filenames[pane].c_str();
-				}
-				m_pWebDiffWindow->SaveFiles(
-					(wmId == IDM_COMPARE_FULLSIZE_SCREENSHOTS) ? IWebDiffWindow::FULLSIZE_SCREENSHOT : IWebDiffWindow::SCREENSHOT,
-					pfilenames,
-					Callback<IWebDiffCallback>([filenames](const WebDiffCallbackResult& result) -> HRESULT
-						{
-							CompareFiles(filenames, L"");
-							return S_OK;
-						})
-					.Get());
-				break;
+				m_tempFolders.emplace_back();
+				m_tempFolders.back().Create();
+				dirnames.push_back(m_tempFolders.back().m_path);
+				pdirnames[pane] = dirnames[pane].c_str();
 			}
-			case IDM_COMPARE_HTML:
-			{
-				const wchar_t* pfilenames[3]{};
-				std::vector<std::wstring> filenames;
-				for (int pane = 0; pane < m_pWebDiffWindow->GetPaneCount(); pane++)
-				{
-					m_tempFiles.emplace_back();
-					m_tempFiles.back().Create(L".html");
-					filenames.push_back(m_tempFiles.back().m_path);
-					pfilenames[pane] = filenames[pane].c_str();
-				}
-				m_pWebDiffWindow->SaveFiles(IWebDiffWindow::HTML, pfilenames,
-					Callback<IWebDiffCallback>([filenames](const WebDiffCallbackResult& result) -> HRESULT
-						{
-							CompareFiles(filenames, L"/unpacker PrettifyHTML");
-							return S_OK;
-						})
-					.Get());
-				break;
-			}
-			case IDM_COMPARE_TEXT:
-			{
-				const wchar_t* pfilenames[3]{};
-				std::vector<std::wstring> filenames;
-				for (int pane = 0; pane < m_pWebDiffWindow->GetPaneCount(); pane++)
-				{
-					m_tempFiles.emplace_back();
-					m_tempFiles.back().Create(L".txt");
-					filenames.push_back(m_tempFiles.back().m_path);
-					pfilenames[pane] = filenames[pane].c_str();
-				}
-				m_pWebDiffWindow->SaveFiles(IWebDiffWindow::TEXT, pfilenames,
-					Callback<IWebDiffCallback>([filenames](const WebDiffCallbackResult& result) -> HRESULT
-						{
-							CompareFiles(filenames, L"");
-							return S_OK;
-						})
-					.Get());
-				break;
-			}
-			case IDM_COMPARE_RESOURCE_TREE:
-			{
-				const wchar_t* pdirnames[3]{};
-				std::vector<std::wstring> dirnames;
-				for (int pane = 0; pane < m_pWebDiffWindow->GetPaneCount(); pane++)
-				{
-					m_tempFolders.emplace_back();
-					m_tempFolders.back().Create();
-					dirnames.push_back(m_tempFolders.back().m_path);
-					pdirnames[pane] = dirnames[pane].c_str();
-				}
-				m_pWebDiffWindow->SaveFiles(IWebDiffWindow::RESOURCETREE, pdirnames,
-					Callback<IWebDiffCallback>([dirnames](const WebDiffCallbackResult& result) -> HRESULT
-						{
-							CompareFiles(dirnames, L"/r");
-							return S_OK;
-						})
-					.Get());
-				break;
-			}
-			case IDM_CLEAR_DISK_CACHE:
-				m_pWebDiffWindow->ClearBrowsingData(-1, IWebDiffWindow::BrowsingDataType::DISK_CACHE);
-				break;
-			case IDM_CLEAR_COOKIES:
-				m_pWebDiffWindow->ClearBrowsingData(-1, IWebDiffWindow::BrowsingDataType::COOKIES);
-				break;
-			case IDM_CLEAR_BROWSING_HISTORY:
-				m_pWebDiffWindow->ClearBrowsingData(-1, IWebDiffWindow::BrowsingDataType::BROWSING_HISTORY);
-				break;
-			case IDM_CLEAR_ALL_PROFILE:
-				m_pWebDiffWindow->ClearBrowsingData(-1, IWebDiffWindow::BrowsingDataType::ALL_PROFILE);
-				break;
-			default:
-				return DefWindowProc(hWnd, message, wParam, lParam);
-			}
+			m_pWebDiffWindow->SaveFiles(IWebDiffWindow::RESOURCETREE, pdirnames,
+				Callback<IWebDiffCallback>([dirnames](const WebDiffCallbackResult& result) -> HRESULT
+					{
+						CompareFiles(dirnames, L"/r");
+						return S_OK;
+					})
+				.Get());
+		break;
+		}
+		case IDM_COMPARE_NEXTDIFFERENCE:
+			m_pWebDiffWindow->NextDiff();
+			break;
+		case IDM_COMPARE_PREVIOUSDIFFERENCE:
+			m_pWebDiffWindow->PrevDiff();
+			break;
+		case IDM_COMPARE_FIRSTDIFFERENCE:
+			m_pWebDiffWindow->FirstDiff();
+			break;
+		case IDM_COMPARE_LASTDIFFERENCE:
+			m_pWebDiffWindow->LastDiff();
+			break;
+		case IDM_COMPARE_NEXTCONFLICT:
+			m_pWebDiffWindow->NextConflict();
+			break;
+		case IDM_COMPARE_PREVIOUSCONFLICT:
+			m_pWebDiffWindow->PrevConflict();
+			break;
+		case IDM_CLEAR_DISK_CACHE:
+			m_pWebDiffWindow->ClearBrowsingData(-1, IWebDiffWindow::BrowsingDataType::DISK_CACHE);
+			break;
+		case IDM_CLEAR_COOKIES:
+			m_pWebDiffWindow->ClearBrowsingData(-1, IWebDiffWindow::BrowsingDataType::COOKIES);
+			break;
+		case IDM_CLEAR_BROWSING_HISTORY:
+			m_pWebDiffWindow->ClearBrowsingData(-1, IWebDiffWindow::BrowsingDataType::BROWSING_HISTORY);
+			break;
+		case IDM_CLEAR_ALL_PROFILE:
+			m_pWebDiffWindow->ClearBrowsingData(-1, IWebDiffWindow::BrowsingDataType::ALL_PROFILE);
+			break;
+		default:
+			return DefWindowProc(hWnd, message, wParam, lParam);
 		}
 		break;
+	}
 	case WM_PAINT:
 		{
 			PAINTSTRUCT ps;

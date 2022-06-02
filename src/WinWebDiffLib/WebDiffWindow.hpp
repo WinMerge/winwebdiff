@@ -2,6 +2,7 @@
 
 #include "WinWebDiffLib.h"
 #include "WebWindow.hpp"
+#include "Diff.hpp"
 #include <Windows.h>
 #include <shellapi.h>
 #include <vector>
@@ -456,11 +457,22 @@ public:
 
 	bool GetShowDifferences() const override
 	{
-		return true;
+		return m_bShowDifferences;
 	}
 
 	void SetShowDifferences(bool visible) override
 	{
+		m_bShowDifferences = visible;
+	}
+
+	DiffAlgorithm GetDiffAlgorithm() const
+	{
+		return static_cast<DiffAlgorithm>(m_diffAlgorithm);
+	}
+
+	void SetDiffAlgorithm(DiffAlgorithm diffAlgorithm)
+	{
+		m_diffAlgorithm = diffAlgorithm;
 	}
 
 	int  GetDiffCount() const override
@@ -915,4 +927,6 @@ private:
 	bool m_bUserDataFolderPerPane = true;
 	std::vector<ComPtr<IWebDiffEventHandler>> m_listeners;
 	int m_diffCount = 0;
+	DiffAlgorithm m_diffAlgorithm = DiffAlgorithm::MYERS_DIFF;
+	bool m_bShowDifferences = true;
 };
