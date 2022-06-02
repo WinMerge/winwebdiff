@@ -55,6 +55,9 @@ struct IWebDiffWindow
 		SETTINGS            = ( 1 << 13 ),
 		ALL_PROFILE         = ( 1 << 14 ) 
 	};
+	enum DiffAlgorithm {
+		MYERS_DIFF, MINIMAL_DIFF, PATIENCE_DIFF, HISTOGRAM_DIFF, NONE_DIFF
+	};
 	virtual bool IsWebView2Installed() const = 0;
 	virtual bool DownloadWebView2() const = 0;
 	virtual void AddEventListener(IWebDiffEventHandler *handler) = 0;
@@ -123,6 +126,8 @@ struct IWebDiffWindow
 	virtual bool Redo() = 0;
 	virtual bool CanUndo() = 0;
 	virtual bool CanRedo() = 0;
+	virtual DiffAlgorithm GetDiffAlgorithm() const = 0;
+	virtual void SetDiffAlgorithm(DiffAlgorithm diffAlgorithm) = 0;
 };
 
 extern "C"

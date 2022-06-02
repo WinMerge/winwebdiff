@@ -8,3 +8,4 @@ Dist/
 *.aps
 *.*~
 winwebdiff-cppcheck-build-dir/
+src/gen-versioninfo.h
