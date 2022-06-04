@@ -7,6 +7,64 @@
 #include <shellapi.h>
 #include <vector>
 #include <wil/win32_helpers.h>
+#include <rapidjson/document.h>
+#include <rapidjson/prettywriter.h>
+#include <rapidjson/stringbuffer.h>
+
+using WDocument = rapidjson::GenericDocument<rapidjson::UTF16<>>;
+using WValue = rapidjson::GenericValue<rapidjson::UTF16<>>;
+
+struct DiffInfo
+{
+	int nodeId[3];
+	int begin[3];
+	int end[3];
+};
+
+struct TextSegment
+{
+	int nodeId;
+	int nodeBegin;
+	const wchar_t* begin;
+	const wchar_t* end;
+};
+
+class DataForDiff
+{
+public:
+	DataForDiff(const WDocument& doc)
+	{
+	}
+	~DataForDiff()
+	{
+	}
+	unsigned size() const { return 0; }
+	const char* data() const { return nullptr; }
+	const char* next(const char* scanline) const
+	{
+		return nullptr;
+	}
+	bool equals(const char* scanline1, unsigned size1,
+		const char* scanline2, unsigned size2) const
+	{
+		return true;
+	}
+	unsigned long hash(const char* scanline) const
+	{
+		unsigned long ha = 5381;
+		const char* begin = scanline;
+		const char* end = begin;
+
+		for (const auto* ptr = begin; ptr < end; ptr++)
+		{
+			ha += (ha << 5);
+			ha ^= *ptr & 0xFF;
+		}
+		return ha;
+	}
+
+private:
+};
 
 class CWebDiffWindow : public IWebDiffWindow
 {
@@ -178,8 +236,57 @@ public:
 
 	HRESULT Recompare(IWebDiffCallback* callback) override
 	{
-		static const wchar_t *script = L"document.documentElement.outerHTML";
+		//static const wchar_t *script = L"document.documentElement.outerHTML";
+		static const wchar_t* method = L"DOM.getDocument";
+		static const wchar_t* params = L"{ \"depth\": -1, \"pierce\": true }";
 		ComPtr<IWebDiffCallback> callback2(callback);
+		HRESULT hr = m_webWindow[0].CallDevToolsProtocolMethod(method, params,
+			Callback<IWebDiffCallback>([this, callback2](const WebDiffCallbackResult& result) -> HRESULT
+				{
+					HRESULT hr = result.errorCode;
+					if (SUCCEEDED(hr))
+					{
+						std::wstring json0 = result.returnObjectAsJson;
+						hr = m_webWindow[1].CallDevToolsProtocolMethod(method, params,
+							Callback<IWebDiffCallback>([this, callback2, json0](const WebDiffCallbackResult& result) -> HRESULT
+								{
+									HRESULT hr = result.errorCode;
+									if (m_nPanes < 3)
+									{
+										std::vector<DiffInfo> diffInfo = CompareDocuments(json0.c_str(), result.returnObjectAsJson);
+										m_diffCount = static_cast<int>(diffInfo.size());
+										if (callback2)
+											callback2->Invoke(result);
+										return S_OK;
+									}
+									if (SUCCEEDED(hr))
+									{
+										std::wstring json1 = result.returnObjectAsJson;
+										hr = m_webWindow[2].CallDevToolsProtocolMethod(method, params,
+											Callback<IWebDiffCallback>([this, callback2, json0, json1](const WebDiffCallbackResult& result) -> HRESULT
+												{
+													m_diffCount = (json0 == json1 && json1 == result.returnObjectAsJson) ? 0 : 1;
+													if (callback2)
+														callback2->Invoke(result);
+													return S_OK;
+												}).Get());
+									}
+									if (FAILED(hr))
+									{
+										if (callback2)
+											callback2->Invoke({ hr, nullptr });
+									}
+									return S_OK;
+								}).Get());
+					}
+					if (FAILED(hr))
+					{
+						if (callback2)
+							callback2->Invoke({ hr, nullptr });
+					}
+					return S_OK;
+				}).Get());
+		/*
 		HRESULT hr = m_webWindow[0].ExecuteScript(script,
 			Callback<IWebDiffCallback>([this, callback2](const WebDiffCallbackResult& result) -> HRESULT
 				{
@@ -225,6 +332,7 @@ public:
 					}
 					return S_OK;
 				}).Get());
+		*/
 		return hr;
 	}
 
@@ -613,6 +721,36 @@ public:
 	}
 
 private:
+
+	std::vector<TextSegment> Prepare()
+	{
+
+	}
+
+	std::vector<DiffInfo> CompareDocuments(const wchar_t* json0, const wchar_t* json1)
+	{
+		std::vector<DiffInfo> diffInfo;
+		/*
+		DataForDiff data1();
+		DataForDiff data2();
+		Diff<DataForDiff> diff(data1, data2);
+		std::vector<char> edscript;
+
+		diff.diff(static_cast<Diff<DataForDiff>::Algorithm>(m_diffAlgorithm), edscript);
+		*/
+		return diffInfo;
+	}
+
+	std::vector<DiffInfo> CompareDocuments(const wchar_t* json0, const wchar_t* json1, const wchar_t* json2)
+	{
+		std::vector<DiffInfo> diffInfo;
+		return diffInfo;
+	}
+
+	void HighlightDifferences(const std::vector<DiffInfo>& diffInfo)
+	{
+
+	}
 
 	std::wstring getFromClipboard() const
 	{

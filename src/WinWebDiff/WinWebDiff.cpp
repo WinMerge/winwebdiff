@@ -357,6 +357,9 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 			m_pWebDiffWindow->SetDiffAlgorithm(static_cast<IWebDiffWindow::DiffAlgorithm>(wmId - IDM_VIEW_DIFF_ALGORITHM_MYERS));
 			UpdateMenuState(hWnd);
 			break;
+		case IDM_COMPARE_RECOMPARE:
+			m_pWebDiffWindow->Recompare(nullptr);
+			break;
 		case IDM_COMPARE_SCREENSHOTS:
 		case IDM_COMPARE_FULLSIZE_SCREENSHOTS:
 		{
