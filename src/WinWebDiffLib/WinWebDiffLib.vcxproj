@@ -266,6 +266,7 @@
     <ClInclude Include="framework.h" />
     <ClInclude Include="pch.h" />
     <ClInclude Include="Resource.h" />
+    <ClInclude Include="Utils.hpp" />
     <ClInclude Include="WebDiffWindow.hpp" />
     <ClInclude Include="WebWindow.hpp" />
     <ClInclude Include="WinWebDiffLib.h" />

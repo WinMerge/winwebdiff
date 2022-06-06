@@ -1744,6 +1744,8 @@ int xdl_prepare_ctx(unsigned int pass, mmfile_t *mf, long narec, xpparam_t const
 	rhash = NULL;
 	recs = NULL;
 
+	const Data& data = ((pass == 1) ? m_data1 : m_data2);
+
 	if (xdl_cha_init(&xdf->rcha, sizeof(xrecord_t), narec / 4 + 1) < 0)
 		goto abort;
 	if (!(recs = (xrecord_t **) xdl_malloc(narec * sizeof(xrecord_t *))))
@@ -1758,8 +1760,6 @@ int xdl_prepare_ctx(unsigned int pass, mmfile_t *mf, long narec, xpparam_t const
 			goto abort;
 		memset(rhash, 0, hsize * sizeof(xrecord_t *));
 	}
-
-	const Data& data = ((pass == 1) ? m_data1 : m_data2);
 
 	nrec = 0;
 	if ((cur = blk = reinterpret_cast<const char *>(xdl_mmfile_first(mf, &bsize))) != NULL) {

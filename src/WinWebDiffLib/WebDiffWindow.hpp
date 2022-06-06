@@ -2,10 +2,12 @@
 
 #include "WinWebDiffLib.h"
 #include "WebWindow.hpp"
+#include "Utils.hpp"
 #include "Diff.hpp"
 #include <Windows.h>
 #include <shellapi.h>
 #include <vector>
+#include <map>
 #include <wil/win32_helpers.h>
 #include <rapidjson/document.h>
 #include <rapidjson/prettywriter.h>
@@ -25,35 +27,80 @@ struct TextSegment
 {
 	int nodeId;
 	int nodeBegin;
-	const wchar_t* begin;
-	const wchar_t* end;
+	size_t begin;
+	size_t size;
+};
+
+struct TextBlocks
+{
+	void Make(const WValue& nodeTree)
+	{
+		const int nodeType = nodeTree[L"nodeType"].GetInt();
+
+		if (nodeType == 3 /* TEXT_NODE */)
+		{
+			std::wstring text = nodeTree[L"nodeValue"].GetString();
+			TextSegment seg;
+			seg.nodeId = nodeTree[L"nodeId"].GetInt();
+			seg.nodeBegin = 0;
+			seg.begin = textBlocks.size();
+			seg.size = text.size();
+			textBlocks += text;
+			segments.insert_or_assign(seg.begin, seg);
+
+		}
+		if (nodeTree.HasMember(L"children") && nodeTree[L"children"].IsArray())
+		{
+			const auto* nodeName = nodeTree[L"nodeName"].GetString();
+			const bool fInline = utils::IsInlineElement(nodeName);
+			if (wcscmp(nodeName, L"SCRIPT") != 0 && wcscmp(nodeName, L"STYLE") != 0)
+			{
+				for (const auto& child : nodeTree[L"children"].GetArray())
+				{
+					Make(child);
+				}
+			}
+		}
+		if (nodeTree.HasMember(L"contentDocument"))
+		{
+			Make(nodeTree[L"contentDocument"]);
+		}
+	}
+	std::wstring textBlocks;
+	std::map<size_t, TextSegment> segments;
 };
 
 class DataForDiff
 {
 public:
-	DataForDiff(const WDocument& doc)
+	DataForDiff(const TextBlocks& textBlocks) :
+		m_textBlocks(textBlocks)
 	{
 	}
 	~DataForDiff()
 	{
 	}
-	unsigned size() const { return 0; }
-	const char* data() const { return nullptr; }
+	unsigned size() const { return static_cast<unsigned>(m_textBlocks.textBlocks.size() * sizeof(wchar_t)); }
+	const char* data() const { return reinterpret_cast<const char*>(m_textBlocks.textBlocks.data()); }
 	const char* next(const char* scanline) const
 	{
+		auto it = m_textBlocks.segments.find(reinterpret_cast<const wchar_t*>(scanline) - m_textBlocks.textBlocks.data());
+		if (it != m_textBlocks.segments.end())
+			return scanline + it->second.size * sizeof(wchar_t);
 		return nullptr;
 	}
 	bool equals(const char* scanline1, unsigned size1,
 		const char* scanline2, unsigned size2) const
 	{
-		return true;
+		if (size1 != size2)
+			return false;
+		return memcmp(scanline1, scanline2, size1) == 0;
 	}
 	unsigned long hash(const char* scanline) const
 	{
 		unsigned long ha = 5381;
 		const char* begin = scanline;
-		const char* end = begin;
+		const char* end = this->next(scanline);
 
 		for (const auto* ptr = begin; ptr < end; ptr++)
 		{
@@ -64,7 +111,36 @@ public:
 	}
 
 private:
+	const TextBlocks& m_textBlocks;
 };
+
+namespace Comparer
+{
+	std::vector<DiffInfo> CompareDocuments(int diffAlgorithm, const wchar_t* json0, const wchar_t* json1)
+	{
+		std::vector<DiffInfo> diffInfo;
+		WDocument document0, document1;
+		document0.Parse(json0);
+		document1.Parse(json1);
+		TextBlocks textBlocks0;
+		TextBlocks textBlocks1;
+		textBlocks0.Make(document0[L"root"]);
+		textBlocks1.Make(document1[L"root"]);
+		DataForDiff data1(textBlocks0);
+		DataForDiff data2(textBlocks1);
+		Diff<DataForDiff> diff(data1, data2);
+		std::vector<char> edscript;
+
+		diff.diff(static_cast<Diff<DataForDiff>::Algorithm>(diffAlgorithm), edscript);
+		return diffInfo;
+	}
+
+	std::vector<DiffInfo> CompareDocuments(int diffAlgorithm, const wchar_t* json0, const wchar_t* json1, const wchar_t* json2)
+	{
+		std::vector<DiffInfo> diffInfo;
+		return diffInfo;
+	}
+}
 
 class CWebDiffWindow : public IWebDiffWindow
 {
@@ -253,7 +329,7 @@ public:
 									HRESULT hr = result.errorCode;
 									if (m_nPanes < 3)
 									{
-										std::vector<DiffInfo> diffInfo = CompareDocuments(json0.c_str(), result.returnObjectAsJson);
+										std::vector<DiffInfo> diffInfo = Comparer::CompareDocuments(m_diffAlgorithm, json0.c_str(), result.returnObjectAsJson);
 										m_diffCount = static_cast<int>(diffInfo.size());
 										if (callback2)
 											callback2->Invoke(result);
@@ -721,31 +797,6 @@ public:
 	}
 
 private:
-
-	std::vector<TextSegment> Prepare()
-	{
-
-	}
-
-	std::vector<DiffInfo> CompareDocuments(const wchar_t* json0, const wchar_t* json1)
-	{
-		std::vector<DiffInfo> diffInfo;
-		/*
-		DataForDiff data1();
-		DataForDiff data2();
-		Diff<DataForDiff> diff(data1, data2);
-		std::vector<char> edscript;
-
-		diff.diff(static_cast<Diff<DataForDiff>::Algorithm>(m_diffAlgorithm), edscript);
-		*/
-		return diffInfo;
-	}
-
-	std::vector<DiffInfo> CompareDocuments(const wchar_t* json0, const wchar_t* json1, const wchar_t* json2)
-	{
-		std::vector<DiffInfo> diffInfo;
-		return diffInfo;
-	}
 
 	void HighlightDifferences(const std::vector<DiffInfo>& diffInfo)
 	{

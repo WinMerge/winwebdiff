@@ -23,6 +23,7 @@
 #include <wil/com.h>
 #include <wincrypt.h>
 #include "WinWebDiffLib.h"
+#include "Utils.hpp"
 #include "resource.h"
 
 #pragma comment(lib, "shlwapi.lib")
@@ -548,7 +549,7 @@ public:
 			std::wstring text = value[L"nodeValue"].GetString();
 			text =
 				((text.length() > 0 && iswspace(text.front())) ? L" " : L"") + 
-				trim_ws(text) +
+				utils::trim_ws(text) +
 				((text.length() > 0 && iswspace(text.back())) ? L" " : L"");
 			if (fwprintf(fp, L"%s", text.c_str()) < 0)
 				return HRESULT_FROM_WIN32(GetLastError());
@@ -557,7 +558,7 @@ public:
 		if (value.HasMember(L"children") && value[L"children"].IsArray())
 		{
 			const auto* nodeName = value[L"nodeName"].GetString();
-			const bool fInline = IsInlineElement(nodeName);
+			const bool fInline = utils::IsInlineElement(nodeName);
 			if (wcscmp(nodeName, L"SCRIPT") != 0 && wcscmp(nodeName, L"STYLE") != 0)
 			{
 				if (nodeType == 1)
@@ -729,7 +730,7 @@ public:
 							std::filesystem::path orgfilename = filename;
 							filename = orgfilename.stem().wstring().substr(0, 61) + L"\u2026" + orgfilename.extension().wstring();
 						}
-						path /= Escape(filename);
+						path /= utils::Escape(filename);
 						if (!path.has_extension())
 						{
 							if (mimeType == L"image/png")
@@ -1107,134 +1108,6 @@ private:
 		}
 	}
 
-	static int cmp(const void* a, const void* b)
-	{
-		const wchar_t* const* pa = reinterpret_cast<const wchar_t* const*>(a);
-		const wchar_t* const* pb = reinterpret_cast<const wchar_t* const*>(b);
-		return wcscmp(*pa, *pb);
-	}
-
-	static bool IsInlineElement(const wchar_t* name)
-	{
-		static const wchar_t* inlineElements[] =
-		{
-			L"A",
-			L"ABBR",
-			L"ACRONYM",
-			L"AUDIO",
-			L"B",
-			L"BDI",
-			L"BDO",
-			L"BIG",
-			L"BR",
-			L"BUTTON",
-			L"CANVAS",
-			L"CITE",
-			L"CODE",
-			L"DATA",
-			L"DATALIST",
-			L"DEL",
-			L"DFN",
-			L"EM",
-			L"EMBED",
-			L"I",
-			L"IFRAME",
-			L"IMG",
-			L"INPUT",
-			L"INS",
-			L"KBD",
-			L"LABEL",
-			L"MAP",
-			L"MARK",
-			L"METER",
-			L"NOSCRIPT",
-			L"OBJECT",
-			L"OUTPUT",
-			L"PICTURE",
-			L"PROGRESS",
-			L"Q",
-			L"RUBY",
-			L"S",
-			L"SAMP",
-			L"SCRIPT",
-			L"SELECT",
-			L"SLOT",
-			L"SMALL",
-			L"SPAN",
-			L"STRONG",
-			L"SUB",
-			L"SUP",
-			L"SVG",
-			L"TEMPLATE",
-			L"TEXTAREA",
-			L"TIME",
-			L"TT",
-			L"U",
-			L"VAR",
-			L"VIDEO",
-			L"WBR",
-		};
-		return bsearch(&name, inlineElements,
-			sizeof(inlineElements) / sizeof(inlineElements[0]),
-			sizeof(inlineElements[0]), cmp);
-	}
-
-	static std::wstring trim_ws(const std::wstring& str)
-	{
-		if (str.empty())
-			return str;
-
-		std::wstring result(str);
-		std::wstring::iterator it = result.begin();
-		while (it != result.end() && *it < 0x100 && isspace(*it))
-			++it;
-
-		if (it != result.begin())
-			result.erase(result.begin(), it);
-
-		if (result.empty())
-			return result;
-
-		it = result.end() - 1;
-		while (it != result.begin() && *it < 0x100 && iswspace(*it))
-			--it;
-
-		if (it != result.end() - 1)
-			result.erase(it + 1, result.end());
-		return result;
-	}
-
-	static std::wstring Escape(const std::wstring& text)
-	{
-		std::wstring result;
-		for (auto c : text)
-		{
-			switch (c)
-			{
-			case '*':  result += L"%2A"; break;
-			case '?':  result += L"%3F"; break;
-			case ':':  result += L"%3A"; break;
-			case '/':  result += L"%2F"; break;
-			case '\\': result += L"%5C"; break;
-			default:   result += c; break;
-			}
-
-		}
-		return result;
-	}
-
-	static std::vector<BYTE> DecodeBase64(const std::wstring& base64)
-	{
-		std::vector<BYTE> data;
-		DWORD cbBinary = 0;
-		if (CryptStringToBinary(base64.c_str(), static_cast<DWORD>(base64.size()), CRYPT_STRING_BASE64_ANY, nullptr, &cbBinary, nullptr, nullptr))
-		{
-			data.resize(cbBinary);
-			CryptStringToBinary(base64.c_str(), static_cast<DWORD>(base64.size()), CRYPT_STRING_BASE64_ANY, data.data(), &cbBinary, nullptr, nullptr);
-		}
-		return data;
-	}
-
 	static std::filesystem::path RenameFile(const std::filesystem::path& path)
 	{
 		int i = 1;
@@ -1277,7 +1150,7 @@ private:
 	static HRESULT WriteToBinaryFile(const std::wstring& path, const std::wstring& base64)
 	{
 		wil::unique_file fp;
-		std::vector<BYTE> data = DecodeBase64(base64);
+		std::vector<BYTE> data = utils::DecodeBase64(base64);
 		_wfopen_s(&fp, path.c_str(), L"wb");
 		if (fp)
 			fwrite(data.data(), data.size(), 1, fp.get());
