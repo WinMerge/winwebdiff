@@ -221,16 +221,8 @@ public:
 				std::wstring userDataFolder = GetUserDataFolderPath(i);
 				ComPtr<IWebDiffCallback> callback2(callback);
 				hr = m_webWindow[i].Create(m_hInstance, m_hWnd, urls[i], userDataFolder.c_str(),
-						m_size, m_fitToWindow, m_zoom, m_userAgent,
-						Callback<IWebDiffCallback>([this, counter, callback2](const WebDiffCallbackResult& result) -> HRESULT
-							{
-								*counter = *counter - 1;
-								if (*counter == 0)
-									Recompare(callback2.Get());
-								return S_OK;
-							}).Get()
-						,
-						[this, i](WebDiffEvent::EVENT_TYPE event)
+						m_size, m_fitToWindow, m_zoom, m_userAgent, nullptr,
+						[this, i, counter, callback2](WebDiffEvent::EVENT_TYPE event)
 							{
 								WebDiffEvent ev;
 								ev.type = event;
@@ -263,6 +255,12 @@ public:
 										if (pane != ev.pane)
 											m_webWindow[pane].SetVScrollPos(m_webWindow[ev.pane].GetVScrollPos());
 									}
+								}
+								else if (event == WebDiffEvent::NavigationCompleted)
+								{
+									*counter = *counter - 1;
+									if (*counter == 0)
+										Recompare(callback2.Get());
 								}
 								for (const auto& listener : m_listeners)
 									listener->Invoke(ev);
