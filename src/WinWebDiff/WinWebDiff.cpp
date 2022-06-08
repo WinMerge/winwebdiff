@@ -271,7 +271,7 @@ void UpdateMenuState(HWND hWnd)
 	CheckMenuItem(hMenu, IDM_VIEW_VIEWDIFFERENCES,    m_pWebDiffWindow->GetShowDifferences() ? MF_CHECKED : MF_UNCHECKED);
 	CheckMenuItem(hMenu, IDM_VIEW_SPLITHORIZONTALLY,  m_pWebDiffWindow->GetHorizontalSplit() ? MF_CHECKED : MF_UNCHECKED);
 	CheckMenuRadioItem(hMenu, IDM_VIEW_DIFF_ALGORITHM_MYERS, IDM_VIEW_DIFF_ALGORITHM_NONE,
-		m_pWebDiffWindow->GetDiffAlgorithm() + IDM_VIEW_DIFF_ALGORITHM_MYERS, MF_BYCOMMAND);
+		m_pWebDiffWindow->GetDiffOptions().diffAlgorithm + IDM_VIEW_DIFF_ALGORITHM_MYERS, MF_BYCOMMAND);
 }
 
 LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
@@ -354,9 +354,13 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 		case IDM_VIEW_DIFF_ALGORITHM_PATIENCE:
 		case IDM_VIEW_DIFF_ALGORITHM_HISTOGRAM:
 		case IDM_VIEW_DIFF_ALGORITHM_NONE:
-			m_pWebDiffWindow->SetDiffAlgorithm(static_cast<IWebDiffWindow::DiffAlgorithm>(wmId - IDM_VIEW_DIFF_ALGORITHM_MYERS));
+		{
+			IWebDiffWindow::DiffOptions diffOptions = m_pWebDiffWindow->GetDiffOptions();
+			diffOptions.diffAlgorithm = wmId - IDM_VIEW_DIFF_ALGORITHM_MYERS;
+			m_pWebDiffWindow->SetDiffOptions(diffOptions);
 			UpdateMenuState(hWnd);
 			break;
+		}
 		case IDM_COMPARE_RECOMPARE:
 			m_pWebDiffWindow->Recompare(nullptr);
 			break;

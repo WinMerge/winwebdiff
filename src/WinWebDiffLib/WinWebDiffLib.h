@@ -55,8 +55,20 @@ struct IWebDiffWindow
 		SETTINGS            = ( 1 << 13 ),
 		ALL_PROFILE         = ( 1 << 14 ) 
 	};
-	enum DiffAlgorithm {
-		MYERS_DIFF, MINIMAL_DIFF, PATIENCE_DIFF, HISTOGRAM_DIFF, NONE_DIFF
+	struct DiffOptions
+	{
+		enum DiffAlgorithm {
+			MYERS_DIFF, MINIMAL_DIFF, PATIENCE_DIFF, HISTOGRAM_DIFF, NONE_DIFF
+		};
+		int  ignoreWhitespace; /**< Ignore whitespace -option. */
+		bool ignoreCase; /**< Ignore case -option. */
+		bool ignoreNumbers; /**< Ignore numbers -option. */
+		bool ignoreBlankLines; /**< Ignore blank lines -option. */
+		bool ignoreEol; /**< Ignore EOL differences -option. */
+		bool bFilterCommentsLines; /**< Ignore Multiline comments differences -option. */
+		int  diffAlgorithm; /**< Diff algorithm -option. */
+		bool indentHeuristic; /**< Ident heuristic -option */
+		bool completelyBlankOutIgnoredChanges;
 	};
 	virtual bool IsWebView2Installed() const = 0;
 	virtual bool DownloadWebView2() const = 0;
@@ -126,8 +138,8 @@ struct IWebDiffWindow
 	virtual bool Redo() = 0;
 	virtual bool CanUndo() = 0;
 	virtual bool CanRedo() = 0;
-	virtual DiffAlgorithm GetDiffAlgorithm() const = 0;
-	virtual void SetDiffAlgorithm(DiffAlgorithm diffAlgorithm) = 0;
+	virtual const DiffOptions& GetDiffOptions() const = 0;
+	virtual void SetDiffOptions(const DiffOptions& diffOptions) = 0;
 };
 
 extern "C"

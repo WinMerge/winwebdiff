@@ -18,9 +18,14 @@ using WValue = rapidjson::GenericValue<rapidjson::UTF16<>>;
 
 struct DiffInfo
 {
-	int nodeId[3];
-	int begin[3];
-	int end[3];
+	DiffInfo(int nodeId1 = 0, int nodeId2 = 0, int nodeId3 = 0) :
+		nodeIds{ nodeId1, nodeId2, nodeId3 }
+	{}
+
+	DiffInfo(const DiffInfo& src) :
+		nodeIds{ src.nodeIds[0], src.nodeIds[1], src.nodeIds[2] }
+	{}
+	int nodeIds[3];
 };
 
 struct TextSegment
@@ -73,8 +78,8 @@ struct TextBlocks
 class DataForDiff
 {
 public:
-	DataForDiff(const TextBlocks& textBlocks) :
-		m_textBlocks(textBlocks)
+	DataForDiff(const TextBlocks& textBlocks, const IWebDiffWindow::DiffOptions& diffOptions) :
+		m_textBlocks(textBlocks), m_diffOptions(diffOptions)
 	{
 	}
 	~DataForDiff()
@@ -112,13 +117,13 @@ public:
 
 private:
 	const TextBlocks& m_textBlocks;
+	const IWebDiffWindow::DiffOptions& m_diffOptions;
 };
 
 namespace Comparer
 {
-	std::vector<DiffInfo> CompareDocuments(int diffAlgorithm, const wchar_t* json0, const wchar_t* json1)
+	std::vector<DiffInfo> CompareDocuments(const IWebDiffWindow::DiffOptions& diffOptions, const wchar_t* json0, const wchar_t* json1)
 	{
-		std::vector<DiffInfo> diffInfo;
 		WDocument document0, document1;
 		document0.Parse(json0);
 		document1.Parse(json1);
@@ -126,16 +131,44 @@ namespace Comparer
 		TextBlocks textBlocks1;
 		textBlocks0.Make(document0[L"root"]);
 		textBlocks1.Make(document1[L"root"]);
-		DataForDiff data1(textBlocks0);
-		DataForDiff data2(textBlocks1);
+		DataForDiff data1(textBlocks0, diffOptions);
+		DataForDiff data2(textBlocks1, diffOptions);
 		Diff<DataForDiff> diff(data1, data2);
 		std::vector<char> edscript;
+		std::vector<DiffInfo> diffInfos;
 
-		diff.diff(static_cast<Diff<DataForDiff>::Algorithm>(diffAlgorithm), edscript);
-		return diffInfo;
+		diff.diff(static_cast<Diff<DataForDiff>::Algorithm>(diffOptions.diffAlgorithm), edscript);
+
+		auto it0 = textBlocks0.segments.begin();
+		auto it1 = textBlocks1.segments.begin();
+		for (auto ed : edscript)
+		{
+			switch (ed)
+			{
+			case '-':
+				diffInfos.emplace_back(it0->second.nodeId, -1);
+				++it0;
+				break;
+			case '+':
+				diffInfos.emplace_back(-1, it1->second.nodeId);
+				++it1;
+				break;
+			case '!':
+				diffInfos.emplace_back(it0->second.nodeId, it1->second.nodeId);
+				++it0;
+				++it1;
+				break;
+			default:
+				++it0;
+				++it1;
+				break;
+			}
+		}
+
+		return diffInfos;
 	}
 
-	std::vector<DiffInfo> CompareDocuments(int diffAlgorithm, const wchar_t* json0, const wchar_t* json1, const wchar_t* json2)
+	std::vector<DiffInfo> CompareDocuments(const IWebDiffWindow::DiffOptions& diffOptions, const wchar_t* json0, const wchar_t* json1, const wchar_t* json2)
 	{
 		std::vector<DiffInfo> diffInfo;
 		return diffInfo;
@@ -327,7 +360,7 @@ public:
 									HRESULT hr = result.errorCode;
 									if (m_nPanes < 3)
 									{
-										std::vector<DiffInfo> diffInfo = Comparer::CompareDocuments(m_diffAlgorithm, json0.c_str(), result.returnObjectAsJson);
+										std::vector<DiffInfo> diffInfo = Comparer::CompareDocuments(m_diffOptions, json0.c_str(), result.returnObjectAsJson);
 										m_diffCount = static_cast<int>(diffInfo.size());
 										if (callback2)
 											callback2->Invoke(result);
@@ -647,14 +680,15 @@ public:
 		m_bShowDifferences = visible;
 	}
 
-	DiffAlgorithm GetDiffAlgorithm() const
+	const DiffOptions& GetDiffOptions() const
 	{
-		return static_cast<DiffAlgorithm>(m_diffAlgorithm);
+		return m_diffOptions;
 	}
 
-	void SetDiffAlgorithm(DiffAlgorithm diffAlgorithm)
+	void SetDiffOptions(const DiffOptions& diffOptions)
 	{
-		m_diffAlgorithm = diffAlgorithm;
+		m_diffOptions = diffOptions;
+		Recompare(nullptr);
 	}
 
 	int  GetDiffCount() const override
@@ -1114,6 +1148,6 @@ private:
 	bool m_bUserDataFolderPerPane = true;
 	std::vector<ComPtr<IWebDiffEventHandler>> m_listeners;
 	int m_diffCount = 0;
-	DiffAlgorithm m_diffAlgorithm = DiffAlgorithm::MYERS_DIFF;
+	DiffOptions m_diffOptions{};
 	bool m_bShowDifferences = true;
 };
