@@ -122,20 +122,18 @@ private:
 
 namespace Comparer
 {
-	std::vector<DiffInfo> CompareDocuments(const IWebDiffWindow::DiffOptions& diffOptions, const wchar_t* json0, const wchar_t* json1)
+	std::vector<DiffInfo> CompareDocuments(const IWebDiffWindow::DiffOptions& diffOptions,
+		const std::vector<WDocument>& documents)
 	{
-		WDocument document0, document1;
-		document0.Parse(json0);
-		document1.Parse(json1);
 		TextBlocks textBlocks0;
 		TextBlocks textBlocks1;
-		textBlocks0.Make(document0[L"root"]);
-		textBlocks1.Make(document1[L"root"]);
+		textBlocks0.Make(documents[0][L"root"]);
+		textBlocks1.Make(documents[1][L"root"]);
 		DataForDiff data1(textBlocks0, diffOptions);
 		DataForDiff data2(textBlocks1, diffOptions);
 		Diff<DataForDiff> diff(data1, data2);
 		std::vector<char> edscript;
-		std::vector<DiffInfo> diffInfos;
+		std::vector<DiffInfo> diffInfoList;
 
 		diff.diff(static_cast<Diff<DataForDiff>::Algorithm>(diffOptions.diffAlgorithm), edscript);
 
@@ -146,15 +144,15 @@ namespace Comparer
 			switch (ed)
 			{
 			case '-':
-				diffInfos.emplace_back(it0->second.nodeId, -1);
+				diffInfoList.emplace_back(it0->second.nodeId, -1);
 				++it0;
 				break;
 			case '+':
-				diffInfos.emplace_back(-1, it1->second.nodeId);
+				diffInfoList.emplace_back(-1, it1->second.nodeId);
 				++it1;
 				break;
 			case '!':
-				diffInfos.emplace_back(it0->second.nodeId, it1->second.nodeId);
+				diffInfoList.emplace_back(it0->second.nodeId, it1->second.nodeId);
 				++it0;
 				++it1;
 				break;
@@ -165,13 +163,7 @@ namespace Comparer
 			}
 		}
 
-		return diffInfos;
-	}
-
-	std::vector<DiffInfo> CompareDocuments(const IWebDiffWindow::DiffOptions& diffOptions, const wchar_t* json0, const wchar_t* json1, const wchar_t* json2)
-	{
-		std::vector<DiffInfo> diffInfo;
-		return diffInfo;
+		return diffInfoList;
 	}
 }
 
@@ -360,8 +352,11 @@ public:
 									HRESULT hr = result.errorCode;
 									if (m_nPanes < 3)
 									{
-										std::vector<DiffInfo> diffInfo = Comparer::CompareDocuments(m_diffOptions, json0.c_str(), result.returnObjectAsJson);
-										m_diffCount = static_cast<int>(diffInfo.size());
+										std::vector<WDocument> documents(2);
+										documents[0].Parse(json0.c_str());
+										documents[1].Parse(result.returnObjectAsJson);
+										m_diffInfoList = Comparer::CompareDocuments(m_diffOptions, documents);
+										HighlightDifferences(m_diffInfoList, documents);
 										if (callback2)
 											callback2->Invoke(result);
 										return S_OK;
@@ -372,7 +367,11 @@ public:
 										hr = m_webWindow[2].CallDevToolsProtocolMethod(method, params,
 											Callback<IWebDiffCallback>([this, callback2, json0, json1](const WebDiffCallbackResult& result) -> HRESULT
 												{
-													m_diffCount = (json0 == json1 && json1 == result.returnObjectAsJson) ? 0 : 1;
+													std::vector<WDocument> documents;
+													documents[0].Parse(json0.c_str());
+													documents[1].Parse(json1.c_str());
+													documents[2].Parse(result.returnObjectAsJson);
+													m_diffInfoList = Comparer::CompareDocuments(m_diffOptions, documents);
 													if (callback2)
 														callback2->Invoke(result);
 													return S_OK;
@@ -693,7 +692,7 @@ public:
 
 	int  GetDiffCount() const override
 	{
-		return m_diffCount;
+		return static_cast<int>(m_diffInfoList.size());
 	}
 
 	int  GetConflictCount() const override
@@ -830,9 +829,40 @@ public:
 
 private:
 
-	void HighlightDifferences(const std::vector<DiffInfo>& diffInfo)
+	const WValue* findNodeId(const WValue& nodeTree, int nodeId)
 	{
+		if (nodeTree[L"nodeId"].GetInt() == nodeId)
+			return &nodeTree;
+		if (nodeTree.HasMember(L"children") && nodeTree[L"children"].IsArray())
+		{
+			for (const auto& child : nodeTree[L"children"].GetArray())
+			{
+				if (const WValue* pvalue = findNodeId(child, nodeId))
+					return pvalue;
+			}
+		}
+		if (nodeTree.HasMember(L"contentDocument"))
+			return findNodeId(nodeTree[L"contentDocument"], nodeId);
+		return nullptr;
+	}
 
+	void HighlightDifferences(std::vector<DiffInfo>& diffInfoList, const std::vector<WDocument>& documents)
+	{
+		for (const auto& diffInfo : diffInfoList)
+		{
+			for (int pane = 0; pane < m_nPanes; ++pane)
+			{
+				const WValue* pvalue = findNodeId(documents[pane][L"root"], diffInfo.nodeIds[pane]);
+				if (pvalue)
+				{
+					std::wstring value = L"{ \"nodeId\": "
+						+ std::to_wstring(diffInfo.nodeIds[pane])
+						+ L", \"value\":\"*"
+						+ (*pvalue)[L"nodeValue"].GetString() + L"*\" }";
+					m_webWindow[pane].CallDevToolsProtocolMethod(L"DOM.setNodeValue", value.c_str(), nullptr);
+				}
+			}
+		}
 	}
 
 	std::wstring getFromClipboard() const
@@ -1147,7 +1177,7 @@ private:
 	UserdataFolderType m_userDataFolderType = UserdataFolderType::APPDATA;
 	bool m_bUserDataFolderPerPane = true;
 	std::vector<ComPtr<IWebDiffEventHandler>> m_listeners;
-	int m_diffCount = 0;
+	std::vector<DiffInfo> m_diffInfoList;
 	DiffOptions m_diffOptions{};
 	bool m_bShowDifferences = true;
 };
