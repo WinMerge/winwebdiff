@@ -145,6 +145,8 @@ class CWebWindow
 
 					m_webview->CallDevToolsProtocolMethod(L"Page.enable", L"{}", nullptr);
 					m_webview->CallDevToolsProtocolMethod(L"DOM.enable", L"{}", nullptr);
+					m_webview->CallDevToolsProtocolMethod(L"CSS.enable", L"{}", nullptr);
+					m_webview->CallDevToolsProtocolMethod(L"Overlay.enable", L"{}", nullptr);
 					/*
 					m_webview->CallDevToolsProtocolMethod(L"Network.enable", L"{}", nullptr);
 					m_webview->CallDevToolsProtocolMethod(L"Log.enable", L"{}", nullptr);

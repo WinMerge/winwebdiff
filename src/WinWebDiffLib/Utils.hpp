@@ -6,6 +6,21 @@
 
 namespace utils
 {
+	std::wstring quote(const std::wstring& text)
+	{
+		std::wstring ret;
+		ret += L"\"";
+		for (auto c : text)
+		{
+			if (c == '"')
+				ret += L"\\\"";
+			else
+				ret += c;
+		}
+		ret += L"\"";
+		return ret;
+	}
+
 	int cmp(const void* a, const void* b)
 	{
 		const wchar_t* const* pa = reinterpret_cast<const wchar_t* const*>(a);

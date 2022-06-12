@@ -355,6 +355,8 @@ public:
 										std::vector<WDocument> documents(2);
 										documents[0].Parse(json0.c_str());
 										documents[1].Parse(result.returnObjectAsJson);
+										m_rootNodeId[0] = documents[0][L"root"][L"nodeId"].GetInt();
+										m_rootNodeId[1] = documents[1][L"root"][L"nodeId"].GetInt();
 										m_diffInfoList = Comparer::CompareDocuments(m_diffOptions, documents);
 										HighlightDifferences(m_diffInfoList, documents);
 										if (callback2)
@@ -371,6 +373,9 @@ public:
 													documents[0].Parse(json0.c_str());
 													documents[1].Parse(json1.c_str());
 													documents[2].Parse(result.returnObjectAsJson);
+													m_rootNodeId[0] = documents[0][L"root"][L"nodeId"].GetInt();
+													m_rootNodeId[1] = documents[1][L"root"][L"nodeId"].GetInt();
+													m_rootNodeId[2] = documents[2][L"root"][L"nodeId"].GetInt();
 													m_diffInfoList = Comparer::CompareDocuments(m_diffOptions, documents);
 													if (callback2)
 														callback2->Invoke(result);
@@ -702,26 +707,58 @@ public:
 
 	int  GetCurrentDiffIndex() const override
 	{
-		return 0;
+		return m_currentDiffIndex;
 	}
 
 	bool FirstDiff() override
 	{
+		int oldDiffIndex = m_currentDiffIndex;
+		if (m_diffInfoList.size() == 0)
+			m_currentDiffIndex = -1;
+		else
+			m_currentDiffIndex = 0;
+		if (oldDiffIndex == m_currentDiffIndex)
+			return false;
+		selectDiff(m_currentDiffIndex, oldDiffIndex);
 		return true;
 	}
 
 	bool LastDiff() override
 	{
+		int oldDiffIndex = m_currentDiffIndex;
+		m_currentDiffIndex = static_cast<int>(m_diffInfoList.size()) - 1;
+		if (oldDiffIndex == m_currentDiffIndex)
+			return false;
+		selectDiff(m_currentDiffIndex, oldDiffIndex);
 		return true;
 	}
 
 	bool NextDiff() override
 	{
+		int oldDiffIndex = m_currentDiffIndex;
+		++m_currentDiffIndex;
+		if (m_currentDiffIndex >= m_diffInfoList.size())
+			m_currentDiffIndex = static_cast<int>(m_diffInfoList.size()) - 1;
+		if (oldDiffIndex == m_currentDiffIndex)
+			return false;
+		selectDiff(m_currentDiffIndex, oldDiffIndex);
 		return true;
 	}
 	
 	bool PrevDiff() override
 	{
+		int oldDiffIndex = m_currentDiffIndex;
+		if (m_diffInfoList.size() == 0)
+			m_currentDiffIndex = -1;
+		else
+		{
+			--m_currentDiffIndex;
+			if (m_currentDiffIndex < 0)
+				m_currentDiffIndex = 0;
+		}
+		if (oldDiffIndex == m_currentDiffIndex)
+			return false;
+		selectDiff(m_currentDiffIndex, oldDiffIndex);
 		return true;
 	}
 
@@ -747,17 +784,21 @@ public:
 
 	bool SelectDiff(int diffIndex) override
 	{
-		return true;
+		return selectDiff(diffIndex, m_currentDiffIndex);
 	}
 
 	int  GetNextDiffIndex() const override
 	{
-		return 0;
+		if (m_diffInfoList.size() == 0 || m_currentDiffIndex >= m_diffInfoList.size() - 1)
+			return -1;
+		return m_currentDiffIndex + 1;
 	}
 
 	int  GetPrevDiffIndex() const override
 	{
-		return 0;
+		if (m_diffInfoList.size() == 0 || m_currentDiffIndex <= 0)
+			return -1;
+		return m_currentDiffIndex - 1;
 	}
 
 	int  GetNextConflictIndex() const override
@@ -848,21 +889,107 @@ private:
 
 	void HighlightDifferences(std::vector<DiffInfo>& diffInfoList, const std::vector<WDocument>& documents)
 	{
-		for (const auto& diffInfo : diffInfoList)
+		/*
+		std::wstring args = L"{ "
+			L"\"styleSheetId\": \"wwd\", " 
+			L"\"ruleText\": \"\", "
+			L"\"location\": {\"startLine: 0, endLine: 0, startColumn: 0, endColumn: 0 } "
+			L"}";
+		for (int pane = 0; pane < m_nPanes; ++pane)
 		{
+			m_webWindow[pane].CallDevToolsProtocolMethod(L"CSS.createStyleSheet", args.c_str(),
+				Callback<IWebDiffCallback>([this](const WebDiffCallbackResult& result) -> HRESULT
+					{
+					}).Get());
+		}
+		*/
+		for (size_t i = 0; i < diffInfoList.size(); ++i)
+		{
+			const auto& diffInfo = diffInfoList[i];
 			for (int pane = 0; pane < m_nPanes; ++pane)
 			{
 				const WValue* pvalue = findNodeId(documents[pane][L"root"], diffInfo.nodeIds[pane]);
 				if (pvalue)
 				{
+					/*
 					std::wstring value = L"{ \"nodeId\": "
 						+ std::to_wstring(diffInfo.nodeIds[pane])
 						+ L", \"value\":\"*"
 						+ (*pvalue)[L"nodeValue"].GetString() + L"*\" }";
 					m_webWindow[pane].CallDevToolsProtocolMethod(L"DOM.setNodeValue", value.c_str(), nullptr);
+					*/
+					/*
+					std::wstring value = L"{ \"highlightConfig\": { \"contentColor\": \"rgba(111, 168, 220, .66)\" }, \"nodeId\": "
+						+ std::to_wstring(diffInfo.nodeIds[pane]) + L" }";
+					m_webWindow[pane].CallDevToolsProtocolMethod(L"Overlay.highlightNode", value.c_str(), nullptr);
+					/*
+					std::wstring outerHTML = std::wstring(L"<span class=\"wwd-diff\" style=\"background-color: #ff0\">")
+						+ (*pvalue)[L"nodeValue"].GetString() + L"</span>";
+					WDocument args;
+					args.SetObject();
+					args.AddMember(L"nodeId", diffInfo.nodeIds[pane], args.GetAllocator());
+					args.AddMember(L"outerHTML", WValue(outerHTML.c_str(), outerHTML.length()), args.GetAllocator());
+					WStringBuffer buffer;
+					WPrettyWriter writer(buffer);
+					args.Accept(writer);
+					m_webWindow[pane].CallDevToolsProtocolMethod(L"DOM.setOuterHTML", buffer.GetString(), nullptr);
+					*/
+					std::wstring outerHTML = std::wstring(L"<span class=\"wwd-diff\" data-wwdid=\""
+						+ std::to_wstring(i)
+						+ L"\" style=\"background-color: #ff0\">")
+						+ (*pvalue)[L"nodeValue"].GetString() + L"</span>";
+					std::wstring args = L"{ \"nodeId\": " + std::to_wstring(diffInfo.nodeIds[pane])
+						+ L", \"outerHTML\":" + utils::quote(outerHTML) + L" }";
+					m_webWindow[pane].CallDevToolsProtocolMethod(L"DOM.setOuterHTML", args.c_str(), nullptr);
 				}
 			}
 		}
+
+		getDiffNodeIdArray();
+	}
+
+	void getDiffNodeIdArray()
+	{
+		for (int pane = 0; pane < m_nPanes; ++pane)
+		{
+			std::wstring args = L"{ \"nodeId\": " + std::to_wstring(m_rootNodeId[pane])
+				+ L", \"selector\": \"span[data-wwdid]\" }";
+			m_webWindow[pane].CallDevToolsProtocolMethod(L"DOM.querySelectorAll", args.c_str(),
+				Callback<IWebDiffCallback>([this, pane](const WebDiffCallbackResult& result) -> HRESULT
+					{
+						WDocument doc;
+						doc.Parse(result.returnObjectAsJson);
+						auto nodeIds = doc[L"nodeIds"].GetArray();
+						for (unsigned i = 0, j = 0; i < nodeIds.Size() && j < m_diffInfoList.size(); ++j)
+						{
+							if (m_diffInfoList[j].nodeIds[pane] != -1)
+								m_diffInfoList[j].nodeIds[pane] = nodeIds[i++].GetInt();
+						}
+						return S_OK;
+					}).Get());
+		}
+	}
+
+	bool selectDiff(int diffIndex, int prevDiffIndex)
+	{
+		if (diffIndex < 0 || diffIndex >= m_diffInfoList.size())
+			return false;
+		for (int pane = 0; pane < m_nPanes; ++pane)
+		{
+			std::wstring args = L"{ \"nodeId\": " + std::to_wstring(m_diffInfoList[diffIndex].nodeIds[pane]) + L" }";
+			m_webWindow[pane].CallDevToolsProtocolMethod(L"DOM.scrollIntoViewIfNeeded", args.c_str(), nullptr);
+			m_webWindow[pane].CallDevToolsProtocolMethod(L"DOM.focus", args.c_str(), nullptr);
+			if (prevDiffIndex != -1)
+			{
+				args = L"{ \"nodeId\": " + std::to_wstring(m_diffInfoList[prevDiffIndex].nodeIds[pane])
+					+ L", \"name\": \"style\", \"value\": \"background-color: #ff0\" }";
+				m_webWindow[pane].CallDevToolsProtocolMethod(L"DOM.setAttributeValue", args.c_str(), nullptr);
+			}
+			args = L"{ \"nodeId\": " + std::to_wstring(m_diffInfoList[diffIndex].nodeIds[pane])
+				+ L", \"name\": \"style\", \"value\": \"background-color: #f00\" }";
+			m_webWindow[pane].CallDevToolsProtocolMethod(L"DOM.setAttributeValue", args.c_str(), nullptr);
+		}
+		return true;
 	}
 
 	std::wstring getFromClipboard() const
@@ -1177,7 +1304,13 @@ private:
 	UserdataFolderType m_userDataFolderType = UserdataFolderType::APPDATA;
 	bool m_bUserDataFolderPerPane = true;
 	std::vector<ComPtr<IWebDiffEventHandler>> m_listeners;
+	int m_currentDiffIndex = -1;
 	std::vector<DiffInfo> m_diffInfoList;
 	DiffOptions m_diffOptions{};
+	int m_rootNodeId[3] = { -1, -1, -1 };
 	bool m_bShowDifferences = true;
+	COLORREF m_selDiffColor = RGB(0xff, 0x40, 0x40);
+	COLORREF m_selDiffDeletedColor = RGB(0xf0, 0xc0, 0xc0);
+	COLORREF m_diffColor = RGB(0xff, 0xff, 0x40);
+	COLORREF m_diffDeletedColor = RGB(0xc0, 0xc0, 0xc0);
 };
