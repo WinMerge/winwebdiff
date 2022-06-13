@@ -358,7 +358,8 @@ public:
 										m_rootNodeId[0] = documents[0][L"root"][L"nodeId"].GetInt();
 										m_rootNodeId[1] = documents[1][L"root"][L"nodeId"].GetInt();
 										m_diffInfoList = Comparer::CompareDocuments(m_diffOptions, documents);
-										HighlightDifferences(m_diffInfoList, documents);
+										if (m_bShowDifferences)
+											HighlightDifferences(m_diffInfoList, documents);
 										if (callback2)
 											callback2->Invoke(result);
 										return S_OK;
@@ -681,7 +682,10 @@ public:
 
 	void SetShowDifferences(bool visible) override
 	{
+		if (visible == m_bShowDifferences)
+			return;
 		m_bShowDifferences = visible;
+		Recompare(nullptr);
 	}
 
 	const DiffOptions& GetDiffOptions() const
@@ -946,6 +950,27 @@ private:
 		}
 
 		getDiffNodeIdArray();
+	}
+
+	void hideHighlights()
+	{
+		for (int pane = 0; pane < m_nPanes; ++pane)
+		{
+			std::wstring args = L"{ \"nodeId\": " + std::to_wstring(m_rootNodeId[pane])
+				+ L", \"selector\": \"span[data-wwdid]\" }";
+			m_webWindow[pane].CallDevToolsProtocolMethod(L"DOM.querySelectorAll", args.c_str(),
+				Callback<IWebDiffCallback>([this, pane](const WebDiffCallbackResult& result) -> HRESULT
+					{
+						WDocument doc;
+						doc.Parse(result.returnObjectAsJson);
+						auto nodeIds = doc[L"nodeIds"].GetArray();
+						for (unsigned i = 0; i < nodeIds.Size(); ++i)
+						{
+							int nodeId = nodeIds[i].GetInt();
+						}
+						return S_OK;
+					}).Get());
+		}
 	}
 
 	void getDiffNodeIdArray()

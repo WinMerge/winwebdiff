@@ -1232,7 +1232,9 @@ private:
 			    virtualKey == VK_ESCAPE ||
 			    (vkctrl && virtualKey == 'O') ||
 			    (vkctrl && virtualKey == 'J') ||
-			    (vkctrl && virtualKey == 'W'))
+			    (vkctrl && virtualKey == 'W') ||
+			    (vkmenu && virtualKey == VK_UP) ||
+			    (vkmenu && virtualKey == VK_DOWN))
 			{
 				PostMessage(m_hWnd, WM_KEYDOWN, virtualKey, lParam);
 				handled = true;
