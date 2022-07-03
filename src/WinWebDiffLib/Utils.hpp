@@ -6,6 +6,19 @@
 
 namespace utils
 {
+	std::wstring escapeAttributeValue(const std::wstring& text)
+	{
+		std::wstring ret;
+		for (auto c : text)
+		{
+			if (c == '"')
+				ret += L"&quot;";
+			else
+				ret += c;
+		}
+		return ret;
+	}
+
 	std::wstring quote(const std::wstring& text)
 	{
 		std::wstring ret;
@@ -14,6 +27,8 @@ namespace utils
 		{
 			if (c == '"')
 				ret += L"\\\"";
+			else if (c == '\\')
+				ret += L"\\\\";
 			else
 				ret += c;
 		}

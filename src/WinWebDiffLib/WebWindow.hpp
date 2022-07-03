@@ -996,6 +996,8 @@ private:
 
 	ICoreWebView2* GetActiveWebView() const
 	{
+		if (m_activeTab < 0)
+			return nullptr;
 		return GetActiveTab()->m_webview.get();
 	}
 
