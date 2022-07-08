@@ -8,7 +8,6 @@
 #include <shellapi.h>
 #include <vector>
 #include <map>
-#include <regex>
 #include <wil/win32_helpers.h>
 #include <rapidjson/document.h>
 #include <rapidjson/prettywriter.h>
@@ -337,13 +336,15 @@ public:
 	HRESULT Recompare(IWebDiffCallback* callback) override
 	{
 		ComPtr<IWebDiffCallback> callback2(callback);
-		HRESULT hr = hideHighlights(
+		/*HRESULT hr = unhighlightDifferences(
 			Callback<IWebDiffCallback>([this, callback2](const WebDiffCallbackResult& result) -> HRESULT
 				{
 					HRESULT hr = result.errorCode;
 					if (SUCCEEDED(hr))
 					{
-						hr = compare(callback2.Get());
+					*/
+						HRESULT hr = compare(callback2.Get());
+						/*
 					}
 					if (FAILED(hr))
 					{
@@ -352,6 +353,7 @@ public:
 					}
 					return S_OK;
 				}).Get());
+				*/
 		return hr;
 	}
 
@@ -362,7 +364,7 @@ public:
 		if (m_bShowDifferences)
 		{
 			ComPtr<IWebDiffCallback> callback2(callback);
-			return hideHighlights(
+			return unhighlightDifferences(
 				Callback<IWebDiffCallback>([this, kind, callback2](const WebDiffCallbackResult& result) -> HRESULT
 					{
 						HRESULT hr = result.errorCode;
@@ -796,15 +798,15 @@ public:
 
 private:
 
-	const WValue* findNodeId(const WValue& nodeTree, int nodeId)
+	WValue* findNodeId(WValue& nodeTree, int nodeId)
 	{
 		if (nodeTree[L"nodeId"].GetInt() == nodeId)
 			return &nodeTree;
 		if (nodeTree.HasMember(L"children") && nodeTree[L"children"].IsArray())
 		{
-			for (const auto& child : nodeTree[L"children"].GetArray())
+			for (auto& child : nodeTree[L"children"].GetArray())
 			{
-				if (const WValue* pvalue = findNodeId(child, nodeId))
+				if (WValue* pvalue = findNodeId(child, nodeId))
 					return pvalue;
 			}
 		}
@@ -964,7 +966,7 @@ private:
 					html += attributes[i].GetString();
 					html += L"=\"";
 					html += utils::escapeAttributeValue(attributes[i + 1].GetString());
-					html += L"=\"";
+					html += L"\"";
 				}
 			}
 			html += L'>';
@@ -987,34 +989,63 @@ private:
 
 		return html;
 	}
+	
+	void unhighlightNodes(WDocument& documents)
+	{
+	}
 
-	void highlightDifferences(std::vector<DiffInfo>& diffInfoList, std::vector<WDocument>& documents)
+	void highlightNodes(std::vector<DiffInfo>& diffInfoList, std::vector<WDocument>& documents)
 	{
 		for (size_t i = 0; i < diffInfoList.size(); ++i)
 		{
 			const auto& diffInfo = diffInfoList[i];
 			for (int pane = 0; pane < m_nPanes; ++pane)
 			{
-				const WValue* pvalue = findNodeId(documents[pane][L"root"], diffInfo.nodeIds[pane]);
+				WValue* pvalue = findNodeId(documents[pane][L"root"], diffInfo.nodeIds[pane]);
 				if (pvalue)
 				{
-					std::wstring outerHTML = std::wstring(L"<span class=\"wwd-diff\" data-wwdid=\""
-						+ std::to_wstring(i)
-						+ L"\" style=\"background-color: #ff0\">")
-						+ (*pvalue)[L"nodeValue"].GetString() + L"</span>";
-					std::wstring args = L"{ \"nodeId\": " + std::to_wstring(diffInfo.nodeIds[pane])
-						+ L", \"outerHTML\":" + utils::quote(outerHTML) + L" }";
-					m_webWindow[pane].CallDevToolsProtocolMethod(L"DOM.setOuterHTML", args.c_str(), nullptr);
+					WValue spanNode, textNode, attributes, children, id;
+					auto& allocator = documents[pane].GetAllocator();
+					textNode.CopyFrom(*pvalue, allocator);
+					id.SetString(std::to_wstring(i).c_str(), allocator);
+					attributes.SetArray();
+					attributes.PushBack(L"class", allocator);
+					attributes.PushBack(L"wwd-diff", allocator);
+					attributes.PushBack(L"data-wwdid", allocator);
+					attributes.PushBack(id, allocator);
+					attributes.PushBack(L"style", allocator);
+					attributes.PushBack(L"background-color: #ff0", allocator);
+					children.SetArray();
+					children.PushBack(textNode, allocator);
+					spanNode.SetObject();
+					spanNode.AddMember(L"nodeName", L"SPAN", allocator);
+					spanNode.AddMember(L"attributes", attributes, allocator);
+					spanNode.AddMember(L"nodeType", 1, allocator);
+					spanNode.AddMember(L"nodeId", -1, allocator);
+					spanNode.AddMember(L"children", children, allocator);
+					pvalue->CopyFrom(spanNode, allocator);
 				}
 			}
 		}
+	}
+
+	void highlightDifferences(std::vector<DiffInfo>& diffInfoList, std::vector<WDocument>& documents)
+	{
+		for (int pane = 0; pane < m_nPanes; ++pane)
+			unhighlightNodes(documents[pane]);
+		highlightNodes(diffInfoList, documents);
+
 		for (int pane = 0; pane < m_nPanes; ++pane)
 		{
 			std::map<int, std::wstring> frames;
 			std::wstring html = convertNodeTreeToHTML(documents[pane][L"root"], frames);
 			std::wstring args = L"{ \"nodeId\": " + std::to_wstring(documents[pane][L"root"][L"nodeId"].GetInt())
 				+ L", \"outerHTML\":" + utils::quote(html) + L" }";
-			m_webWindow[pane].CallDevToolsProtocolMethod(L"DOM.setOuterHTML", args.c_str(), nullptr);
+			m_webWindow[pane].CallDevToolsProtocolMethod(L"DOM.setOuterHTML", args.c_str(),
+				Callback<IWebDiffCallback>([this, pane](const WebDiffCallbackResult& result) -> HRESULT
+					{
+						return S_OK;
+					}).Get());
 			for (const auto& it : frames)
 			{
 				std::wstring args = L"{ \"nodeId\": " + std::to_wstring(it.first)
@@ -1059,13 +1090,7 @@ private:
 		return hr;
 	}
 
-	std::wstring removeSpanElements(const std::wstring& text)
-	{
-		static const std::wregex re(L"(<span class=\"wwd-diff\" data-wwdid=\"\\d+\" style=[^>]+>)+([^<]*)</span>");
-		return std::regex_replace(text, re, L"$2");
-	}
-
-	HRESULT hideHighlights(IWebDiffCallback* callback, int pane = 0)
+	HRESULT unhighlightDifferences(IWebDiffCallback* callback, int pane = 0)
 	{
 		static const wchar_t* method = L"DOM.getDocument";
 		static const wchar_t* params = L"{ \"depth\": 1, \"pierce\": false }";
@@ -1078,43 +1103,7 @@ private:
 					{
 						WDocument doc;
 						doc.Parse(result.returnObjectAsJson);
-						int rootNodeId = doc[L"root"][L"nodeId"].GetInt();
-						std::wstring args = L"{ \"nodeId\": " + std::to_wstring(rootNodeId) + L" }";
-						hr = m_webWindow[pane].CallDevToolsProtocolMethod(L"DOM.getOuterHTML", args.c_str(),
-							Callback<IWebDiffCallback>([this, pane, rootNodeId, callback2](const WebDiffCallbackResult& result) -> HRESULT
-								{
-									HRESULT hr = result.errorCode;
-									if (SUCCEEDED(hr))
-									{
-										WDocument doc;
-										doc.Parse(result.returnObjectAsJson);
-										std::wstring args = L"{ \"nodeId\": " + std::to_wstring(rootNodeId)
-											+ L", \"outerHTML\": " + utils::quote(removeSpanElements(doc[L"outerHTML"].GetString())) + L" }";
-										hr = m_webWindow[pane].CallDevToolsProtocolMethod(L"DOM.setOuterHTML", args.c_str(),
-											Callback<IWebDiffCallback>([this, pane, callback2](const WebDiffCallbackResult& result) -> HRESULT
-												{
-													HRESULT hr = result.errorCode;
-													if (SUCCEEDED(hr))
-													{
-														if (pane == m_nPanes - 1)
-														{
-															if (callback2)
-																callback2->Invoke(result);
-														}
-														else
-														{
-															hr = hideHighlights(callback2.Get(), pane + 1);
-														}
-													}
-													if (FAILED(hr) && callback2)
-														callback2->Invoke({ hr, nullptr });
-													return S_OK;
-												}).Get());
-									}
-									if (FAILED(hr) && callback2)
-										callback2->Invoke({ hr, nullptr });
-									return S_OK;
-								}).Get());
+						unhighlightNodes(doc);
 					}
 					if (FAILED(hr) && callback2)
 						callback2->Invoke({ hr, nullptr });
@@ -1123,64 +1112,6 @@ private:
 		return hr;
 	}
 
-	/*
-	HRESULT hideHighlights(IWebDiffCallback* callback, int pane = 0)
-	{
-		static const wchar_t* method = L"DOM.getDocument";
-		static const wchar_t* params = L"{ \"depth\": 1, \"pierce\": false }";
-		ComPtr<IWebDiffCallback> callback2(callback);
-		HRESULT hr = m_webWindow[pane].CallDevToolsProtocolMethod(method, params,
-			Callback<IWebDiffCallback>([this, pane, callback2](const WebDiffCallbackResult& result) -> HRESULT
-				{
-					HRESULT hr = result.errorCode;
-					if (SUCCEEDED(hr))
-					{
-						WDocument doc;
-						doc.Parse(result.returnObjectAsJson);
-						int rootNodeId = doc[L"root"][L"nodeId"].GetInt();
-						std::wstring args = L"{ \"nodeId\": " + std::to_wstring(rootNodeId)
-							+ L", \"selector\": \"span[data-wwdid]\" }";
-						hr = m_webWindow[pane].CallDevToolsProtocolMethod(L"DOM.querySelectorAll", args.c_str(),
-							Callback<IWebDiffCallback>([this, pane, callback2](const WebDiffCallbackResult& result) -> HRESULT
-								{
-									HRESULT hr = result.errorCode;
-									if (SUCCEEDED(hr))
-									{
-										WDocument doc;
-										doc.Parse(result.returnObjectAsJson);
-										auto nodeIds = doc[L"nodeIds"].GetArray();
-										for (unsigned i = 0; i < nodeIds.Size(); ++i)
-										{
-											int nodeId = nodeIds[i].GetInt();
-										}
-										if (pane == m_nPanes - 1)
-										{
-											if (callback2)
-												callback2->Invoke(result);
-										}
-										else
-										{
-											hr = hideHighlights(callback2.Get(), pane + 1);
-										}
-									}
-									if (FAILED(hr))
-									{
-										if (callback2)
-											callback2->Invoke({ hr, nullptr });
-									}
-									return S_OK;
-								}).Get());
-					}
-					if (FAILED(hr))
-					{
-						if (callback2)
-							callback2->Invoke({ hr, nullptr });
-					}
-					return S_OK;
-				}).Get());
-		return hr;
-	}
-*/
 	HRESULT getDiffNodeIdArray(int pane = 0)
 	{
 		static const wchar_t* method = L"DOM.getDocument";
