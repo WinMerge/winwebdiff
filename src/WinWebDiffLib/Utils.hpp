@@ -43,6 +43,29 @@ namespace utils
 		return wcscmp(*pa, *pb);
 	}
 
+	bool IsVoidElement(const wchar_t* name)
+	{
+		static const wchar_t* voidElements[] =
+		{
+			L"AREA",
+			L"BASE",
+			L"BR",
+			L"COL",
+			L"EMBED",
+			L"HR",
+			L"IMG",
+			L"INPUT",
+			L"LINK",
+			L"META",
+			L"SOURCE",
+			L"TRACK",
+			L"WBR",
+		};
+		return bsearch(&name, voidElements,
+			sizeof(voidElements) / sizeof(voidElements[0]),
+			sizeof(voidElements[0]), cmp);
+	}
+
 	bool IsInlineElement(const wchar_t* name)
 	{
 		static const wchar_t* inlineElements[] =
