@@ -97,10 +97,12 @@ struct IWebDiffWindow
 	virtual void SetHorizontalSplit(bool horizontalSplit) = 0;
 	virtual COLORREF GetDiffColor() const = 0;
 	virtual void SetDiffColor(COLORREF clrDiffColor) = 0;
+	virtual COLORREF GetTextDiffColor() const = 0;
+	virtual void SetTextDiffColor(COLORREF clrDiffTextColor) = 0;
 	virtual COLORREF GetSelDiffColor() const = 0;
 	virtual void SetSelDiffColor(COLORREF clrSelDiffColor) = 0;
-	virtual double GetDiffColorAlpha() const = 0;
-	virtual void SetDiffColorAlpha(double diffColorAlpha) = 0;
+	virtual COLORREF GetSelTextDiffColor() const = 0;
+	virtual void SetSelTextDiffColor(COLORREF clrSelDiffTextColor) = 0;
 	virtual double GetZoom() const = 0;
 	virtual void SetZoom(double zoom) = 0;
 	virtual const wchar_t* GetUserAgent() const = 0;
