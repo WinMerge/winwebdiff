@@ -944,6 +944,186 @@ private:
 		}
 		return html;
 	}
+	/*
+
+	struct Frame
+	{
+		std::wstring frameId;
+		std::wstring outerHTML;
+		std::list<Frame> children;
+	};
+
+	std::wstring convertNodeTreeToHTML3(const WValue& tree)
+	{
+		std::wstring html;
+		NodeType nodeType = static_cast<NodeType>(tree[L"nodeType"].GetInt());
+		switch (nodeType)
+		{
+		case NodeType::DOCUMENT_TYPE_NODE:
+		{
+			html += L"<!DOCTYPE ";
+			html += tree[L"nodeName"].GetString();
+			html += L">";
+			break;
+		}
+		case NodeType::DOCUMENT_NODE:
+		{
+			if (tree.HasMember(L"children"))
+			{
+				for (const auto& child : tree[L"children"].GetArray())
+				{
+					html += convertNodeTreeToHTML2(child, childFrame);
+				}
+			}
+			break;
+		}
+		case NodeType::COMMENT_NODE:
+		{
+			html += L"<!-- ";
+			html += tree[L"nodeValue"].GetString();
+			html += L" -->";
+			break;
+		}
+		case NodeType::TEXT_NODE:
+		{
+			html += tree[L"nodeValue"].GetString();
+			break;
+		}
+		case NodeType::ELEMENT_NODE:
+		{
+			html += L'<';
+			html += tree[L"nodeName"].GetString();
+			if (tree.HasMember(L"attributes"))
+			{
+				const auto& attributes = tree[L"attributes"].GetArray();
+				for (unsigned i = 0; i < attributes.Size(); i += 2)
+				{
+					html += L" ";
+					html += attributes[i].GetString();
+					html += L"=\"";
+					if (i + 1 < attributes.Size())
+						html += utils::escapeAttributeValue(attributes[i + 1].GetString());
+					html += L"\"";
+				}
+			}
+			html += L'>';
+			if (tree.HasMember(L"children"))
+			{
+				for (const auto& child : tree[L"children"].GetArray())
+				{
+					Frame& childFrame = frame.children.emplace_back();
+					html += convertNodeTreeToHTML2(child, childFrame);
+				}
+			}
+			if (tree.HasMember(L"contentDocument"))
+			{
+				std::wstring htmlFrame;
+				for (const auto& child : tree[L"contentDocument"][L"children"].GetArray())
+				{
+					Frame& childFrame = frame.children.emplace_back();
+					htmlFrame += convertNodeTreeToHTML2(child, childFrame);
+				}
+				frame.outerHTML = htmlFrame;
+				frames.insert_or_assign(tree[L"contentDocument"][L"nodeId"].GetInt(), htmlFrame);
+			}
+			if (!utils::IsVoidElement(tree[L"nodeName"].GetString()))
+			{
+				html += L"</";
+				html += tree[L"nodeName"].GetString();
+				html += L'>';
+			}
+			break;
+		}
+		}
+		return html;
+	}
+
+	Frame convertNodeTreeToHTML2(const WValue& tree)
+	{
+		Frame frame;
+		std::wstring html;
+		NodeType nodeType = static_cast<NodeType>(tree[L"nodeType"].GetInt());
+		switch (nodeType)
+		{
+		case NodeType::DOCUMENT_TYPE_NODE:
+		{
+			html += L"<!DOCTYPE ";
+			html += tree[L"nodeName"].GetString();
+			html += L">";
+			break;
+		}
+		case NodeType::DOCUMENT_NODE:
+		{
+			if (tree.HasMember(L"children"))
+			{
+				for (const auto& child : tree[L"children"].GetArray())
+				{
+					html += convertNodeTreeToHTML2(child, childFrame);
+				}
+			}
+			break;
+		}
+		case NodeType::COMMENT_NODE:
+		{
+			html += L"<!-- ";
+			html += tree[L"nodeValue"].GetString();
+			html += L" -->";
+			break;
+		}
+		case NodeType::TEXT_NODE:
+		{
+			html += tree[L"nodeValue"].GetString();
+			break;
+		}
+		case NodeType::ELEMENT_NODE:
+		{
+			html += L'<';
+			html += tree[L"nodeName"].GetString();
+			if (tree.HasMember(L"attributes"))
+			{
+				const auto& attributes = tree[L"attributes"].GetArray();
+				for (unsigned i = 0; i < attributes.Size(); i += 2)
+				{
+					html += L" ";
+					html += attributes[i].GetString();
+					html += L"=\"";
+					if (i + 1 < attributes.Size())
+						html += utils::escapeAttributeValue(attributes[i + 1].GetString());
+					html += L"\"";
+				}
+			}
+			html += L'>';
+			if (tree.HasMember(L"children"))
+			{
+				for (const auto& child : tree[L"children"].GetArray())
+				{
+					Frame& childFrame = frame.children.emplace_back();
+					html += convertNodeTreeToHTML2(child, childFrame);
+				}
+			}
+			if (tree.HasMember(L"contentDocument"))
+			{
+				std::wstring htmlFrame;
+				for (const auto& child : tree[L"contentDocument"][L"children"].GetArray())
+				{
+					Frame& childFrame = frame.children.emplace_back();
+					htmlFrame += convertNodeTreeToHTML2(child, childFrame);
+				}
+				frame.outerHTML = htmlFrame;
+				frames.insert_or_assign(tree[L"contentDocument"][L"nodeId"].GetInt(), htmlFrame);
+			}
+			if (!utils::IsVoidElement(tree[L"nodeName"].GetString()))
+			{
+				html += L"</";
+				html += tree[L"nodeName"].GetString();
+				html += L'>';
+			}
+			break;
+		}
+		}
+		return html;
+	}
+	*/
 
 	bool isDiffNode(const WValue& value)
 	{
