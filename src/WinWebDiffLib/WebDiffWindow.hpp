@@ -1113,6 +1113,7 @@ private:
 					WValue spanNode, textNode, attributes, children, id;
 					auto& allocator = documents[pane].GetAllocator();
 					textNode.CopyFrom(*pvalue, allocator);
+					int nodeId = textNode[L"nodeId"].GetInt();
 					id.SetString(std::to_wstring(i).c_str(), allocator);
 					attributes.SetArray();
 					attributes.PushBack(L"class", allocator);
@@ -1127,7 +1128,7 @@ private:
 					spanNode.AddMember(L"nodeName", L"SPAN", allocator);
 					spanNode.AddMember(L"attributes", attributes, allocator);
 					spanNode.AddMember(L"nodeType", 1, allocator);
-					spanNode.AddMember(L"nodeId", -1, allocator);
+					spanNode.AddMember(L"nodeId", nodeId, allocator);
 					spanNode.AddMember(L"children", children, allocator);
 					pvalue->CopyFrom(spanNode, allocator);
 				}
