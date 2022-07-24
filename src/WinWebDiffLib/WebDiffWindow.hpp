@@ -1020,11 +1020,11 @@ private:
 				html += tree[L"nodeName"].GetString();
 				html += L'>';
 			}
-			if (isDiffNode(tree))
+			if (tree.HasMember(L"frameId")) //if (isDiffNode(tree))
 			{
 				Frame frame;
 				frame.nodeId = tree[L"nodeId"].GetInt();
-				//frame.frameId = tree[L"frameId"].GetString();
+				frame.frameId = tree[L"frameId"].GetString();
 				frame.outerHTML = html;
 				frames.emplace_back(std::move(frame));
 			}
@@ -1147,9 +1147,7 @@ private:
 		if (it == frames->end())
 			return S_OK;
 		ComPtr<IWebDiffCallback> callback2(callback);
-		std::wstring args = L"{ \"nodeId\": " + std::to_wstring(it->nodeId/*first*/)
-			+ L", \"outerHTML\":" + utils::quote(it->outerHTML) + L" }";
-		HRESULT hr = m_webWindow[pane].CallDevToolsProtocolMethod(L"DOM.setOuterHTML", args.c_str(),
+		HRESULT hr = m_webWindow[pane].SetFrameHTML(it->frameId, it->outerHTML,
 			Callback<IWebDiffCallback>([this, pane, frames, it, callback2](const WebDiffCallbackResult& result) -> HRESULT
 				{
 					HRESULT hr = result.errorCode;
