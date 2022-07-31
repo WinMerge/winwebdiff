@@ -646,57 +646,63 @@ public:
 		if (!GetActiveWebView())
 			return E_FAIL;
 		ComPtr<IWebDiffCallback> callback2(callback);
-		std::wstring params = L"{ \"frameId\": \"" + frameId + L"\" }";
-		std::shared_ptr<std::wstring> phtml(new std::wstring(html));
-		HRESULT hr = GetActiveWebView()->CallDevToolsProtocolMethod(L"DOM.getFrameOwner", params.c_str(),
+		HRESULT hr = GetActiveWebView()->CallDevToolsProtocolMethod(L"Page.getFrameTree", L"{}",
 			Callback<ICoreWebView2CallDevToolsProtocolMethodCompletedHandler>(
-				[this, phtml, callback2](HRESULT errorCode, LPCWSTR returnObjectAsJson) -> HRESULT {
-					HRESULT hr = errorCode;
-					if (SUCCEEDED(hr))
-					{
-						WDocument document;
-						document.Parse(returnObjectAsJson);
-						const int backendNodeId = document[L"backendNodeId"].GetInt();
-						const std::wstring params = L"{ \"backendNodeId\": " + std::to_wstring(backendNodeId) +
-							L", \"depth\": 4, \"pierce\": true }";
-						hr = GetActiveWebView()->CallDevToolsProtocolMethod(L"DOM.describeNode", params.c_str(),
-							Callback<ICoreWebView2CallDevToolsProtocolMethodCompletedHandler>(
-								[this, phtml, callback2](HRESULT errorCode, LPCWSTR returnObjectAsJson) -> HRESULT {
-									HRESULT hr = errorCode;
-									if (SUCCEEDED(hr))
-									{
-										WDocument document;
-										document.Parse(returnObjectAsJson);
-										if (document[L"node"].HasMember(L"contentDocument"))
-										{
-											int nodeId = document[L"node"][L"contentDocument"][L"nodeId"].GetInt();
-											std::wstring params = L"{ \"nodeId\": " + std::to_wstring(nodeId) + L", "
-												+ L", \"outerHTML\":" + utils::quote(*phtml) + L" }";
-											hr = GetActiveWebView()->CallDevToolsProtocolMethod(L"DOM.setOuterHTML", params.c_str(),
-												Callback<ICoreWebView2CallDevToolsProtocolMethodCompletedHandler>(
-													[this, phtml, callback2](HRESULT errorCode, LPCWSTR returnObjectAsJson) -> HRESULT {
-														HRESULT hr = errorCode;
+				[this, frameId, html, callback2](HRESULT errorCode, LPCWSTR returnObjectAsJson) -> HRESULT {
+					std::wstring params = L"{ \"frameId\": \"" + frameId + L"\" }";
+					std::shared_ptr<std::wstring> phtml(new std::wstring(html));
+					HRESULT hr = GetActiveWebView()->CallDevToolsProtocolMethod(L"DOM.getFrameOwner", params.c_str(),
+						Callback<ICoreWebView2CallDevToolsProtocolMethodCompletedHandler>(
+							[this, phtml, callback2](HRESULT errorCode, LPCWSTR returnObjectAsJson) -> HRESULT {
+								HRESULT hr = errorCode;
+								if (SUCCEEDED(hr))
+								{
+									WDocument document;
+									document.Parse(returnObjectAsJson);
+									const int backendNodeId = document[L"backendNodeId"].GetInt();
+									const std::wstring params = L"{ \"backendNodeId\": " + std::to_wstring(backendNodeId) +
+										L", \"depth\": 4, \"pierce\": true }";
+									hr = GetActiveWebView()->CallDevToolsProtocolMethod(L"DOM.describeNode", params.c_str(),
+										Callback<ICoreWebView2CallDevToolsProtocolMethodCompletedHandler>(
+											[this, phtml, callback2](HRESULT errorCode, LPCWSTR returnObjectAsJson) -> HRESULT {
+												HRESULT hr = errorCode;
+												if (SUCCEEDED(hr))
+												{
+													WDocument document;
+													document.Parse(returnObjectAsJson);
+													if (document[L"node"].HasMember(L"contentDocument"))
+													{
+														int nodeId = document[L"node"][L"contentDocument"][L"nodeId"].GetInt();
+														std::wstring params = L"{ \"nodeId\": " + std::to_wstring(nodeId) + L", "
+															+ L", \"outerHTML\":" + utils::quote(*phtml) + L" }";
+														hr = GetActiveWebView()->CallDevToolsProtocolMethod(L"DOM.setOuterHTML", params.c_str(),
+															Callback<ICoreWebView2CallDevToolsProtocolMethodCompletedHandler>(
+																[this, phtml, callback2](HRESULT errorCode, LPCWSTR returnObjectAsJson) -> HRESULT {
+																	HRESULT hr = errorCode;
+																	if (callback2)
+																		callback2->Invoke({ hr, nullptr });
+																	return S_OK;
+																}).Get());
+													}
+													else
+													{
 														if (callback2)
 															callback2->Invoke({ hr, nullptr });
-														return S_OK;
-													}).Get());
-										}
-										else
-										{
-											hr = E_FAIL;
-										}
-									}
-									if (FAILED(hr) && callback2)
-										callback2->Invoke({ hr, nullptr });
-									return S_OK;
-								}).Get());
-					}
+													}
+												}
+												if (FAILED(hr) && callback2)
+													callback2->Invoke({ hr, nullptr });
+												return S_OK;
+											}).Get());
+								}
+								if (FAILED(hr) && callback2)
+									callback2->Invoke({ hr, nullptr });
+								return S_OK;
+							}).Get());
 					if (FAILED(hr) && callback2)
 						callback2->Invoke({ hr, nullptr });
 					return S_OK;
 				}).Get());
-		if (FAILED(hr) && callback2)
-			callback2->Invoke({ hr, nullptr });
 		return hr;
 	}
 
