@@ -869,7 +869,7 @@ private:
 		return hr;
 	}
 
-	std::wstring convertNodeTreeToHTML(const WValue& tree, std::map<int, std::wstring>& frames)
+	std::wstring convertNodeTreeToHTML(const WValue& tree, std::map<int, std::wstring>& nodes)
 	{
 		std::wstring html;
 		NodeType nodeType = static_cast<NodeType>(tree[L"nodeType"].GetInt());
@@ -887,7 +887,7 @@ private:
 			if (tree.HasMember(L"children"))
 			{
 				for (const auto& child : tree[L"children"].GetArray())
-					html += convertNodeTreeToHTML(child, frames);
+					html += convertNodeTreeToHTML(child, nodes);
 			}
 			break;
 		}
@@ -924,14 +924,14 @@ private:
 			if (tree.HasMember(L"children"))
 			{
 				for (const auto& child : tree[L"children"].GetArray())
-					html += convertNodeTreeToHTML(child, frames);
+					html += convertNodeTreeToHTML(child, nodes);
 			}
 			if (tree.HasMember(L"contentDocument"))
 			{
 				std::wstring htmlFrame;
 				for (const auto& child : tree[L"contentDocument"][L"children"].GetArray())
-					htmlFrame += convertNodeTreeToHTML(child, frames);
-				frames.insert_or_assign(tree[L"contentDocument"][L"nodeId"].GetInt(), htmlFrame);
+					htmlFrame += convertNodeTreeToHTML(child, nodes);
+				nodes.insert_or_assign(tree[L"contentDocument"][L"nodeId"].GetInt(), htmlFrame);
 			}
 			if (!utils::IsVoidElement(tree[L"nodeName"].GetString()))
 			{
@@ -945,14 +945,13 @@ private:
 		return html;
 	}
 
-	struct Frame
+	struct Node
 	{
 		int nodeId;
-		std::wstring frameId;
 		std::wstring outerHTML;
 	};
 
-	std::wstring convertNodeTreeToHTML3(const WValue& tree, std::list<Frame>& frames)
+	std::wstring convertNodeTreeToHTML3(const WValue& tree, std::list<Node>& nodes)
 	{
 		std::wstring html;
 		NodeType nodeType = static_cast<NodeType>(tree[L"nodeType"].GetInt());
@@ -970,7 +969,7 @@ private:
 			if (tree.HasMember(L"children"))
 			{
 				for (const auto& child : tree[L"children"].GetArray())
-					html += convertNodeTreeToHTML3(child, frames);
+					html += convertNodeTreeToHTML3(child, nodes);
 			}
 			break;
 		}
@@ -984,6 +983,13 @@ private:
 		case NodeType::TEXT_NODE:
 		{
 			html += tree[L"nodeValue"].GetString();
+			if (tree.HasMember(L"modified"))
+			{
+				Node node;
+				node.nodeId = tree[L"nodeId"].GetInt();
+				node.outerHTML = html;
+				nodes.emplace_back(std::move(node));
+			}
 			break;
 		}
 		case NodeType::ELEMENT_NODE:
@@ -1007,12 +1013,12 @@ private:
 			if (tree.HasMember(L"children"))
 			{
 				for (const auto& child : tree[L"children"].GetArray())
-					html += convertNodeTreeToHTML3(child, frames);
+					html += convertNodeTreeToHTML3(child, nodes);
 			}
 			if (tree.HasMember(L"contentDocument"))
 			{
 				for (const auto& child : tree[L"contentDocument"][L"children"].GetArray())
-					convertNodeTreeToHTML3(child, frames);
+					convertNodeTreeToHTML3(child, nodes);
 			}
 			if (!utils::IsVoidElement(tree[L"nodeName"].GetString()))
 			{
@@ -1020,13 +1026,12 @@ private:
 				html += tree[L"nodeName"].GetString();
 				html += L'>';
 			}
-			if (tree.HasMember(L"frameId")) //if (isDiffNode(tree))
+			if (tree.HasMember(L"modified"))
 			{
-				Frame frame;
-				frame.nodeId = tree[L"nodeId"].GetInt();
-				frame.frameId = tree[L"frameId"].GetString();
-				frame.outerHTML = html;
-				frames.emplace_back(std::move(frame));
+				Node node;
+				node.nodeId = tree[L"nodeId"].GetInt();
+				node.outerHTML = html;
+				nodes.emplace_back(std::move(node));
 			}
 			break;
 		}
@@ -1071,7 +1076,11 @@ private:
 				for (auto& child : tree[L"children"].GetArray())
 				{
 					if (isDiffNode(child))
+					{
+						const int nodeId = child[L"nodeId"].GetInt();
 						child.CopyFrom(child[L"children"].GetArray()[0], doc.GetAllocator());
+						child.AddMember(L"modified", true, doc.GetAllocator());
+					}
 					else
 						unhighlightNodes(doc, child);
 				}
@@ -1130,6 +1139,7 @@ private:
 					spanNode.AddMember(L"nodeType", 1, allocator);
 					spanNode.AddMember(L"nodeId", nodeId, allocator);
 					spanNode.AddMember(L"children", children, allocator);
+					spanNode.AddMember(L"modified", true, allocator);
 					pvalue->CopyFrom(spanNode, allocator);
 				}
 			}
@@ -1138,25 +1148,23 @@ private:
 
 	HRESULT applyHTMLLoop(
 		int pane,
-		//std::shared_ptr<const std::map<int, std::wstring>> frames,
-		std::shared_ptr<const std::list<Frame>> frames,
+		std::shared_ptr<const std::list<Node>> nodes,
 		IWebDiffCallback* callback,
-		//std::map<int, std::wstring>::reverse_iterator it)
-		std::list<Frame>::iterator it)
+		std::list<Node>::iterator it)
 	{
-		if (it == frames->end())
+		if (it == nodes->end())
 			return S_OK;
 		ComPtr<IWebDiffCallback> callback2(callback);
-		HRESULT hr = m_webWindow[pane].SetFrameHTML(it->frameId, it->outerHTML,
-			Callback<IWebDiffCallback>([this, pane, frames, it, callback2](const WebDiffCallbackResult& result) -> HRESULT
+		HRESULT hr = m_webWindow[pane].SetOuterHTML(it->nodeId, it->outerHTML,
+			Callback<IWebDiffCallback>([this, pane, nodes, it, callback2](const WebDiffCallbackResult& result) -> HRESULT
 				{
 					HRESULT hr = result.errorCode;
 					if (SUCCEEDED(hr))
 					{
-						std::list<Frame>::iterator it2(it);
+						std::list<Node>::iterator it2(it);
 						++it2;
-						if (it2 != frames->end())
-							hr = applyHTMLLoop(pane, frames, callback2.Get(), it2);
+						if (it2 != nodes->end())
+							hr = applyHTMLLoop(pane, nodes, callback2.Get(), it2);
 						else
 							callback2->Invoke({ hr, nullptr });
 					}
@@ -1170,13 +1178,9 @@ private:
 	HRESULT applyDOMLoop(std::shared_ptr<std::vector<WDocument>> documents, IWebDiffCallback* callback, int pane = 0)
 	{
 		ComPtr<IWebDiffCallback> callback2(callback);
-		auto frames = std::make_shared<std::list<Frame>>();
-		convertNodeTreeToHTML3((*documents)[pane][L"root"], *frames);
-		//auto frames = std::make_shared<std::map<int, std::wstring>>();
-		//std::wstring html = convertNodeTreeToHTML((*documents)[pane][L"root"], *frames);
-		//int nodeId = (*documents)[pane][L"root"][L"nodeId"].GetInt();
-		//frames->insert_or_assign(nodeId, html);
-		HRESULT hr = applyHTMLLoop(pane, frames,
+		auto nodes = std::make_shared<std::list<Node>>();
+		convertNodeTreeToHTML3((*documents)[pane][L"root"], *nodes);
+		HRESULT hr = applyHTMLLoop(pane, nodes,
 			Callback<IWebDiffCallback>([this, documents, callback2, pane](const WebDiffCallbackResult& result) -> HRESULT
 				{
 					HRESULT hr = result.errorCode;
@@ -1190,7 +1194,7 @@ private:
 					if (FAILED(hr) && callback2)
 						callback2->Invoke({ hr, nullptr });
 					return hr;
-				}).Get(), frames->begin());
+				}).Get(), nodes->begin());
 		return hr;
 	}
 
@@ -1228,15 +1232,9 @@ private:
 						WDocument doc;
 						doc.Parse(result.returnObjectAsJson);
 						unhighlightNodes(doc, doc[L"root"]);
-						auto frames = std::make_shared<std::list<Frame>>();
-						convertNodeTreeToHTML3(doc[L"root"], *frames);
-						/*
-						auto frames = std::make_shared<std::map<int, std::wstring>>();
-						std::wstring html = convertNodeTreeToHTML(doc[L"root"], *frames);
-						int nodeId = doc[L"root"][L"nodeId"].GetInt();
-						frames->insert_or_assign(nodeId, html);
-						*/
-						hr = applyHTMLLoop(pane, frames,
+						auto nodes = std::make_shared<std::list<Node>>();
+						convertNodeTreeToHTML3(doc[L"root"], *nodes);
+						hr = applyHTMLLoop(pane, nodes,
 							Callback<IWebDiffCallback>([this, pane, callback2](const WebDiffCallbackResult& result) -> HRESULT
 								{
 									HRESULT hr = result.errorCode;
@@ -1250,7 +1248,7 @@ private:
 									if (FAILED(hr) && callback2)
 										callback2->Invoke({ hr, nullptr });
 									return S_OK;
-								}).Get(), frames->begin());
+								}).Get(), nodes->begin());
 					}
 					if (FAILED(hr) && callback2)
 						callback2->Invoke({ hr, nullptr });
