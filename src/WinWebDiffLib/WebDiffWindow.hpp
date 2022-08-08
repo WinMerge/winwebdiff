@@ -785,21 +785,27 @@ private:
 		DOCUMENT_FRAGMENT_NODE = 11,
 	};
 
-	WValue* findNodeId(WValue& nodeTree, int nodeId)
+	std::pair<WValue*, WValue*> findNodeId(WValue& nodeTree, int nodeId)
 	{
 		if (nodeTree[L"nodeId"].GetInt() == nodeId)
-			return &nodeTree;
+		{
+			return { &nodeTree, nullptr };
+		}
 		if (nodeTree.HasMember(L"children") && nodeTree[L"children"].IsArray())
 		{
 			for (auto& child : nodeTree[L"children"].GetArray())
 			{
-				if (WValue* pvalue = findNodeId(child, nodeId))
-					return pvalue;
+				auto [pvalue, pparent] = findNodeId(child, nodeId);
+				if (pvalue)
+					return { pvalue, pparent ? pparent : &nodeTree};
 			}
 		}
 		if (nodeTree.HasMember(L"contentDocument"))
-			return findNodeId(nodeTree[L"contentDocument"], nodeId);
-		return nullptr;
+		{
+			auto [pvalue, pparent] = findNodeId(nodeTree[L"contentDocument"], nodeId);
+			return { pvalue, pparent ? pparent : &nodeTree[L"contentDocument"]};
+		}
+		return { nullptr, nullptr };
 	}
 
 	HRESULT compare(IWebDiffCallback* callback)
@@ -869,89 +875,13 @@ private:
 		return hr;
 	}
 
-	std::wstring convertNodeTreeToHTML(const WValue& tree, std::map<int, std::wstring>& nodes)
-	{
-		std::wstring html;
-		NodeType nodeType = static_cast<NodeType>(tree[L"nodeType"].GetInt());
-		switch (nodeType)
-		{
-		case NodeType::DOCUMENT_TYPE_NODE:
-		{
-			html += L"<!DOCTYPE ";
-			html += tree[L"nodeName"].GetString();
-			html += L">";
-			break;
-		}
-		case NodeType::DOCUMENT_NODE:
-		{
-			if (tree.HasMember(L"children"))
-			{
-				for (const auto& child : tree[L"children"].GetArray())
-					html += convertNodeTreeToHTML(child, nodes);
-			}
-			break;
-		}
-		case NodeType::COMMENT_NODE:
-		{
-			html += L"<!-- ";
-			html += tree[L"nodeValue"].GetString();
-			html += L" -->";
-			break;
-		}
-		case NodeType::TEXT_NODE:
-		{
-			html += tree[L"nodeValue"].GetString();
-			break;
-		}
-		case NodeType::ELEMENT_NODE:
-		{
-			html += L'<';
-			html += tree[L"nodeName"].GetString();
-			if (tree.HasMember(L"attributes"))
-			{
-				const auto& attributes = tree[L"attributes"].GetArray();
-				for (unsigned i = 0; i < attributes.Size(); i += 2)
-				{
-					html += L" ";
-					html += attributes[i].GetString();
-					html += L"=\"";
-					if (i + 1 < attributes.Size())
-						html += utils::escapeAttributeValue(attributes[i + 1].GetString());
-					html += L"\"";
-				}
-			}
-			html += L'>';
-			if (tree.HasMember(L"children"))
-			{
-				for (const auto& child : tree[L"children"].GetArray())
-					html += convertNodeTreeToHTML(child, nodes);
-			}
-			if (tree.HasMember(L"contentDocument"))
-			{
-				std::wstring htmlFrame;
-				for (const auto& child : tree[L"contentDocument"][L"children"].GetArray())
-					htmlFrame += convertNodeTreeToHTML(child, nodes);
-				nodes.insert_or_assign(tree[L"contentDocument"][L"nodeId"].GetInt(), htmlFrame);
-			}
-			if (!utils::IsVoidElement(tree[L"nodeName"].GetString()))
-			{
-				html += L"</";
-				html += tree[L"nodeName"].GetString();
-				html += L'>';
-			}
-			break;
-		}
-		}
-		return html;
-	}
-
 	struct Node
 	{
 		int nodeId;
 		std::wstring outerHTML;
 	};
 
-	std::wstring convertNodeTreeToHTML3(const WValue& tree, std::list<Node>& nodes)
+	std::wstring modifiedNodesToHTMLs(const WValue& tree, std::list<Node>& nodes)
 	{
 		std::wstring html;
 		NodeType nodeType = static_cast<NodeType>(tree[L"nodeType"].GetInt());
@@ -969,7 +899,7 @@ private:
 			if (tree.HasMember(L"children"))
 			{
 				for (const auto& child : tree[L"children"].GetArray())
-					html += convertNodeTreeToHTML3(child, nodes);
+					html += modifiedNodesToHTMLs(child, nodes);
 			}
 			break;
 		}
@@ -1013,12 +943,12 @@ private:
 			if (tree.HasMember(L"children"))
 			{
 				for (const auto& child : tree[L"children"].GetArray())
-					html += convertNodeTreeToHTML3(child, nodes);
+					html += modifiedNodesToHTMLs(child, nodes);
 			}
 			if (tree.HasMember(L"contentDocument"))
 			{
 				for (const auto& child : tree[L"contentDocument"][L"children"].GetArray())
-					convertNodeTreeToHTML3(child, nodes);
+					modifiedNodesToHTMLs(child, nodes);
 			}
 			if (!utils::IsVoidElement(tree[L"nodeName"].GetString()))
 			{
@@ -1079,6 +1009,7 @@ private:
 					{
 						const int nodeId = child[L"nodeId"].GetInt();
 						child.CopyFrom(child[L"children"].GetArray()[0], doc.GetAllocator());
+						child[L"nodeId"].SetInt(nodeId);
 						child.AddMember(L"modified", true, doc.GetAllocator());
 					}
 					else
@@ -1116,8 +1047,9 @@ private:
 			const auto& diffInfo = diffInfoList[i];
 			for (int pane = 0; pane < m_nPanes; ++pane)
 			{
-				WValue* pvalue = findNodeId(documents[pane][L"root"], diffInfo.nodeIds[pane]);
-				if (pvalue)
+				auto [pvalue, pparent] = findNodeId(documents[pane][L"root"], diffInfo.nodeIds[pane]);
+				bool fTitleElement = (pparent && pparent->HasMember(L"nodeName") && wcscmp((*pparent)[L"nodeName"].GetString(), L"TITLE") == 0);
+				if (pvalue && !fTitleElement)
 				{
 					WValue spanNode, textNode, attributes, children, id;
 					auto& allocator = documents[pane].GetAllocator();
@@ -1179,7 +1111,7 @@ private:
 	{
 		ComPtr<IWebDiffCallback> callback2(callback);
 		auto nodes = std::make_shared<std::list<Node>>();
-		convertNodeTreeToHTML3((*documents)[pane][L"root"], *nodes);
+		modifiedNodesToHTMLs((*documents)[pane][L"root"], *nodes);
 		HRESULT hr = applyHTMLLoop(pane, nodes,
 			Callback<IWebDiffCallback>([this, documents, callback2, pane](const WebDiffCallbackResult& result) -> HRESULT
 				{
@@ -1233,7 +1165,7 @@ private:
 						doc.Parse(result.returnObjectAsJson);
 						unhighlightNodes(doc, doc[L"root"]);
 						auto nodes = std::make_shared<std::list<Node>>();
-						convertNodeTreeToHTML3(doc[L"root"], *nodes);
+						modifiedNodesToHTMLs(doc[L"root"], *nodes);
 						hr = applyHTMLLoop(pane, nodes,
 							Callback<IWebDiffCallback>([this, pane, callback2](const WebDiffCallbackResult& result) -> HRESULT
 								{
