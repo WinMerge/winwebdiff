@@ -57,8 +57,11 @@ struct TextBlocks
 		if (nodeTree.HasMember(L"children") && nodeTree[L"children"].IsArray())
 		{
 			const auto* nodeName = nodeTree[L"nodeName"].GetString();
-			const bool fInline = utils::IsInlineElement(nodeName);
-			if (wcscmp(nodeName, L"SCRIPT") != 0 && wcscmp(nodeName, L"STYLE") != 0)
+			if (wcscmp(nodeName, L"SCRIPT") != 0 &&
+			    wcscmp(nodeName, L"NOSCRIPT") != 0 &&
+			    wcscmp(nodeName, L"NOFRAMES") != 0 &&
+			    wcscmp(nodeName, L"STYLE") != 0 &&
+			    wcscmp(nodeName, L"TITLE") != 0)
 			{
 				for (const auto& child : nodeTree[L"children"].GetArray())
 				{
@@ -141,18 +144,20 @@ namespace Comparer
 		auto it1 = textBlocks1.segments.begin();
 		for (auto ed : edscript)
 		{
+			const int nodeId0 = it0 != textBlocks0.segments.end() ? it0->second.nodeId : 0;
+			const int nodeId1 = it1 != textBlocks1.segments.end() ? it1->second.nodeId : 0;
 			switch (ed)
 			{
 			case '-':
-				diffInfoList.emplace_back(it0->second.nodeId, -1);
+				diffInfoList.emplace_back(nodeId0, -1 - nodeId1);
 				++it0;
 				break;
 			case '+':
-				diffInfoList.emplace_back(-1, it1->second.nodeId);
+				diffInfoList.emplace_back(-1 - nodeId0, nodeId1);
 				++it1;
 				break;
 			case '!':
-				diffInfoList.emplace_back(it0->second.nodeId, it1->second.nodeId);
+				diffInfoList.emplace_back(nodeId0, nodeId1);
 				++it0;
 				++it1;
 				break;
@@ -342,28 +347,24 @@ public:
 	{
 		if (pane < 0 || pane >= m_nPanes)
 			return false;
-		return m_webWindow[pane].SaveFile(filename, kind, callback);
-	}
-
-	HRESULT SaveFilesLoop(FormatType kind, std::shared_ptr<std::vector<std::wstring>> filenames, IWebDiffCallback* callback, int pane = 0)
-	{
+		if (!m_bShowDifferences)
+			return m_webWindow[pane].SaveFile(filename, kind, callback);
 		ComPtr<IWebDiffCallback> callback2(callback);
-		HRESULT hr = SaveFile(pane, kind, (*filenames)[pane].c_str(),
-			Callback<IWebDiffCallback>([this, kind, filenames, callback2, pane](const WebDiffCallbackResult& result) -> HRESULT
+		std::wstring sfilename(filename);
+		return unhighlightDifferencesLoop(
+			Callback<IWebDiffCallback>([this, kind, pane, sfilename, callback2](const WebDiffCallbackResult& result) -> HRESULT
 				{
-					HRESULT hr = result.errorCode;
-					if (SUCCEEDED(hr))
-					{
-						if (pane + 1 < m_nPanes)
-							hr = SaveFilesLoop(kind, filenames, callback2.Get(), pane + 1);
-						else if (callback2)
-							callback2->Invoke({ hr, nullptr });
-					}
-					if (FAILED(hr) && callback2)
-						callback2->Invoke({ hr, nullptr });
-					return S_OK;
+					return m_webWindow[pane].SaveFile(sfilename, kind,
+						Callback<IWebDiffCallback>([this, callback2](const WebDiffCallbackResult& result) -> HRESULT
+							{
+								HRESULT hr = result.errorCode;
+								if (SUCCEEDED(hr))
+									hr = compare(callback2.Get());
+								if (FAILED(hr) && callback2)
+									callback2->Invoke({ hr, nullptr });
+								return S_OK;
+							}).Get());
 				}).Get());
-		return hr;
 	}
 
 	HRESULT SaveFiles(FormatType kind, const wchar_t* filenames[], IWebDiffCallback* callback) override
@@ -372,12 +373,12 @@ public:
 		for (int pane = 0; pane < m_nPanes; ++pane)
 			sfilenames->push_back(filenames[pane]);
 		if (!m_bShowDifferences)
-			return SaveFilesLoop(kind, sfilenames, callback);
+			return saveFilesLoop(kind, sfilenames, callback);
 		ComPtr<IWebDiffCallback> callback2(callback);
 		return unhighlightDifferencesLoop(
 			Callback<IWebDiffCallback>([this, kind, sfilenames, callback2](const WebDiffCallbackResult& result) -> HRESULT
 				{
-					return SaveFilesLoop(kind, sfilenames,
+					return saveFilesLoop(kind, sfilenames,
 						Callback<IWebDiffCallback>([this, sfilenames, callback2](const WebDiffCallbackResult& result) -> HRESULT
 							{
 								HRESULT hr = result.errorCode;
@@ -808,80 +809,67 @@ private:
 		return { nullptr, nullptr };
 	}
 
-	HRESULT compare(IWebDiffCallback* callback)
+	HRESULT getDocumentsLoop(std::shared_ptr<std::vector<std::wstring>> jsons, IWebDiffCallback* callback, int pane = 0)
 	{
 		static const wchar_t* method = L"DOM.getDocument";
 		static const wchar_t* params = L"{ \"depth\": -1, \"pierce\": true }";
 		ComPtr<IWebDiffCallback> callback2(callback);
-		HRESULT hr = m_webWindow[0].CallDevToolsProtocolMethod(method, params,
-			Callback<IWebDiffCallback>([this, callback2](const WebDiffCallbackResult& result) -> HRESULT
+		HRESULT hr = m_webWindow[pane].CallDevToolsProtocolMethod(method, params,
+			Callback<IWebDiffCallback>([this, pane, jsons, callback2](const WebDiffCallbackResult& result) -> HRESULT
 				{
 					HRESULT hr = result.errorCode;
 					if (SUCCEEDED(hr))
 					{
-						std::wstring json0 = result.returnObjectAsJson;
-						hr = m_webWindow[1].CallDevToolsProtocolMethod(method, params,
-							Callback<IWebDiffCallback>([this, callback2, json0](const WebDiffCallbackResult& result) -> HRESULT
-								{
-									HRESULT hr = result.errorCode;
-									if (m_nPanes < 3)
-									{
-										std::shared_ptr<std::vector<WDocument>> documents(new std::vector<WDocument>(2));
-										(*documents)[0].Parse(json0.c_str());
-										(*documents)[1].Parse(result.returnObjectAsJson);
-										for (int pane = 0; pane < m_nPanes; ++pane)
-											unhighlightNodes((*documents)[pane], (*documents)[pane][L"root"]);
-										m_diffInfoList = Comparer::CompareDocuments(m_diffOptions, *documents);
-										if (m_bShowDifferences)
-											highlightNodes(m_diffInfoList, *documents);
-										hr = highlightDocuments(documents, callback2.Get());
-										if (FAILED(hr) && callback2)
-											callback2->Invoke(result);
-										return S_OK;
-									}
-									if (SUCCEEDED(hr))
-									{
-										std::wstring json1 = result.returnObjectAsJson;
-										hr = m_webWindow[2].CallDevToolsProtocolMethod(method, params,
-											Callback<IWebDiffCallback>([this, callback2, json0, json1](const WebDiffCallbackResult& result) -> HRESULT
-												{
-													std::vector<WDocument> documents;
-													documents[0].Parse(json0.c_str());
-													documents[1].Parse(json1.c_str());
-													documents[2].Parse(result.returnObjectAsJson);
-													for (int pane = 0; pane < m_nPanes; ++pane)
-														unhighlightNodes(documents[pane], documents[pane][L"root"]);
-													m_diffInfoList = Comparer::CompareDocuments(m_diffOptions, documents);
-													if (callback2)
-														callback2->Invoke(result);
-													return S_OK;
-												}).Get());
-									}
-									if (FAILED(hr))
-									{
-										if (callback2)
-											callback2->Invoke({ hr, nullptr });
-									}
-									return S_OK;
-								}).Get());
-					}
-					if (FAILED(hr))
-					{
-						if (callback2)
+						jsons->push_back(result.returnObjectAsJson);
+						if (pane + 1 < m_nPanes)
+							hr = getDocumentsLoop(jsons, callback2.Get(), pane + 1);
+						else if (callback2)
 							callback2->Invoke({ hr, nullptr });
 					}
+					if (FAILED(hr) && callback2)
+						callback2->Invoke({ hr, nullptr });
 					return S_OK;
 				}).Get());
 		return hr;
 	}
 
-	struct Node
+	HRESULT compare(IWebDiffCallback* callback)
+	{
+		ComPtr<IWebDiffCallback> callback2(callback);
+		std::shared_ptr<std::vector<std::wstring>> jsons(new std::vector<std::wstring>());
+		HRESULT hr = getDocumentsLoop(jsons,
+			Callback<IWebDiffCallback>([this, jsons, callback2](const WebDiffCallbackResult& result) -> HRESULT
+				{
+					HRESULT hr = result.errorCode;
+					if (SUCCEEDED(hr))
+					{
+						std::shared_ptr<std::vector<WDocument>> documents(new std::vector<WDocument>(m_nPanes));
+						for (int pane = 0; pane < m_nPanes; ++pane)
+						{
+							(*documents)[pane].Parse((*jsons)[pane].c_str());
+							unhighlightNodes((*documents)[pane], (*documents)[pane][L"root"]);
+						}
+						m_diffInfoList = Comparer::CompareDocuments(m_diffOptions, *documents);
+						if (m_currentDiffIndex != -1 && m_currentDiffIndex >= m_diffInfoList.size())
+							m_currentDiffIndex = static_cast<int>(m_diffInfoList.size() - 1);
+						if (m_bShowDifferences)
+							highlightNodes(m_diffInfoList, *documents);
+						hr = highlightDocuments(documents, callback2.Get());
+					}
+					if (FAILED(hr) && callback2)
+						callback2->Invoke(result);
+					return S_OK;
+				}).Get());
+		return hr;
+	}
+
+	struct ModifiedNode
 	{
 		int nodeId;
 		std::wstring outerHTML;
 	};
 
-	std::wstring modifiedNodesToHTMLs(const WValue& tree, std::list<Node>& nodes)
+	std::wstring modifiedNodesToHTMLs(const WValue& tree, std::list<ModifiedNode>& nodes)
 	{
 		std::wstring html;
 		NodeType nodeType = static_cast<NodeType>(tree[L"nodeType"].GetInt());
@@ -912,10 +900,15 @@ private:
 		}
 		case NodeType::TEXT_NODE:
 		{
+			if (tree.HasMember(L"insertedNodes"))
+			{
+				for (const auto& child : tree[L"insertedNodes"].GetArray())
+					html += modifiedNodesToHTMLs(child, nodes);
+			}
 			html += tree[L"nodeValue"].GetString();
 			if (tree.HasMember(L"modified"))
 			{
-				Node node;
+				ModifiedNode node;
 				node.nodeId = tree[L"nodeId"].GetInt();
 				node.outerHTML = html;
 				nodes.emplace_back(std::move(node));
@@ -924,6 +917,11 @@ private:
 		}
 		case NodeType::ELEMENT_NODE:
 		{
+			if (tree.HasMember(L"insertedNodes"))
+			{
+				for (const auto& child : tree[L"insertedNodes"].GetArray())
+					html += modifiedNodesToHTMLs(child, nodes);
+			}
 			html += L'<';
 			html += tree[L"nodeName"].GetString();
 			if (tree.HasMember(L"attributes"))
@@ -958,7 +956,7 @@ private:
 			}
 			if (tree.HasMember(L"modified"))
 			{
-				Node node;
+				ModifiedNode node;
 				node.nodeId = tree[L"nodeId"].GetInt();
 				node.outerHTML = html;
 				nodes.emplace_back(std::move(node));
@@ -1008,7 +1006,15 @@ private:
 					if (isDiffNode(child))
 					{
 						const int nodeId = child[L"nodeId"].GetInt();
-						child.CopyFrom(child[L"children"].GetArray()[0], doc.GetAllocator());
+						if (child[L"children"].GetArray().Size() > 0)
+						{
+							child.CopyFrom(child[L"children"].GetArray()[0], doc.GetAllocator());
+						}
+						else
+						{
+							child[L"nodeType"].SetInt(NodeType::TEXT_NODE);
+							child[L"nodeValue"].SetString(L"");
+						}
 						child[L"nodeId"].SetInt(nodeId);
 						child.AddMember(L"modified", true, doc.GetAllocator());
 					}
@@ -1016,10 +1022,52 @@ private:
 						unhighlightNodes(doc, child);
 				}
 			}
-			if (tree.HasMember(L"contentDocument"))
+			if (tree.HasMember(L"contentDocument") && tree[L"contentDocument"].HasMember(L"children"))
 			{
 				for (auto& child : tree[L"contentDocument"][L"children"].GetArray())
 					unhighlightNodes(doc, child);
+			}
+			break;
+		}
+		}
+	}
+
+	void getDiffNodes(WDocument& doc, WValue& tree, std::map<int, int>& nodes)
+	{
+		NodeType nodeType = static_cast<NodeType>(tree[L"nodeType"].GetInt());
+		switch (nodeType)
+		{
+		case NodeType::DOCUMENT_NODE:
+		{
+			if (tree.HasMember(L"children"))
+			{
+				for (auto& child : tree[L"children"].GetArray())
+					getDiffNodes(doc, child, nodes);
+			}
+			break;
+		}
+		case NodeType::ELEMENT_NODE:
+		{
+			if (tree.HasMember(L"children"))
+			{
+				for (auto& child : tree[L"children"].GetArray())
+				{
+					if (isDiffNode(child))
+					{
+						const int nodeId = child[L"nodeId"].GetInt();
+						auto attributes = child[L"attributes"].GetArray();
+						const wchar_t* buf = attributes[3].GetString();
+						const int diffIndex = attributes.Size() > 3 ? _wtoi(attributes[3].GetString()) : -1;
+						nodes.insert_or_assign(diffIndex, nodeId);
+					}
+					else
+						getDiffNodes(doc, child, nodes);
+				}
+			}
+			if (tree.HasMember(L"contentDocument") && tree[L"contentDocument"].HasMember(L"children"))
+			{
+				for (auto& child : tree[L"contentDocument"][L"children"].GetArray())
+					getDiffNodes(doc, child, nodes);
 			}
 			break;
 		}
@@ -1039,6 +1087,27 @@ private:
 		return styleValue;
 	}
 
+	HRESULT saveFilesLoop(FormatType kind, std::shared_ptr<std::vector<std::wstring>> filenames, IWebDiffCallback* callback, int pane = 0)
+	{
+		ComPtr<IWebDiffCallback> callback2(callback);
+		HRESULT hr = m_webWindow[pane].SaveFile((*filenames)[pane].c_str(), kind,
+			Callback<IWebDiffCallback>([this, kind, filenames, callback2, pane](const WebDiffCallbackResult& result) -> HRESULT
+				{
+					HRESULT hr = result.errorCode;
+					if (SUCCEEDED(hr))
+					{
+						if (pane + 1 < m_nPanes)
+							hr = saveFilesLoop(kind, filenames, callback2.Get(), pane + 1);
+						else if (callback2)
+							callback2->Invoke({ hr, nullptr });
+					}
+					if (FAILED(hr) && callback2)
+						callback2->Invoke({ hr, nullptr });
+					return S_OK;
+				}).Get());
+		return hr;
+	}
+
 	void highlightNodes(std::vector<DiffInfo>& diffInfoList, std::vector<WDocument>& documents)
 	{
 		std::wstring styleValue = getDiffStyleValue(m_textDiffColor, m_diffColor);
@@ -1047,32 +1116,53 @@ private:
 			const auto& diffInfo = diffInfoList[i];
 			for (int pane = 0; pane < m_nPanes; ++pane)
 			{
-				auto [pvalue, pparent] = findNodeId(documents[pane][L"root"], diffInfo.nodeIds[pane]);
-				bool fTitleElement = (pparent && pparent->HasMember(L"nodeName") && wcscmp((*pparent)[L"nodeName"].GetString(), L"TITLE") == 0);
-				if (pvalue && !fTitleElement)
+				WValue spanNode, attributes, children, id;
+				auto& allocator = documents[pane].GetAllocator();
+				id.SetString(std::to_wstring(i).c_str(), allocator);
+				attributes.SetArray();
+				attributes.PushBack(L"class", allocator);
+				attributes.PushBack(L"wwd-diff", allocator);
+				attributes.PushBack(L"data-wwdid", allocator);
+				attributes.PushBack(id, allocator);
+				attributes.PushBack(L"style", allocator);
+				attributes.PushBack(WValue(styleValue.c_str(), allocator), allocator);
+				spanNode.SetObject();
+				spanNode.AddMember(L"nodeName", L"SPAN", allocator);
+				spanNode.AddMember(L"attributes", attributes, allocator);
+				spanNode.AddMember(L"nodeType", 1, allocator);
+				if (diffInfo.nodeIds[pane] >= 0)
 				{
-					WValue spanNode, textNode, attributes, children, id;
-					auto& allocator = documents[pane].GetAllocator();
-					textNode.CopyFrom(*pvalue, allocator);
-					int nodeId = textNode[L"nodeId"].GetInt();
-					id.SetString(std::to_wstring(i).c_str(), allocator);
-					attributes.SetArray();
-					attributes.PushBack(L"class", allocator);
-					attributes.PushBack(L"wwd-diff", allocator);
-					attributes.PushBack(L"data-wwdid", allocator);
-					attributes.PushBack(id, allocator);
-					attributes.PushBack(L"style", allocator);
-					attributes.PushBack(WValue(styleValue.c_str(), allocator), allocator);
-					children.SetArray();
-					children.PushBack(textNode, allocator);
-					spanNode.SetObject();
-					spanNode.AddMember(L"nodeName", L"SPAN", allocator);
-					spanNode.AddMember(L"attributes", attributes, allocator);
-					spanNode.AddMember(L"nodeType", 1, allocator);
-					spanNode.AddMember(L"nodeId", nodeId, allocator);
-					spanNode.AddMember(L"children", children, allocator);
-					spanNode.AddMember(L"modified", true, allocator);
-					pvalue->CopyFrom(spanNode, allocator);
+					auto [pvalue, pparent] = findNodeId(documents[pane][L"root"], diffInfo.nodeIds[pane]);
+					if (pvalue)
+					{
+						WValue textNode;
+						textNode.CopyFrom(*pvalue, allocator);
+						const int nodeId = textNode[L"nodeId"].GetInt();
+						children.SetArray();
+						children.PushBack(textNode, allocator);
+						spanNode.AddMember(L"children", children, allocator);
+						spanNode.AddMember(L"nodeId", nodeId, allocator);
+						spanNode.AddMember(L"modified", true, allocator);
+						pvalue->CopyFrom(spanNode, allocator);
+					}
+				}
+				else
+				{
+					auto [pvalue, pparent] = findNodeId(documents[pane][L"root"], -diffInfo.nodeIds[pane] - 1);
+					if (pvalue)
+					{
+						spanNode.AddMember(L"nodeId", -1, allocator);
+						children.SetArray();
+						spanNode.AddMember(L"children", children, allocator);
+						if (!pvalue->HasMember(L"insertedNodes"))
+						{
+							WValue insertedNodes;
+							insertedNodes.SetArray();
+							pvalue->AddMember(L"insertedNodes", insertedNodes, allocator);
+						}
+						(*pvalue)[L"insertedNodes"].GetArray().PushBack(spanNode, allocator);
+						pvalue->AddMember(L"modified", true, allocator);
+					}
 				}
 			}
 		}
@@ -1080,12 +1170,16 @@ private:
 
 	HRESULT applyHTMLLoop(
 		int pane,
-		std::shared_ptr<const std::list<Node>> nodes,
+		std::shared_ptr<const std::list<ModifiedNode>> nodes,
 		IWebDiffCallback* callback,
-		std::list<Node>::iterator it)
+		std::list<ModifiedNode>::iterator it)
 	{
 		if (it == nodes->end())
+		{
+			if (callback)
+				callback->Invoke({ S_OK, nullptr });
 			return S_OK;
+		}
 		ComPtr<IWebDiffCallback> callback2(callback);
 		HRESULT hr = m_webWindow[pane].SetOuterHTML(it->nodeId, it->outerHTML,
 			Callback<IWebDiffCallback>([this, pane, nodes, it, callback2](const WebDiffCallbackResult& result) -> HRESULT
@@ -1093,7 +1187,7 @@ private:
 					HRESULT hr = result.errorCode;
 					if (SUCCEEDED(hr))
 					{
-						std::list<Node>::iterator it2(it);
+						std::list<ModifiedNode>::iterator it2(it);
 						++it2;
 						if (it2 != nodes->end())
 							hr = applyHTMLLoop(pane, nodes, callback2.Get(), it2);
@@ -1110,7 +1204,7 @@ private:
 	HRESULT applyDOMLoop(std::shared_ptr<std::vector<WDocument>> documents, IWebDiffCallback* callback, int pane = 0)
 	{
 		ComPtr<IWebDiffCallback> callback2(callback);
-		auto nodes = std::make_shared<std::list<Node>>();
+		auto nodes = std::make_shared<std::list<ModifiedNode>>();
 		modifiedNodesToHTMLs((*documents)[pane][L"root"], *nodes);
 		HRESULT hr = applyHTMLLoop(pane, nodes,
 			Callback<IWebDiffCallback>([this, documents, callback2, pane](const WebDiffCallbackResult& result) -> HRESULT
@@ -1138,11 +1232,7 @@ private:
 				{
 					HRESULT hr = result.errorCode;
 					if (SUCCEEDED(hr))
-					{
-						makeDiffNodeIdArrayLoop();
-						if (callback2)
-							callback2->Invoke({ hr, nullptr });
-					}
+						hr = makeDiffNodeIdArrayLoop(callback2.Get());
 					if (FAILED(hr) && callback2)
 						callback2->Invoke({ hr, nullptr });
 					return S_OK;
@@ -1164,7 +1254,7 @@ private:
 						WDocument doc;
 						doc.Parse(result.returnObjectAsJson);
 						unhighlightNodes(doc, doc[L"root"]);
-						auto nodes = std::make_shared<std::list<Node>>();
+						auto nodes = std::make_shared<std::list<ModifiedNode>>();
 						modifiedNodesToHTMLs(doc[L"root"], *nodes);
 						hr = applyHTMLLoop(pane, nodes,
 							Callback<IWebDiffCallback>([this, pane, callback2](const WebDiffCallbackResult& result) -> HRESULT
@@ -1189,41 +1279,33 @@ private:
 		return hr;
 	}
 
-	HRESULT makeDiffNodeIdArrayLoop(int pane = 0)
+	HRESULT makeDiffNodeIdArrayLoop(IWebDiffCallback* callback, int pane = 0)
 	{
 		static const wchar_t* method = L"DOM.getDocument";
-		static const wchar_t* params = L"{ \"depth\": 1, \"pierce\": false }";
+		static const wchar_t* params = L"{ \"depth\": -1, \"pierce\": true }";
+		ComPtr<IWebDiffCallback> callback2(callback);
 		HRESULT hr = m_webWindow[pane].CallDevToolsProtocolMethod(method, params,
-			Callback<IWebDiffCallback>([this, pane](const WebDiffCallbackResult& result) -> HRESULT
+			Callback<IWebDiffCallback>([this, pane, callback2](const WebDiffCallbackResult& result) -> HRESULT
 				{
 					HRESULT hr = result.errorCode;
 					if (SUCCEEDED(hr))
 					{
 						WDocument doc;
 						doc.Parse(result.returnObjectAsJson);
-						int rootNodeId = doc[L"root"][L"nodeId"].GetInt();
-						std::wstring args = L"{ \"nodeId\": " + std::to_wstring(rootNodeId)
-							+ L", \"selector\": \"span[data-wwdid]\" }";
-						hr = m_webWindow[pane].CallDevToolsProtocolMethod(L"DOM.querySelectorAll", args.c_str(),
-							Callback<IWebDiffCallback>([this, pane](const WebDiffCallbackResult& result) -> HRESULT
-								{
-									HRESULT hr = result.errorCode;
-									if (SUCCEEDED(hr))
-									{
-										WDocument doc;
-										doc.Parse(result.returnObjectAsJson);
-										auto nodeIds = doc[L"nodeIds"].GetArray();
-										for (unsigned i = 0, j = 0; i < nodeIds.Size() && j < m_diffInfoList.size(); ++j)
-										{
-											if (m_diffInfoList[j].nodeIds[pane] != -1)
-												m_diffInfoList[j].nodeIds[pane] = nodeIds[i++].GetInt();
-										}
-										if (pane < m_nPanes - 1)
-											makeDiffNodeIdArrayLoop(pane + 1);
-									}
-									return S_OK;
-								}).Get());
+						std::map<int, int> nodes;
+						getDiffNodes(doc, doc[L"root"], nodes);
+						for (unsigned i = 0; i < m_diffInfoList.size(); ++i)
+						{
+							if (m_diffInfoList[i].nodeIds[pane] != -1)
+								m_diffInfoList[i].nodeIds[pane] = nodes[i];
+						}
+						if (pane < m_nPanes - 1)
+							hr = makeDiffNodeIdArrayLoop(callback2.Get(), pane + 1);
+						else if (callback2)
+							callback2->Invoke({ hr, nullptr });
 					}
+					if (FAILED(hr) && callback2)
+						callback2->Invoke({ hr, nullptr });
 					return S_OK;
 				}).Get());
 		return hr;
@@ -1240,15 +1322,18 @@ private:
 			std::wstring args = L"{ \"nodeId\": " + std::to_wstring(m_diffInfoList[diffIndex].nodeIds[pane]) + L" }";
 			m_webWindow[pane].CallDevToolsProtocolMethod(L"DOM.scrollIntoViewIfNeeded", args.c_str(), nullptr);
 			m_webWindow[pane].CallDevToolsProtocolMethod(L"DOM.focus", args.c_str(), nullptr);
-			if (prevDiffIndex != -1)
+			if (prevDiffIndex != -1 && prevDiffIndex < m_diffInfoList.size())
 			{
 				args = L"{ \"nodeId\": " + std::to_wstring(m_diffInfoList[prevDiffIndex].nodeIds[pane])
 					+ L", \"name\": \"style\", \"value\": \"" + styleValue + L"\" }";
 				m_webWindow[pane].CallDevToolsProtocolMethod(L"DOM.setAttributeValue", args.c_str(), nullptr);
 			}
-			args = L"{ \"nodeId\": " + std::to_wstring(m_diffInfoList[diffIndex].nodeIds[pane])
-				+ L", \"name\": \"style\", \"value\": \"" + styleSelValue + L"\" }";
-			m_webWindow[pane].CallDevToolsProtocolMethod(L"DOM.setAttributeValue", args.c_str(), nullptr);
+			if (diffIndex < m_diffInfoList.size())
+			{
+				args = L"{ \"nodeId\": " + std::to_wstring(m_diffInfoList[diffIndex].nodeIds[pane])
+					+ L", \"name\": \"style\", \"value\": \"" + styleSelValue + L"\" }";
+				m_webWindow[pane].CallDevToolsProtocolMethod(L"DOM.setAttributeValue", args.c_str(), nullptr);
+			}
 		}
 		return true;
 	}
