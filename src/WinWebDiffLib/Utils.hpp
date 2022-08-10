@@ -156,6 +156,22 @@ namespace utils
 		return result;
 	}
 
+	static std::wstring escapeText(const std::wstring& text)
+	{
+		std::wstring result;
+		for (auto c : text)
+		{
+			switch (c)
+			{
+			case '<':  result += L"&lt;"; break;
+			case '>':  result += L"&gt;"; break;
+			default:   result += c; break;
+			}
+		}
+		return result;
+	}
+
+
 	static std::wstring Escape(const std::wstring& text)
 	{
 		std::wstring result;

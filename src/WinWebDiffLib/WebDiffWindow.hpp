@@ -905,7 +905,7 @@ private:
 				for (const auto& child : tree[L"insertedNodes"].GetArray())
 					html += modifiedNodesToHTMLs(child, nodes);
 			}
-			html += tree[L"nodeValue"].GetString();
+			html += utils::escapeText(tree[L"nodeValue"].GetString());
 			if (tree.HasMember(L"modified"))
 			{
 				ModifiedNode node;
@@ -1137,6 +1137,7 @@ private:
 					{
 						WValue textNode;
 						textNode.CopyFrom(*pvalue, allocator);
+						textNode.RemoveMember(L"modified");
 						const int nodeId = textNode[L"nodeId"].GetInt();
 						children.SetArray();
 						children.PushBack(textNode, allocator);
