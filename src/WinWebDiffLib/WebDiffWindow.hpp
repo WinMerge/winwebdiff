@@ -16,22 +16,36 @@
 using WDocument = rapidjson::GenericDocument<rapidjson::UTF16<>>;
 using WValue = rapidjson::GenericValue<rapidjson::UTF16<>>;
 
+enum OP_TYPE
+{
+	OP_NONE = 0, OP_1STONLY, OP_2NDONLY, OP_3RDONLY, OP_DIFF, OP_TRIVIAL
+};
+
 struct DiffInfo
 {
-	DiffInfo(int nodeId1 = 0, int nodeId2 = 0, int nodeId3 = 0) :
-		nodeIds{ nodeId1, nodeId2, nodeId3 }
+	DiffInfo(int begin1 = 0, int end1 = 0,
+	         int begin2 = 0, int end2 = 0,
+	         int begin3 = 0, int end3 = 0)
+		: begin{ begin1, begin2, begin3}
+		, end{ end1, end2, end3 }
+		, op(OP_DIFF)
 	{}
 
-	DiffInfo(const DiffInfo& src) :
-		nodeIds{ src.nodeIds[0], src.nodeIds[1], src.nodeIds[2] }
+	DiffInfo(const DiffInfo& src)
+		: nodeIds{ src.nodeIds[0], src.nodeIds[1], src.nodeIds[2] }
+		, begin{ src.begin[0], src.begin[1], src.begin[2] }
+		, end{ src.end[0], src.end[1], src.end[2] }
+		, op(src.op)
 	{}
 	int nodeIds[3];
+	int begin[3];
+	int end[3];
+	OP_TYPE op;
 };
 
 struct TextSegment
 {
 	int nodeId;
-	int nodeBegin;
 	size_t begin;
 	size_t size;
 };
@@ -47,7 +61,6 @@ struct TextBlocks
 			std::wstring text = nodeTree[L"nodeValue"].GetString();
 			TextSegment seg;
 			seg.nodeId = nodeTree[L"nodeId"].GetInt();
-			seg.nodeBegin = 0;
 			seg.begin = textBlocks.size();
 			seg.size = text.size();
 			textBlocks += text;
@@ -125,49 +138,316 @@ private:
 
 namespace Comparer
 {
-	std::vector<DiffInfo> CompareDocuments(const IWebDiffWindow::DiffOptions& diffOptions,
-		const std::vector<WDocument>& documents)
+	template<typename Element, typename Comp02Func>
+	std::vector<Element> Make3WayLineDiff(const std::vector<Element>& diff10, const std::vector<Element>& diff12,
+		Comp02Func cmpfunc)
 	{
-		TextBlocks textBlocks0;
-		TextBlocks textBlocks1;
-		textBlocks0.Make(documents[0][L"root"]);
-		textBlocks1.Make(documents[1][L"root"]);
-		DataForDiff data1(textBlocks0, diffOptions);
-		DataForDiff data2(textBlocks1, diffOptions);
-		Diff<DataForDiff> diff(data1, data2);
-		std::vector<char> edscript;
+		std::vector<Element> diff3;
+
+		size_t diff10count = diff10.size();
+		size_t diff12count = diff12.size();
+
+		size_t diff10i = 0;
+		size_t diff12i = 0;
+		size_t diff3i = 0;
+
+		bool firstDiffBlockIsDiff12;
+
+		Element dr3, dr10, dr12, dr10first, dr10last, dr12first, dr12last;
+
+		int linelast0 = 0;
+		int linelast1 = 0;
+		int linelast2 = 0;
+
+		for (;;)
+		{
+			if (diff10i >= diff10count && diff12i >= diff12count)
+				break;
+
+			/*
+			 * merge overlapped diff blocks
+			 * diff10 is diff blocks between file1 and file0.
+			 * diff12 is diff blocks between file1 and file2.
+			 *
+			 *                      diff12
+			 *                 diff10            diff3
+			 *                 |~~~|             |~~~|
+			 * firstDiffBlock  |   |             |   |
+			 *                 |   | |~~~|       |   |
+			 *                 |___| |   |       |   |
+			 *                       |   |   ->  |   |
+			 *                 |~~~| |___|       |   |
+			 * lastDiffBlock   |   |             |   |
+			 *                 |___|             |___|
+			 */
+
+			if (diff10i >= diff10count && diff12i < diff12count)
+			{
+				dr12first = diff12.at(diff12i);
+				dr12last = dr12first;
+				firstDiffBlockIsDiff12 = true;
+			}
+			else if (diff10i < diff10count && diff12i >= diff12count)
+			{
+				dr10first = diff10.at(diff10i);
+				dr10last = dr10first;
+				firstDiffBlockIsDiff12 = false;
+			}
+			else
+			{
+				dr10first = diff10.at(diff10i);
+				dr12first = diff12.at(diff12i);
+				dr10last = dr10first;
+				dr12last = dr12first;
+				if (dr12first.begin[0] <= dr10first.begin[0])
+					firstDiffBlockIsDiff12 = true;
+				else
+					firstDiffBlockIsDiff12 = false;
+			}
+			bool lastDiffBlockIsDiff12 = firstDiffBlockIsDiff12;
+
+			size_t diff10itmp = diff10i;
+			size_t diff12itmp = diff12i;
+			for (;;)
+			{
+				if (diff10itmp >= diff10count || diff12itmp >= diff12count)
+					break;
+
+				dr10 = diff10.at(diff10itmp);
+				dr12 = diff12.at(diff12itmp);
+
+				if (dr10.end[0] == dr12.end[0])
+				{
+					diff10itmp++;
+					lastDiffBlockIsDiff12 = true;
+
+					dr10last = dr10;
+					dr12last = dr12;
+					break;
+				}
+
+				if (lastDiffBlockIsDiff12)
+				{
+					if ((std::max)(dr12.begin[0], dr12.end[0]) < dr10.begin[0])
+						break;
+				}
+				else
+				{
+					if ((std::max)(dr10.begin[0], dr10.end[0]) < dr12.begin[0])
+						break;
+				}
+
+				if (dr12.end[0] > dr10.end[0])
+				{
+					diff10itmp++;
+					lastDiffBlockIsDiff12 = true;
+				}
+				else
+				{
+					diff12itmp++;
+					lastDiffBlockIsDiff12 = false;
+				}
+
+				dr10last = dr10;
+				dr12last = dr12;
+			}
+
+			if (lastDiffBlockIsDiff12)
+				diff12itmp++;
+			else
+				diff10itmp++;
+
+			if (firstDiffBlockIsDiff12)
+			{
+				dr3.begin[1] = dr12first.begin[0];
+				dr3.begin[2] = dr12first.begin[1];
+				if (diff10itmp == diff10i)
+					dr3.begin[0] = dr3.begin[1] - linelast1 + linelast0;
+				else
+					dr3.begin[0] = dr3.begin[1] - dr10first.begin[0] + dr10first.begin[1];
+			}
+			else
+			{
+				dr3.begin[0] = dr10first.begin[1];
+				dr3.begin[1] = dr10first.begin[0];
+				if (diff12itmp == diff12i)
+					dr3.begin[2] = dr3.begin[1] - linelast1 + linelast2;
+				else
+					dr3.begin[2] = dr3.begin[1] - dr12first.begin[0] + dr12first.begin[1];
+			}
+
+			if (lastDiffBlockIsDiff12)
+			{
+				dr3.end[1] = dr12last.end[0];
+				dr3.end[2] = dr12last.end[1];
+				if (diff10itmp == diff10i)
+					dr3.end[0] = dr3.end[1] - linelast1 + linelast0;
+				else
+					dr3.end[0] = dr3.end[1] - dr10last.end[0] + dr10last.end[1];
+			}
+			else
+			{
+				dr3.end[0] = dr10last.end[1];
+				dr3.end[1] = dr10last.end[0];
+				if (diff12itmp == diff12i)
+					dr3.end[2] = dr3.end[1] - linelast1 + linelast2;
+				else
+					dr3.end[2] = dr3.end[1] - dr12last.end[0] + dr12last.end[1];
+			}
+
+			linelast0 = dr3.end[0] + 1;
+			linelast1 = dr3.end[1] + 1;
+			linelast2 = dr3.end[2] + 1;
+
+			if (diff10i == diff10itmp)
+				dr3.op = OP_3RDONLY;
+			else if (diff12i == diff12itmp)
+				dr3.op = OP_1STONLY;
+			else
+			{
+				if (!cmpfunc(dr3))
+					dr3.op = OP_DIFF;
+				else
+					dr3.op = OP_2NDONLY;
+			}
+
+			if (dr3.op == OP_DIFF)
+			{
+				int a = 0;
+			}
+			diff3.push_back(dr3);
+
+			diff3i++;
+			diff10i = diff10itmp;
+			diff12i = diff12itmp;
+		}
+
+		for (size_t i = 0; i < diff3i; i++)
+		{
+			Element& dr3r = diff3.at(i);
+			if (i < diff3i - 1)
+			{
+				Element& dr3next = diff3.at(i + 1);
+				for (int j = 0; j < 3; j++)
+				{
+					if (dr3r.end[j] >= dr3next.begin[j])
+						dr3r.end[j] = dr3next.begin[j] - 1;
+				}
+			}
+		}
+
+		return diff3;
+	}
+
+	std::vector<DiffInfo> edscriptToDiffInfo(const std::vector<char>& edscript, const TextBlocks& textBlocks0, const TextBlocks& textBlocks1)
+	{
 		std::vector<DiffInfo> diffInfoList;
-
-		diff.diff(static_cast<Diff<DataForDiff>::Algorithm>(diffOptions.diffAlgorithm), edscript);
-
+		int i0 = 0, i1 = 0;
 		auto it0 = textBlocks0.segments.begin();
 		auto it1 = textBlocks1.segments.begin();
 		for (auto ed : edscript)
 		{
-			const int nodeId0 = it0 != textBlocks0.segments.end() ? it0->second.nodeId : 0;
-			const int nodeId1 = it1 != textBlocks1.segments.end() ? it1->second.nodeId : 0;
 			switch (ed)
 			{
 			case '-':
-				diffInfoList.emplace_back(nodeId0, -1 - nodeId1);
+				diffInfoList.emplace_back(i0, i0, i1, i1 - 1);
 				++it0;
+				++i0;
 				break;
 			case '+':
-				diffInfoList.emplace_back(-1 - nodeId0, nodeId1);
+				diffInfoList.emplace_back(i0, i0 - 1, i1, i1);
 				++it1;
+				++i1;
 				break;
 			case '!':
-				diffInfoList.emplace_back(nodeId0, nodeId1);
+				diffInfoList.emplace_back(i0, i0, i1, i1);
 				++it0;
 				++it1;
+				++i0;
+				++i1;
 				break;
 			default:
 				++it0;
 				++it1;
+				++i0;
+				++i1;
 				break;
 			}
 		}
+		return diffInfoList;
+	}
 
+	void setNodeIdInDiffInfoList(std::vector<DiffInfo>& diffInfoList,
+		const TextBlocks textBlocks[], int paneCount)
+	{
+		for (size_t i = 0; i < diffInfoList.size(); ++i)
+		{
+			for (int pane = 0; pane < paneCount; ++pane)
+			{
+				auto it = textBlocks[pane].segments.begin();
+				std::advance(it, diffInfoList[i].begin[pane]);
+				if (diffInfoList[i].end[pane] < diffInfoList[i].begin[pane])
+				{
+					--it;
+					diffInfoList[i].nodeIds[pane] = -it->second.nodeId - 1;
+				}
+				else
+				{
+					diffInfoList[i].nodeIds[pane] = it->second.nodeId;
+				}
+			}
+		}
+	}
+
+	std::vector<DiffInfo> CompareDocuments(const IWebDiffWindow::DiffOptions& diffOptions,
+		const std::vector<WDocument>& documents)
+	{
+		TextBlocks textBlocks[3];
+		textBlocks[0].Make(documents[0][L"root"]);
+		textBlocks[1].Make(documents[1][L"root"]);
+		DataForDiff data0(textBlocks[0], diffOptions);
+		DataForDiff data1(textBlocks[1], diffOptions);
+		if (documents.size() < 3)
+		{
+			Diff<DataForDiff> diff(data0, data1);
+			std::vector<char> edscript;
+
+			diff.diff(static_cast<Diff<DataForDiff>::Algorithm>(diffOptions.diffAlgorithm), edscript);
+			std::vector<DiffInfo> diffInfoList = edscriptToDiffInfo(edscript, textBlocks[0], textBlocks[1]);
+			setNodeIdInDiffInfoList(diffInfoList, textBlocks, 2);
+			return diffInfoList;
+		}
+
+		textBlocks[2].Make(documents[2][L"root"]);
+		DataForDiff data2(textBlocks[2], diffOptions);
+		Diff<DataForDiff> diff10(data1, data0);
+		Diff<DataForDiff> diff12(data1, data2);
+		Diff<DataForDiff> diff20(data2, data0);
+		std::vector<char> edscript10, edscript12;
+		diff10.diff(static_cast<Diff<DataForDiff>::Algorithm>(diffOptions.diffAlgorithm), edscript10);
+		diff12.diff(static_cast<Diff<DataForDiff>::Algorithm>(diffOptions.diffAlgorithm), edscript12);
+		std::vector<DiffInfo> diffInfoList10 = edscriptToDiffInfo(edscript10, textBlocks[1], textBlocks[0]);
+		std::vector<DiffInfo> diffInfoList12 = edscriptToDiffInfo(edscript12, textBlocks[1], textBlocks[2]);
+
+		auto compfunc02 = [&](const DiffInfo & wd3) {
+			auto it0 = textBlocks[0].segments.begin();
+			auto it2 = textBlocks[2].segments.begin();
+			std::advance(it0, wd3.begin[0]);
+			if (it0 == textBlocks[0].segments.end())
+				return false;
+			std::advance(it2, wd3.begin[2]);
+			if (it2 == textBlocks[2].segments.end())
+				return false;
+			unsigned s0 = static_cast<unsigned>(textBlocks[0].segments[it0->second.begin].size);
+			unsigned s2 = static_cast<unsigned>(textBlocks[2].segments[it2->second.begin].size);
+			return data2.equals(
+				reinterpret_cast<const char *>(textBlocks[0].textBlocks.data()) + it0->second.begin, s0,
+				reinterpret_cast<const char *>(textBlocks[2].textBlocks.data()) + it2->second.begin, s2
+				);
+		};
+
+		std::vector<DiffInfo> diffInfoList = Make3WayLineDiff(diffInfoList10, diffInfoList12, compfunc02);
+		setNodeIdInDiffInfoList(diffInfoList, textBlocks, 3);
 		return diffInfoList;
 	}
 }
@@ -497,9 +777,9 @@ public:
 		return m_textDiffColor;
 	}
 
-	void SetTextDiffColor(COLORREF clrDiffTextColor) override
+	void SetTextDiffColor(COLORREF clrTextDiffColor) override
 	{
-		m_textDiffColor = clrDiffTextColor;
+		m_textDiffColor = clrTextDiffColor;
 	}
 
 	COLORREF GetSelDiffColor() const override
@@ -517,9 +797,49 @@ public:
 		return m_selTextDiffColor;
 	}
 
-	void SetSelTextDiffColor(COLORREF clrSelDiffTextColor) override
+	void SetSelTextDiffColor(COLORREF clrSelTextDiffColor) override
 	{
-		m_selTextDiffColor = clrSelDiffTextColor;
+		m_selTextDiffColor = clrSelTextDiffColor;
+	}
+
+	COLORREF GetSNPDiffColor() const override
+	{
+		return m_SNPDiffColor;
+	}
+
+	void SetSNPDiffColor(COLORREF clrSelSNPDiffColor) override
+	{
+		m_SNPDiffColor = clrSelSNPDiffColor;
+	}
+
+	COLORREF GetSNPTextDiffColor() const override
+	{
+		return m_SNPTextDiffColor;
+	}
+
+	void SetSNPTextDiffColor(COLORREF clrSNPTextDiffColor) override
+	{
+		m_SNPTextDiffColor = clrSNPTextDiffColor;
+	}
+
+	COLORREF GetSelSNPDiffColor() const override
+	{
+		return m_selSNPDiffColor;
+	}
+
+	void SetSelSNPDiffColor(COLORREF clrSelSNPDiffColor) override
+	{
+		m_selSNPDiffColor = clrSelSNPDiffColor;
+	}
+
+	COLORREF GetSelSNPTextDiffColor() const override
+	{
+		return m_selSNPTextDiffColor;
+	}
+
+	void SetSelSNPTextDiffColor(COLORREF clrSelSNPTextDiffColor) override
+	{
+		m_selSNPTextDiffColor = clrSelSNPTextDiffColor;
 	}
 
 	double GetZoom() const override
@@ -600,12 +920,16 @@ public:
 
 	int  GetDiffCount() const override
 	{
-		return static_cast<int>(m_diffInfoList.size());
+		return static_cast<int>(m_diffInfos.size());
 	}
 
 	int  GetConflictCount() const override
 	{
-		return 0;
+		int conflictCount = 0;
+		for (size_t i = 0; i < m_diffInfos.size(); ++i)
+			if (m_diffInfos[i].op == OP_DIFF)
+				++conflictCount;
+		return conflictCount;
 	}
 
 	int  GetCurrentDiffIndex() const override
@@ -616,7 +940,7 @@ public:
 	bool FirstDiff() override
 	{
 		int oldDiffIndex = m_currentDiffIndex;
-		if (m_diffInfoList.size() == 0)
+		if (m_diffInfos.size() == 0)
 			m_currentDiffIndex = -1;
 		else
 			m_currentDiffIndex = 0;
@@ -629,7 +953,7 @@ public:
 	bool LastDiff() override
 	{
 		int oldDiffIndex = m_currentDiffIndex;
-		m_currentDiffIndex = static_cast<int>(m_diffInfoList.size()) - 1;
+		m_currentDiffIndex = static_cast<int>(m_diffInfos.size()) - 1;
 		if (oldDiffIndex == m_currentDiffIndex)
 			return false;
 		selectDiff(m_currentDiffIndex, oldDiffIndex);
@@ -640,8 +964,8 @@ public:
 	{
 		int oldDiffIndex = m_currentDiffIndex;
 		++m_currentDiffIndex;
-		if (m_currentDiffIndex >= m_diffInfoList.size())
-			m_currentDiffIndex = static_cast<int>(m_diffInfoList.size()) - 1;
+		if (m_currentDiffIndex >= m_diffInfos.size())
+			m_currentDiffIndex = static_cast<int>(m_diffInfos.size()) - 1;
 		if (oldDiffIndex == m_currentDiffIndex)
 			return false;
 		selectDiff(m_currentDiffIndex, oldDiffIndex);
@@ -651,7 +975,7 @@ public:
 	bool PrevDiff() override
 	{
 		int oldDiffIndex = m_currentDiffIndex;
-		if (m_diffInfoList.size() == 0)
+		if (m_diffInfos.size() == 0)
 			m_currentDiffIndex = -1;
 		else
 		{
@@ -667,21 +991,64 @@ public:
 
 	bool FirstConflict() override
 	{
+		int oldDiffIndex = m_currentDiffIndex;
+		for (size_t i = 0; i < m_diffInfos.size(); ++i)
+			if (m_diffInfos[i].op == OP_DIFF)
+				m_currentDiffIndex = static_cast<int>(i);
+		if (oldDiffIndex == m_currentDiffIndex)
+			return false;
+		selectDiff(m_currentDiffIndex, oldDiffIndex);
 		return true;
 	}
 
 	bool LastConflict() override
 	{
+		int oldDiffIndex = m_currentDiffIndex;
+		for (int i = static_cast<int>(m_diffInfos.size() - 1); i >= 0; --i)
+		{
+			if (m_diffInfos[i].op == OP_DIFF)
+			{
+				m_currentDiffIndex = i;
+				break;
+			}
+		}
+		if (oldDiffIndex == m_currentDiffIndex)
+			return false;
+		selectDiff(m_currentDiffIndex, oldDiffIndex);
 		return true;
 	}
 
 	bool NextConflict() override
 	{
+		int oldDiffIndex = m_currentDiffIndex;
+		for (size_t i = m_currentDiffIndex + 1; i < m_diffInfos.size(); ++i)
+		{
+			if (m_diffInfos[i].op == OP_DIFF)
+			{
+				m_currentDiffIndex = static_cast<int>(i);
+				break;
+			}
+		}
+		if (oldDiffIndex == m_currentDiffIndex)
+			return false;
+		selectDiff(m_currentDiffIndex, oldDiffIndex);
 		return true;
 	}
 
 	bool PrevConflict()  override
 	{
+		int oldDiffIndex = m_currentDiffIndex;
+		for (int i = m_currentDiffIndex - 1; i >= 0; --i)
+		{
+			if (m_diffInfos[i].op == OP_DIFF)
+			{
+				m_currentDiffIndex = i;
+				break;
+			}
+		}
+		if (oldDiffIndex == m_currentDiffIndex)
+			return false;
+		selectDiff(m_currentDiffIndex, oldDiffIndex);
 		return true;
 	}
 
@@ -692,26 +1059,32 @@ public:
 
 	int  GetNextDiffIndex() const override
 	{
-		if (m_diffInfoList.size() == 0 || m_currentDiffIndex >= m_diffInfoList.size() - 1)
+		if (m_diffInfos.size() == 0 || m_currentDiffIndex >= m_diffInfos.size() - 1)
 			return -1;
 		return m_currentDiffIndex + 1;
 	}
 
 	int  GetPrevDiffIndex() const override
 	{
-		if (m_diffInfoList.size() == 0 || m_currentDiffIndex <= 0)
+		if (m_diffInfos.size() == 0 || m_currentDiffIndex <= 0)
 			return -1;
 		return m_currentDiffIndex - 1;
 	}
 
 	int  GetNextConflictIndex() const override
 	{
-		return 0;
+		for (size_t i = m_currentDiffIndex + 1; i < m_diffInfos.size(); ++i)
+			if (m_diffInfos[i].op == OP_DIFF)
+				return static_cast<int>(i);
+		return -1;
 	}
 
 	int  GetPrevConflictIndex() const override
 	{
-		return 0;
+		for (int i = static_cast<int>(m_currentDiffIndex - 1); i >= 0; --i)
+			if (m_diffInfos[i].op == OP_DIFF)
+				return i;
+		return -1;
 	}
 
 	HWND GetHWND() const override
@@ -849,11 +1222,11 @@ private:
 							(*documents)[pane].Parse((*jsons)[pane].c_str());
 							unhighlightNodes((*documents)[pane], (*documents)[pane][L"root"]);
 						}
-						m_diffInfoList = Comparer::CompareDocuments(m_diffOptions, *documents);
-						if (m_currentDiffIndex != -1 && m_currentDiffIndex >= m_diffInfoList.size())
-							m_currentDiffIndex = static_cast<int>(m_diffInfoList.size() - 1);
+						m_diffInfos = Comparer::CompareDocuments(m_diffOptions, *documents);
+						if (m_currentDiffIndex != -1 && m_currentDiffIndex >= m_diffInfos.size())
+							m_currentDiffIndex = static_cast<int>(m_diffInfos.size() - 1);
 						if (m_bShowDifferences)
-							highlightNodes(m_diffInfoList, *documents);
+							highlightNodes(m_diffInfos, *documents);
 						hr = highlightDocuments(documents, callback2.Get());
 					}
 					if (FAILED(hr) && callback2)
@@ -1111,6 +1484,7 @@ private:
 	void highlightNodes(std::vector<DiffInfo>& diffInfoList, std::vector<WDocument>& documents)
 	{
 		std::wstring styleValue = getDiffStyleValue(m_textDiffColor, m_diffColor);
+		std::wstring styleSNPValue = getDiffStyleValue(m_SNPTextDiffColor, m_SNPDiffColor);
 		for (size_t i = 0; i < diffInfoList.size(); ++i)
 		{
 			const auto& diffInfo = diffInfoList[i];
@@ -1125,7 +1499,11 @@ private:
 				attributes.PushBack(L"data-wwdid", allocator);
 				attributes.PushBack(id, allocator);
 				attributes.PushBack(L"style", allocator);
-				attributes.PushBack(WValue(styleValue.c_str(), allocator), allocator);
+				if ((pane == 0 && diffInfo.op == OP_3RDONLY) ||
+				    (pane == 2 && diffInfo.op == OP_1STONLY))
+					attributes.PushBack(WValue(styleSNPValue.c_str(), allocator), allocator);
+				else
+					attributes.PushBack(WValue(styleValue.c_str(), allocator), allocator);
 				spanNode.SetObject();
 				spanNode.AddMember(L"nodeName", L"SPAN", allocator);
 				spanNode.AddMember(L"attributes", attributes, allocator);
@@ -1295,10 +1673,10 @@ private:
 						doc.Parse(result.returnObjectAsJson);
 						std::map<int, int> nodes;
 						getDiffNodes(doc, doc[L"root"], nodes);
-						for (unsigned i = 0; i < m_diffInfoList.size(); ++i)
+						for (unsigned i = 0; i < m_diffInfos.size(); ++i)
 						{
-							if (m_diffInfoList[i].nodeIds[pane] != -1)
-								m_diffInfoList[i].nodeIds[pane] = nodes[i];
+							if (m_diffInfos[i].nodeIds[pane] != -1)
+								m_diffInfos[i].nodeIds[pane] = nodes[i];
 						}
 						if (pane < m_nPanes - 1)
 							hr = makeDiffNodeIdArrayLoop(callback2.Get(), pane + 1);
@@ -1314,25 +1692,31 @@ private:
 
 	bool selectDiff(int diffIndex, int prevDiffIndex)
 	{
-		if (diffIndex < 0 || diffIndex >= m_diffInfoList.size())
+		if (diffIndex < 0 || diffIndex >= m_diffInfos.size())
 			return false;
 		std::wstring styleValue = getDiffStyleValue(m_textDiffColor, m_diffColor);
 		std::wstring styleSelValue = getDiffStyleValue(m_selTextDiffColor, m_selDiffColor);
+		std::wstring styleSNPValue = getDiffStyleValue(m_SNPTextDiffColor, m_SNPDiffColor);
+		std::wstring styleSelSNPValue = getDiffStyleValue(m_selSNPTextDiffColor, m_selSNPDiffColor);
 		for (int pane = 0; pane < m_nPanes; ++pane)
 		{
-			std::wstring args = L"{ \"nodeId\": " + std::to_wstring(m_diffInfoList[diffIndex].nodeIds[pane]) + L" }";
+			std::wstring args = L"{ \"nodeId\": " + std::to_wstring(m_diffInfos[diffIndex].nodeIds[pane]) + L" }";
 			m_webWindow[pane].CallDevToolsProtocolMethod(L"DOM.scrollIntoViewIfNeeded", args.c_str(), nullptr);
 			m_webWindow[pane].CallDevToolsProtocolMethod(L"DOM.focus", args.c_str(), nullptr);
-			if (prevDiffIndex != -1 && prevDiffIndex < m_diffInfoList.size())
+			if (prevDiffIndex != -1 && prevDiffIndex < m_diffInfos.size())
 			{
-				args = L"{ \"nodeId\": " + std::to_wstring(m_diffInfoList[prevDiffIndex].nodeIds[pane])
-					+ L", \"name\": \"style\", \"value\": \"" + styleValue + L"\" }";
+				bool snp = ((pane == 0 && m_diffInfos[prevDiffIndex].op == OP_3RDONLY) ||
+					(pane == 2 && m_diffInfos[prevDiffIndex].op == OP_1STONLY));
+				args = L"{ \"nodeId\": " + std::to_wstring(m_diffInfos[prevDiffIndex].nodeIds[pane])
+				     + L", \"name\": \"style\", \"value\": \"" + (snp ? styleSNPValue : styleValue) + L"\" }";
 				m_webWindow[pane].CallDevToolsProtocolMethod(L"DOM.setAttributeValue", args.c_str(), nullptr);
 			}
-			if (diffIndex < m_diffInfoList.size())
+			if (diffIndex < m_diffInfos.size())
 			{
-				args = L"{ \"nodeId\": " + std::to_wstring(m_diffInfoList[diffIndex].nodeIds[pane])
-					+ L", \"name\": \"style\", \"value\": \"" + styleSelValue + L"\" }";
+				bool snp = ((pane == 0 && m_diffInfos[diffIndex].op == OP_3RDONLY) ||
+					(pane == 2 && m_diffInfos[diffIndex].op == OP_1STONLY));
+				args = L"{ \"nodeId\": " + std::to_wstring(m_diffInfos[diffIndex].nodeIds[pane])
+				     + L", \"name\": \"style\", \"value\": \"" + (snp ? styleSelSNPValue : styleSelValue) + L"\" }";
 				m_webWindow[pane].CallDevToolsProtocolMethod(L"DOM.setAttributeValue", args.c_str(), nullptr);
 			}
 		}
@@ -1652,11 +2036,15 @@ private:
 	bool m_bUserDataFolderPerPane = true;
 	std::vector<ComPtr<IWebDiffEventHandler>> m_listeners;
 	int m_currentDiffIndex = -1;
-	std::vector<DiffInfo> m_diffInfoList;
+	std::vector<DiffInfo> m_diffInfos;
 	DiffOptions m_diffOptions{};
 	bool m_bShowDifferences = true;
 	COLORREF m_selDiffColor = RGB(0xff, 0x40, 0x40);
 	COLORREF m_selTextDiffColor = RGB(0, 0, 0);
 	COLORREF m_diffColor = RGB(0xff, 0xff, 0x40);
 	COLORREF m_textDiffColor = RGB(0, 0, 0);
+	COLORREF m_SNPDiffColor = RGB(251, 250, 223);
+	COLORREF m_SNPTextDiffColor = RGB(0, 0, 0);
+	COLORREF m_selSNPDiffColor = RGB(239, 183, 180);
+	COLORREF m_selSNPTextDiffColor = RGB(0, 0, 0);
 };
