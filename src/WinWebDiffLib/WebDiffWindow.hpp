@@ -758,84 +758,14 @@ public:
 			m_webWindow[i].SetWindowRect(rects[i]);
 	}
 
-	COLORREF GetDiffColor() const override
+	void GetDiffColorSettings(IWebDiffWindow::ColorSettings& settings) const override
 	{
-		return m_diffColor;
+		settings = m_colorSettings;
 	}
 
-	void SetDiffColor(COLORREF clrDiffColor) override
+	void SetDiffColorSettings(const IWebDiffWindow::ColorSettings& settings) override
 	{
-		m_diffColor = clrDiffColor;
-	}
-
-	COLORREF GetTextDiffColor() const override
-	{
-		return m_textDiffColor;
-	}
-
-	void SetTextDiffColor(COLORREF clrTextDiffColor) override
-	{
-		m_textDiffColor = clrTextDiffColor;
-	}
-
-	COLORREF GetSelDiffColor() const override
-	{
-		return m_selDiffColor;
-	}
-
-	void SetSelDiffColor(COLORREF clrSelDiffColor) override
-	{
-		m_selDiffColor = clrSelDiffColor;
-	}
-
-	COLORREF GetSelTextDiffColor() const override
-	{
-		return m_selTextDiffColor;
-	}
-
-	void SetSelTextDiffColor(COLORREF clrSelTextDiffColor) override
-	{
-		m_selTextDiffColor = clrSelTextDiffColor;
-	}
-
-	COLORREF GetSNPDiffColor() const override
-	{
-		return m_SNPDiffColor;
-	}
-
-	void SetSNPDiffColor(COLORREF clrSelSNPDiffColor) override
-	{
-		m_SNPDiffColor = clrSelSNPDiffColor;
-	}
-
-	COLORREF GetSNPTextDiffColor() const override
-	{
-		return m_SNPTextDiffColor;
-	}
-
-	void SetSNPTextDiffColor(COLORREF clrSNPTextDiffColor) override
-	{
-		m_SNPTextDiffColor = clrSNPTextDiffColor;
-	}
-
-	COLORREF GetSelSNPDiffColor() const override
-	{
-		return m_selSNPDiffColor;
-	}
-
-	void SetSelSNPDiffColor(COLORREF clrSelSNPDiffColor) override
-	{
-		m_selSNPDiffColor = clrSelSNPDiffColor;
-	}
-
-	COLORREF GetSelSNPTextDiffColor() const override
-	{
-		return m_selSNPTextDiffColor;
-	}
-
-	void SetSelSNPTextDiffColor(COLORREF clrSelSNPTextDiffColor) override
-	{
-		m_selSNPTextDiffColor = clrSelSNPTextDiffColor;
+		m_colorSettings = settings;
 	}
 
 	double GetZoom() const override
@@ -1479,8 +1409,8 @@ private:
 
 	void highlightNodes(std::vector<DiffInfo>& diffInfoList, std::vector<WDocument>& documents)
 	{
-		std::wstring styleValue = getDiffStyleValue(m_textDiffColor, m_diffColor);
-		std::wstring styleSNPValue = getDiffStyleValue(m_SNPTextDiffColor, m_SNPDiffColor);
+		std::wstring styleValue = getDiffStyleValue(m_colorSettings.clrDiffText, m_colorSettings.clrDiff);
+		std::wstring styleSNPValue = getDiffStyleValue(m_colorSettings.clrSNPText, m_colorSettings.clrSNP);
 		for (size_t i = 0; i < diffInfoList.size(); ++i)
 		{
 			const auto& diffInfo = diffInfoList[i];
@@ -1690,10 +1620,10 @@ private:
 	{
 		if (diffIndex < 0 || diffIndex >= m_diffInfos.size())
 			return false;
-		std::wstring styleValue = getDiffStyleValue(m_textDiffColor, m_diffColor);
-		std::wstring styleSelValue = getDiffStyleValue(m_selTextDiffColor, m_selDiffColor);
-		std::wstring styleSNPValue = getDiffStyleValue(m_SNPTextDiffColor, m_SNPDiffColor);
-		std::wstring styleSelSNPValue = getDiffStyleValue(m_selSNPTextDiffColor, m_selSNPDiffColor);
+		std::wstring styleValue = getDiffStyleValue(m_colorSettings.clrDiffText, m_colorSettings.clrDiff);
+		std::wstring styleSelValue = getDiffStyleValue(m_colorSettings.clrSelDiffText, m_colorSettings.clrSelDiff);
+		std::wstring styleSNPValue = getDiffStyleValue(m_colorSettings.clrSNPText, m_colorSettings.clrSNP);
+		std::wstring styleSelSNPValue = getDiffStyleValue(m_colorSettings.clrSelSNPText, m_colorSettings.clrSelSNP);
 		for (int pane = 0; pane < m_nPanes; ++pane)
 		{
 			std::wstring args = L"{ \"nodeId\": " + std::to_wstring(m_diffInfos[diffIndex].nodeIds[pane]) + L" }";
@@ -2017,12 +1947,15 @@ private:
 	std::vector<DiffInfo> m_diffInfos;
 	DiffOptions m_diffOptions{};
 	bool m_bShowDifferences = true;
-	COLORREF m_selDiffColor = RGB(0xff, 0x40, 0x40);
-	COLORREF m_selTextDiffColor = RGB(0, 0, 0);
-	COLORREF m_diffColor = RGB(0xff, 0xff, 0x40);
-	COLORREF m_textDiffColor = RGB(0, 0, 0);
-	COLORREF m_SNPDiffColor = RGB(251, 250, 223);
-	COLORREF m_SNPTextDiffColor = RGB(0, 0, 0);
-	COLORREF m_selSNPDiffColor = RGB(239, 183, 180);
-	COLORREF m_selSNPTextDiffColor = RGB(0, 0, 0);
+	IWebDiffWindow::ColorSettings m_colorSettings = {
+		RGB(239, 203,   5), RGB(192, 192, 192), RGB(0, 0, 0),
+		RGB(239, 119, 116), RGB(240, 192, 192), RGB(0, 0, 0),
+		RGB(251, 242, 191), RGB(233, 233, 233), RGB(0, 0, 0),
+		RGB(228, 155,  82), RGB(192, 192, 192), RGB(0, 0, 0),
+		RGB(248, 112,  78), RGB(252, 181, 163), RGB(0, 0, 0),
+		RGB(251, 250, 223), RGB(233, 233, 233), RGB(0, 0, 0),
+		RGB(239, 183, 180), RGB(240, 224, 224), RGB(0, 0, 0),
+		RGB(241, 226, 173), RGB(255, 170, 130), RGB(0, 0, 0),
+		RGB(255, 160, 160), RGB(200, 129, 108), RGB(0, 0, 0),
+	};
 };
