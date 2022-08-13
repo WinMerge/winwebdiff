@@ -311,10 +311,6 @@ namespace Comparer
 					dr3.op = OP_2NDONLY;
 			}
 
-			if (dr3.op == OP_DIFF)
-			{
-				int a = 0;
-			}
 			diff3.push_back(dr3);
 
 			diff3i++;
@@ -1278,7 +1274,7 @@ private:
 				for (const auto& child : tree[L"insertedNodes"].GetArray())
 					html += modifiedNodesToHTMLs(child, nodes);
 			}
-			html += utils::escapeText(tree[L"nodeValue"].GetString());
+			html += utils::EncodeHTMLEntities(tree[L"nodeValue"].GetString());
 			if (tree.HasMember(L"modified"))
 			{
 				ModifiedNode node;
@@ -1306,7 +1302,7 @@ private:
 					html += attributes[i].GetString();
 					html += L"=\"";
 					if (i + 1 < attributes.Size())
-						html += utils::escapeAttributeValue(attributes[i + 1].GetString());
+						html += utils::EncodeHTMLEntities(attributes[i + 1].GetString());
 					html += L"\"";
 				}
 			}
@@ -1702,7 +1698,6 @@ private:
 		{
 			std::wstring args = L"{ \"nodeId\": " + std::to_wstring(m_diffInfos[diffIndex].nodeIds[pane]) + L" }";
 			m_webWindow[pane].CallDevToolsProtocolMethod(L"DOM.scrollIntoViewIfNeeded", args.c_str(), nullptr);
-			m_webWindow[pane].CallDevToolsProtocolMethod(L"DOM.focus", args.c_str(), nullptr);
 			if (prevDiffIndex != -1 && prevDiffIndex < m_diffInfos.size())
 			{
 				bool snp = ((pane == 0 && m_diffInfos[prevDiffIndex].op == OP_3RDONLY) ||
@@ -1743,23 +1738,6 @@ private:
 		return text;
 	}
 
-	std::wstring escape(const std::wstring& text) const
-	{
-		std::wstring result;
-		for (auto c : text)
-		{
-			switch (c)
-			{
-			case '\r': break;
-			case '\n': result += L"\\n"; break;
-			case '\"': result += L"\\\""; break;
-			case '\\': result += L"\\\\"; break;
-			default: result += c;
-			}
-		}
-		return result;
-	}
-
 	bool execCommand(const wchar_t *command)
 	{
 		HWND hwndFocus = GetFocus();
@@ -1790,8 +1768,8 @@ private:
 			script = L"document.execCommand(\"" + cmd + L"\")";
 		else
 		{
-			std::wstring text = escape(getFromClipboard());
-			script = L"document.execCommand(\"insertText\", false, \"" + text + L"\")";
+			std::wstring text = utils::Quote(getFromClipboard());
+			script = L"document.execCommand(\"insertText\", false, " + text + L")";
 		}
 		return SUCCEEDED(m_webWindow[pane].ExecuteScript(script.c_str(), nullptr));
 	}

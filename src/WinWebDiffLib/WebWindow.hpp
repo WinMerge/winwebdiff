@@ -647,7 +647,7 @@ public:
 			return E_FAIL;
 		ComPtr<IWebDiffCallback> callback2(callback);
 		std::wstring params = L"{ \"nodeId\": " + std::to_wstring(nodeId)
-			+ L", \"outerHTML\":" + utils::quote(html) + L" }";
+			+ L", \"outerHTML\":" + utils::Quote(html) + L" }";
 		HRESULT hr = GetActiveWebView()->CallDevToolsProtocolMethod(L"DOM.setOuterHTML", params.c_str(),
 			Callback<ICoreWebView2CallDevToolsProtocolMethodCompletedHandler>(
 				[this, callback2](HRESULT errorCode, LPCWSTR returnObjectAsJson) -> HRESULT {

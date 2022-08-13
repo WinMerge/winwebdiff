@@ -6,36 +6,6 @@
 
 namespace utils
 {
-	std::wstring escapeAttributeValue(const std::wstring& text)
-	{
-		std::wstring ret;
-		for (auto c : text)
-		{
-			if (c == '"')
-				ret += L"&quot;";
-			else
-				ret += c;
-		}
-		return ret;
-	}
-
-	std::wstring quote(const std::wstring& text)
-	{
-		std::wstring ret;
-		ret += L"\"";
-		for (auto c : text)
-		{
-			if (c == '"')
-				ret += L"\\\"";
-			else if (c == '\\')
-				ret += L"\\\\";
-			else
-				ret += c;
-		}
-		ret += L"\"";
-		return ret;
-	}
-
 	int cmp(const void* a, const void* b)
 	{
 		const wchar_t* const* pa = reinterpret_cast<const wchar_t* const*>(a);
@@ -156,7 +126,7 @@ namespace utils
 		return result;
 	}
 
-	static std::wstring escapeText(const std::wstring& text)
+	std::wstring EncodeHTMLEntities(const std::wstring& text)
 	{
 		std::wstring result;
 		for (auto c : text)
@@ -165,14 +135,14 @@ namespace utils
 			{
 			case '<':  result += L"&lt;"; break;
 			case '>':  result += L"&gt;"; break;
+			case '"':  result += L"&quot;"; break;
 			default:   result += c; break;
 			}
 		}
 		return result;
 	}
 
-
-	static std::wstring Escape(const std::wstring& text)
+	std::wstring Escape(const std::wstring& text)
 	{
 		std::wstring result;
 		for (auto c : text)
@@ -189,6 +159,25 @@ namespace utils
 
 		}
 		return result;
+	}
+
+	std::wstring Quote(const std::wstring& text)
+	{
+		std::wstring ret;
+		ret += L"\"";
+		for (auto c : text)
+		{
+			switch (c)
+			{
+			case '\r': break;
+			case '\n': ret += L"\\n"; break;
+			case '\"': ret += L"\\\""; break;
+			case '\\': ret += L"\\\\"; break;
+			default:   ret += c;
+			}
+		}
+		ret += L"\"";
+		return ret;
 	}
 
 	std::vector<BYTE> DecodeBase64(const std::wstring& base64)
