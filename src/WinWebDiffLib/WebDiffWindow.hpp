@@ -87,6 +87,57 @@ struct TextBlocks
 			Make(nodeTree[L"contentDocument"]);
 		}
 	}
+	bool isWordBreak(wchar_t ch)
+	{
+		static const wchar_t* BreakChars = L".,:;?[](){}<=>`'!\"#$%&^~\\|@+-*/";
+		if ((ch & 0xff00) == 0)
+		{
+			return wcschr(BreakChars, ch) != nullptr;
+		}
+		else
+		{
+			WORD wCharType = 0;
+			GetStringTypeW(CT_CTYPE1, &ch, 1, &wCharType);
+			if ((wCharType & (C1_UPPER | C1_LOWER | C1_DIGIT)) != 0)
+				return false;
+			return true;
+		}
+	}
+	void Make(const std::wstring& text)
+	{
+		textBlocks = text;
+		int charType = 0;
+		int charTypePrev = -1;
+		size_t begin = 0;
+		for (size_t i = 0; i < text.size(); ++i)
+		{
+			wchar_t ch = text[i];
+			if (iswspace(ch))
+				charType = 1;
+			else if (isWordBreak(ch))
+				charType = 2;
+			else
+				charType = 0;
+			if (charType != charTypePrev)
+			{
+				if (i > 0)
+				{
+					TextSegment seg;
+					seg.nodeId = -1;
+					seg.begin = begin;
+					seg.size = i - begin;
+					segments.insert_or_assign(seg.begin, seg);
+				}
+				begin = i;
+				charTypePrev = charType;
+			}
+		}
+		TextSegment seg;
+		seg.nodeId = -1;
+		seg.begin = begin;
+		seg.size = text.size() - begin;
+		segments.insert_or_assign(seg.begin, seg);
+	}
 	std::wstring textBlocks;
 	std::map<size_t, TextSegment> segments;
 };
@@ -134,6 +185,12 @@ public:
 private:
 	const TextBlocks& m_textBlocks;
 	const IWebDiffWindow::DiffOptions& m_diffOptions;
+};
+
+struct ModifiedNode
+{
+	int nodeId;
+	std::wstring outerHTML;
 };
 
 namespace Comparer
@@ -374,11 +431,11 @@ namespace Comparer
 	}
 
 	void setNodeIdInDiffInfoList(std::vector<DiffInfo>& diffInfoList,
-		const TextBlocks textBlocks[], int paneCount)
+		const std::vector<TextBlocks>& textBlocks)
 	{
 		for (size_t i = 0; i < diffInfoList.size(); ++i)
 		{
-			for (int pane = 0; pane < paneCount; ++pane)
+			for (size_t pane = 0; pane < textBlocks.size(); ++pane)
 			{
 				auto it = textBlocks[pane].segments.begin();
 				std::advance(it, diffInfoList[i].begin[pane]);
@@ -395,26 +452,20 @@ namespace Comparer
 		}
 	}
 
-	std::vector<DiffInfo> CompareDocuments(const IWebDiffWindow::DiffOptions& diffOptions,
-		const std::vector<WDocument>& documents)
+	std::vector<DiffInfo> compare(const IWebDiffWindow::DiffOptions& diffOptions,
+		std::vector<TextBlocks>& textBlocks)
 	{
-		TextBlocks textBlocks[3];
-		textBlocks[0].Make(documents[0][L"root"]);
-		textBlocks[1].Make(documents[1][L"root"]);
 		DataForDiff data0(textBlocks[0], diffOptions);
 		DataForDiff data1(textBlocks[1], diffOptions);
-		if (documents.size() < 3)
+		if (textBlocks.size() < 3)
 		{
 			Diff<DataForDiff> diff(data0, data1);
 			std::vector<char> edscript;
 
 			diff.diff(static_cast<Diff<DataForDiff>::Algorithm>(diffOptions.diffAlgorithm), edscript);
-			std::vector<DiffInfo> diffInfoList = edscriptToDiffInfo(edscript, textBlocks[0], textBlocks[1]);
-			setNodeIdInDiffInfoList(diffInfoList, textBlocks, 2);
-			return diffInfoList;
+			return edscriptToDiffInfo(edscript, textBlocks[0], textBlocks[1]);
 		}
 
-		textBlocks[2].Make(documents[2][L"root"]);
 		DataForDiff data2(textBlocks[2], diffOptions);
 		Diff<DataForDiff> diff10(data1, data0);
 		Diff<DataForDiff> diff12(data1, data2);
@@ -442,9 +493,344 @@ namespace Comparer
 				);
 		};
 
-		std::vector<DiffInfo> diffInfoList = Make3WayLineDiff(diffInfoList10, diffInfoList12, compfunc02);
-		setNodeIdInDiffInfoList(diffInfoList, textBlocks, 3);
-		return diffInfoList;
+		return Make3WayLineDiff(diffInfoList10, diffInfoList12, compfunc02);
+	}
+}
+
+namespace Highlighter
+{
+	enum NodeType
+	{
+		ELEMENT_NODE = 1,
+		ATTRIBUTE_NODE = 2,
+		TEXT_NODE = 3,
+		CDATA_SECTION_NODE = 4,
+		PROCESSING_INSTRUCTION_NODE = 7,
+		COMMENT_NODE = 8,
+		DOCUMENT_NODE = 9,
+		DOCUMENT_TYPE_NODE = 10,
+		DOCUMENT_FRAGMENT_NODE = 11,
+	};
+
+	std::pair<WValue*, WValue*> findNodeId(WValue& nodeTree, int nodeId)
+	{
+		if (nodeTree[L"nodeId"].GetInt() == nodeId)
+		{
+			return { &nodeTree, nullptr };
+		}
+		if (nodeTree.HasMember(L"children") && nodeTree[L"children"].IsArray())
+		{
+			for (auto& child : nodeTree[L"children"].GetArray())
+			{
+				auto [pvalue, pparent] = findNodeId(child, nodeId);
+				if (pvalue)
+					return { pvalue, pparent ? pparent : &nodeTree };
+			}
+		}
+		if (nodeTree.HasMember(L"contentDocument"))
+		{
+			auto [pvalue, pparent] = findNodeId(nodeTree[L"contentDocument"], nodeId);
+			return { pvalue, pparent ? pparent : &nodeTree[L"contentDocument"] };
+		}
+		return { nullptr, nullptr };
+	}
+
+	std::wstring modifiedNodesToHTMLs(const WValue& tree, std::list<ModifiedNode>& nodes)
+	{
+		std::wstring html;
+		NodeType nodeType = static_cast<NodeType>(tree[L"nodeType"].GetInt());
+		switch (nodeType)
+		{
+		case NodeType::DOCUMENT_TYPE_NODE:
+		{
+			html += L"<!DOCTYPE ";
+			html += tree[L"nodeName"].GetString();
+			html += L">";
+			break;
+		}
+		case NodeType::DOCUMENT_NODE:
+		{
+			if (tree.HasMember(L"children"))
+			{
+				for (const auto& child : tree[L"children"].GetArray())
+					html += modifiedNodesToHTMLs(child, nodes);
+			}
+			break;
+		}
+		case NodeType::COMMENT_NODE:
+		{
+			html += L"<!-- ";
+			html += tree[L"nodeValue"].GetString();
+			html += L" -->";
+			break;
+		}
+		case NodeType::TEXT_NODE:
+		{
+			if (tree.HasMember(L"insertedNodes"))
+			{
+				for (const auto& child : tree[L"insertedNodes"].GetArray())
+					html += modifiedNodesToHTMLs(child, nodes);
+			}
+			html += utils::EncodeHTMLEntities(tree[L"nodeValue"].GetString());
+			if (tree.HasMember(L"modified"))
+			{
+				ModifiedNode node;
+				node.nodeId = tree[L"nodeId"].GetInt();
+				node.outerHTML = html;
+				nodes.emplace_back(std::move(node));
+			}
+			break;
+		}
+		case NodeType::ELEMENT_NODE:
+		{
+			if (tree.HasMember(L"insertedNodes"))
+			{
+				for (const auto& child : tree[L"insertedNodes"].GetArray())
+					html += modifiedNodesToHTMLs(child, nodes);
+			}
+			html += L'<';
+			html += tree[L"nodeName"].GetString();
+			if (tree.HasMember(L"attributes"))
+			{
+				const auto& attributes = tree[L"attributes"].GetArray();
+				for (unsigned i = 0; i < attributes.Size(); i += 2)
+				{
+					html += L" ";
+					html += attributes[i].GetString();
+					html += L"=\"";
+					if (i + 1 < attributes.Size())
+						html += utils::EncodeHTMLEntities(attributes[i + 1].GetString());
+					html += L"\"";
+				}
+			}
+			html += L'>';
+			if (tree.HasMember(L"children"))
+			{
+				for (const auto& child : tree[L"children"].GetArray())
+					html += modifiedNodesToHTMLs(child, nodes);
+			}
+			if (tree.HasMember(L"contentDocument"))
+			{
+				for (const auto& child : tree[L"contentDocument"][L"children"].GetArray())
+					modifiedNodesToHTMLs(child, nodes);
+			}
+			if (!utils::IsVoidElement(tree[L"nodeName"].GetString()))
+			{
+				html += L"</";
+				html += tree[L"nodeName"].GetString();
+				html += L'>';
+			}
+			if (tree.HasMember(L"modified"))
+			{
+				ModifiedNode node;
+				node.nodeId = tree[L"nodeId"].GetInt();
+				node.outerHTML = html;
+				nodes.emplace_back(std::move(node));
+			}
+			break;
+		}
+		}
+		return html;
+	}
+
+	bool isDiffNode(const WValue& value)
+	{
+		if (value[L"nodeType"].GetInt() != NodeType::ELEMENT_NODE)
+			return false;
+		if (wcscmp(value[L"nodeName"].GetString(), L"SPAN") != 0)
+			return false;
+		if (!value.HasMember(L"attributes"))
+			return false;
+		const auto& ary = value[L"attributes"].GetArray();
+		if (ary.Size() < 2 ||
+			wcscmp(ary[0].GetString(), L"class") != 0 ||
+			wcscmp(ary[1].GetString(), L"wwd-diff") != 0)
+			return false;
+		return true;
+	}
+
+	void unhighlightNodes(WDocument& doc, WValue& tree)
+	{
+		NodeType nodeType = static_cast<NodeType>(tree[L"nodeType"].GetInt());
+		switch (nodeType)
+		{
+		case NodeType::DOCUMENT_NODE:
+		{
+			if (tree.HasMember(L"children"))
+			{
+				for (auto& child : tree[L"children"].GetArray())
+					unhighlightNodes(doc, child);
+			}
+			break;
+		}
+		case NodeType::ELEMENT_NODE:
+		{
+			if (tree.HasMember(L"children"))
+			{
+				for (auto& child : tree[L"children"].GetArray())
+				{
+					if (isDiffNode(child))
+					{
+						const int nodeId = child[L"nodeId"].GetInt();
+						if (child[L"children"].GetArray().Size() > 0)
+						{
+							child.CopyFrom(child[L"children"].GetArray()[0], doc.GetAllocator());
+						}
+						else
+						{
+							child[L"nodeType"].SetInt(NodeType::TEXT_NODE);
+							child[L"nodeValue"].SetString(L"");
+						}
+						child[L"nodeId"].SetInt(nodeId);
+						child.AddMember(L"modified", true, doc.GetAllocator());
+					}
+					else
+						unhighlightNodes(doc, child);
+				}
+			}
+			if (tree.HasMember(L"contentDocument") && tree[L"contentDocument"].HasMember(L"children"))
+			{
+				for (auto& child : tree[L"contentDocument"][L"children"].GetArray())
+					unhighlightNodes(doc, child);
+			}
+			break;
+		}
+		}
+	}
+
+	void getDiffNodes(WDocument& doc, WValue& tree, std::map<int, int>& nodes)
+	{
+		NodeType nodeType = static_cast<NodeType>(tree[L"nodeType"].GetInt());
+		switch (nodeType)
+		{
+		case NodeType::DOCUMENT_NODE:
+		{
+			if (tree.HasMember(L"children"))
+			{
+				for (auto& child : tree[L"children"].GetArray())
+					getDiffNodes(doc, child, nodes);
+			}
+			break;
+		}
+		case NodeType::ELEMENT_NODE:
+		{
+			if (tree.HasMember(L"children"))
+			{
+				for (auto& child : tree[L"children"].GetArray())
+				{
+					if (isDiffNode(child))
+					{
+						const int nodeId = child[L"nodeId"].GetInt();
+						auto attributes = child[L"attributes"].GetArray();
+						const wchar_t* buf = attributes[3].GetString();
+						const int diffIndex = attributes.Size() > 3 ? _wtoi(attributes[3].GetString()) : -1;
+						nodes.insert_or_assign(diffIndex, nodeId);
+					}
+					else
+						getDiffNodes(doc, child, nodes);
+				}
+			}
+			if (tree.HasMember(L"contentDocument") && tree[L"contentDocument"].HasMember(L"children"))
+			{
+				for (auto& child : tree[L"contentDocument"][L"children"].GetArray())
+					getDiffNodes(doc, child, nodes);
+			}
+			break;
+		}
+		}
+	}
+
+	std::wstring getDiffStyleValue(COLORREF color, COLORREF backcolor)
+	{
+		wchar_t styleValue[256];
+		if (color == CLR_NONE)
+			swprintf_s(styleValue, L"background-color: #%02x%02x%02x",
+				GetRValue(backcolor), GetGValue(backcolor), GetBValue(backcolor));
+		else
+			swprintf_s(styleValue, L"color: #%02x%02x%02x; background-color: #%02x%02x%02x",
+				GetRValue(color), GetGValue(color), GetBValue(color),
+				GetRValue(backcolor), GetGValue(backcolor), GetBValue(backcolor));
+		return styleValue;
+	}
+
+	void highlightNodes(std::vector<DiffInfo>& diffInfoList, std::vector<WDocument>& documents,
+		const IWebDiffWindow::ColorSettings& colorSettings,
+		const IWebDiffWindow::DiffOptions& diffOptions, bool showWordDifferences)
+	{
+		std::wstring styleValue = getDiffStyleValue(colorSettings.clrDiffText, colorSettings.clrDiff);
+		std::wstring styleSNPValue = getDiffStyleValue(colorSettings.clrSNPText, colorSettings.clrSNP);
+		for (size_t i = 0; i < diffInfoList.size(); ++i)
+		{
+			const auto& diffInfo = diffInfoList[i];
+			WValue* pvalues[3]{};
+			std::vector<TextBlocks> textBlocks(documents.size());
+			std::vector<DiffInfo> wordDiffInfoList;
+			for (size_t pane = 0; pane < documents.size(); ++pane)
+			{
+				std::pair<WValue*, WValue*> pair;
+					pair = findNodeId(documents[pane][L"root"],
+						diffInfo.nodeIds[pane] >= 0 ? diffInfo.nodeIds[pane] : -diffInfo.nodeIds[pane] - 1);
+				pvalues[pane] = pair.first;
+				if (showWordDifferences)
+					textBlocks[pane].Make((*pair.first)[L"nodeValue"].GetString());
+			}
+			if (showWordDifferences)
+				wordDiffInfoList = Comparer::compare(diffOptions, textBlocks);
+			for (size_t pane = 0; pane < documents.size(); ++pane)
+			{
+				WValue spanNode, attributes, children, id;
+				auto& allocator = documents[pane].GetAllocator();
+				id.SetString(std::to_wstring(i).c_str(), allocator);
+				attributes.SetArray();
+				attributes.PushBack(L"class", allocator);
+				attributes.PushBack(L"wwd-diff", allocator);
+				attributes.PushBack(L"data-wwdid", allocator);
+				attributes.PushBack(id, allocator);
+				attributes.PushBack(L"style", allocator);
+				if ((pane == 0 && diffInfo.op == OP_3RDONLY) ||
+					(pane == 2 && diffInfo.op == OP_1STONLY))
+					attributes.PushBack(WValue(styleSNPValue.c_str(), allocator), allocator);
+				else
+					attributes.PushBack(WValue(styleValue.c_str(), allocator), allocator);
+				spanNode.SetObject();
+				spanNode.AddMember(L"nodeName", L"SPAN", allocator);
+				spanNode.AddMember(L"attributes", attributes, allocator);
+				spanNode.AddMember(L"nodeType", 1, allocator);
+				if (diffInfo.nodeIds[pane] >= 0)
+				{
+					if (pvalues[pane])
+					{
+						WValue textNode;
+						textNode.CopyFrom(*pvalues[pane], allocator);
+						textNode.RemoveMember(L"modified");
+						const int nodeId = textNode[L"nodeId"].GetInt();
+						children.SetArray();
+						children.PushBack(textNode, allocator);
+						spanNode.AddMember(L"children", children, allocator);
+						spanNode.AddMember(L"nodeId", nodeId, allocator);
+						spanNode.AddMember(L"modified", true, allocator);
+						pvalues[pane]->CopyFrom(spanNode, allocator);
+					}
+				}
+				else
+				{
+					if (pvalues[pane])
+					{
+						spanNode.AddMember(L"nodeId", -1, allocator);
+						children.SetArray();
+						spanNode.AddMember(L"children", children, allocator);
+						if (!pvalues[pane]->HasMember(L"insertedNodes"))
+						{
+							WValue insertedNodes;
+							insertedNodes.SetArray();
+							pvalues[pane]->AddMember(L"insertedNodes", insertedNodes, allocator);
+						}
+						(*pvalues[pane])[L"insertedNodes"].GetArray().PushBack(spanNode, allocator);
+						pvalues[pane]->AddMember(L"modified", true, allocator);
+					}
+				}
+			}
+		}
 	}
 }
 
@@ -623,8 +1009,6 @@ public:
 	{
 		if (pane < 0 || pane >= m_nPanes)
 			return false;
-		if (!m_bShowDifferences)
-			return m_webWindow[pane].SaveFile(filename, kind, callback);
 		ComPtr<IWebDiffCallback> callback2(callback);
 		std::wstring sfilename(filename);
 		return unhighlightDifferencesLoop(
@@ -648,8 +1032,6 @@ public:
 		auto sfilenames = std::make_shared<std::vector<std::wstring>>();
 		for (int pane = 0; pane < m_nPanes; ++pane)
 			sfilenames->push_back(filenames[pane]);
-		if (!m_bShowDifferences)
-			return saveFilesLoop(kind, sfilenames, callback);
 		ComPtr<IWebDiffCallback> callback2(callback);
 		return unhighlightDifferencesLoop(
 			Callback<IWebDiffCallback>([this, kind, sfilenames, callback2](const WebDiffCallbackResult& result) -> HRESULT
@@ -830,6 +1212,19 @@ public:
 		if (visible == m_bShowDifferences)
 			return;
 		m_bShowDifferences = visible;
+		Recompare(nullptr);
+	}
+
+	bool GetShowWordDifferences() const override
+	{
+		return m_bShowWordDifferences;
+	}
+
+	void SetShowWordDifferences(bool visible) override
+	{
+		if (visible == m_bShowWordDifferences)
+			return;
+		m_bShowWordDifferences = visible;
 		Recompare(nullptr);
 	}
 
@@ -1072,42 +1467,6 @@ public:
 
 private:
 
-	enum NodeType
-	{
-		ELEMENT_NODE = 1,
-		ATTRIBUTE_NODE = 2,
-		TEXT_NODE = 3,
-		CDATA_SECTION_NODE = 4,
-		PROCESSING_INSTRUCTION_NODE = 7,
-		COMMENT_NODE = 8,
-		DOCUMENT_NODE = 9,
-		DOCUMENT_TYPE_NODE = 10,
-		DOCUMENT_FRAGMENT_NODE = 11,
-	};
-
-	std::pair<WValue*, WValue*> findNodeId(WValue& nodeTree, int nodeId)
-	{
-		if (nodeTree[L"nodeId"].GetInt() == nodeId)
-		{
-			return { &nodeTree, nullptr };
-		}
-		if (nodeTree.HasMember(L"children") && nodeTree[L"children"].IsArray())
-		{
-			for (auto& child : nodeTree[L"children"].GetArray())
-			{
-				auto [pvalue, pparent] = findNodeId(child, nodeId);
-				if (pvalue)
-					return { pvalue, pparent ? pparent : &nodeTree};
-			}
-		}
-		if (nodeTree.HasMember(L"contentDocument"))
-		{
-			auto [pvalue, pparent] = findNodeId(nodeTree[L"contentDocument"], nodeId);
-			return { pvalue, pparent ? pparent : &nodeTree[L"contentDocument"]};
-		}
-		return { nullptr, nullptr };
-	}
-
 	HRESULT getDocumentsLoop(std::shared_ptr<std::vector<std::wstring>> jsons, IWebDiffCallback* callback, int pane = 0)
 	{
 		static const wchar_t* method = L"DOM.getDocument";
@@ -1142,17 +1501,20 @@ private:
 					HRESULT hr = result.errorCode;
 					if (SUCCEEDED(hr))
 					{
+						std::vector<TextBlocks> textBlocks(m_nPanes);
 						std::shared_ptr<std::vector<WDocument>> documents(new std::vector<WDocument>(m_nPanes));
 						for (int pane = 0; pane < m_nPanes; ++pane)
 						{
 							(*documents)[pane].Parse((*jsons)[pane].c_str());
-							unhighlightNodes((*documents)[pane], (*documents)[pane][L"root"]);
+							Highlighter::unhighlightNodes((*documents)[pane], (*documents)[pane][L"root"]);
+							textBlocks[pane].Make((*documents)[pane][L"root"]);
 						}
-						m_diffInfos = Comparer::CompareDocuments(m_diffOptions, *documents);
+						m_diffInfos = Comparer::compare(m_diffOptions, textBlocks);
+						Comparer::setNodeIdInDiffInfoList(m_diffInfos, textBlocks);
 						if (m_currentDiffIndex != -1 && m_currentDiffIndex >= m_diffInfos.size())
 							m_currentDiffIndex = static_cast<int>(m_diffInfos.size() - 1);
 						if (m_bShowDifferences)
-							highlightNodes(m_diffInfos, *documents);
+							Highlighter::highlightNodes(m_diffInfos, *documents, m_colorSettings, m_diffOptions, m_bShowWordDifferences);
 						hr = highlightDocuments(documents, callback2.Get());
 					}
 					if (FAILED(hr) && callback2)
@@ -1160,230 +1522,6 @@ private:
 					return S_OK;
 				}).Get());
 		return hr;
-	}
-
-	struct ModifiedNode
-	{
-		int nodeId;
-		std::wstring outerHTML;
-	};
-
-	std::wstring modifiedNodesToHTMLs(const WValue& tree, std::list<ModifiedNode>& nodes)
-	{
-		std::wstring html;
-		NodeType nodeType = static_cast<NodeType>(tree[L"nodeType"].GetInt());
-		switch (nodeType)
-		{
-		case NodeType::DOCUMENT_TYPE_NODE:
-		{
-			html += L"<!DOCTYPE ";
-			html += tree[L"nodeName"].GetString();
-			html += L">";
-			break;
-		}
-		case NodeType::DOCUMENT_NODE:
-		{
-			if (tree.HasMember(L"children"))
-			{
-				for (const auto& child : tree[L"children"].GetArray())
-					html += modifiedNodesToHTMLs(child, nodes);
-			}
-			break;
-		}
-		case NodeType::COMMENT_NODE:
-		{
-			html += L"<!-- ";
-			html += tree[L"nodeValue"].GetString();
-			html += L" -->";
-			break;
-		}
-		case NodeType::TEXT_NODE:
-		{
-			if (tree.HasMember(L"insertedNodes"))
-			{
-				for (const auto& child : tree[L"insertedNodes"].GetArray())
-					html += modifiedNodesToHTMLs(child, nodes);
-			}
-			html += utils::EncodeHTMLEntities(tree[L"nodeValue"].GetString());
-			if (tree.HasMember(L"modified"))
-			{
-				ModifiedNode node;
-				node.nodeId = tree[L"nodeId"].GetInt();
-				node.outerHTML = html;
-				nodes.emplace_back(std::move(node));
-			}
-			break;
-		}
-		case NodeType::ELEMENT_NODE:
-		{
-			if (tree.HasMember(L"insertedNodes"))
-			{
-				for (const auto& child : tree[L"insertedNodes"].GetArray())
-					html += modifiedNodesToHTMLs(child, nodes);
-			}
-			html += L'<';
-			html += tree[L"nodeName"].GetString();
-			if (tree.HasMember(L"attributes"))
-			{
-				const auto& attributes = tree[L"attributes"].GetArray();
-				for (unsigned i = 0; i < attributes.Size(); i += 2)
-				{
-					html += L" ";
-					html += attributes[i].GetString();
-					html += L"=\"";
-					if (i + 1 < attributes.Size())
-						html += utils::EncodeHTMLEntities(attributes[i + 1].GetString());
-					html += L"\"";
-				}
-			}
-			html += L'>';
-			if (tree.HasMember(L"children"))
-			{
-				for (const auto& child : tree[L"children"].GetArray())
-					html += modifiedNodesToHTMLs(child, nodes);
-			}
-			if (tree.HasMember(L"contentDocument"))
-			{
-				for (const auto& child : tree[L"contentDocument"][L"children"].GetArray())
-					modifiedNodesToHTMLs(child, nodes);
-			}
-			if (!utils::IsVoidElement(tree[L"nodeName"].GetString()))
-			{
-				html += L"</";
-				html += tree[L"nodeName"].GetString();
-				html += L'>';
-			}
-			if (tree.HasMember(L"modified"))
-			{
-				ModifiedNode node;
-				node.nodeId = tree[L"nodeId"].GetInt();
-				node.outerHTML = html;
-				nodes.emplace_back(std::move(node));
-			}
-			break;
-		}
-		}
-		return html;
-	}
-
-	bool isDiffNode(const WValue& value)
-	{
-		if (value[L"nodeType"].GetInt() != NodeType::ELEMENT_NODE)
-			return false;
-		if (wcscmp(value[L"nodeName"].GetString(), L"SPAN") != 0)
-			return false;
-		if (!value.HasMember(L"attributes"))
-			return false;
-		const auto& ary = value[L"attributes"].GetArray();
-		if (ary.Size() < 2 ||
-		    wcscmp(ary[0].GetString(), L"class") != 0 ||
-		    wcscmp(ary[1].GetString(), L"wwd-diff") != 0)
-			return false;
-		return true;
-	}
-	
-	void unhighlightNodes(WDocument& doc, WValue& tree)
-	{
-		NodeType nodeType = static_cast<NodeType>(tree[L"nodeType"].GetInt());
-		switch (nodeType)
-		{
-		case NodeType::DOCUMENT_NODE:
-		{
-			if (tree.HasMember(L"children"))
-			{
-				for (auto& child : tree[L"children"].GetArray())
-					unhighlightNodes(doc, child);
-			}
-			break;
-		}
-		case NodeType::ELEMENT_NODE:
-		{
-			if (tree.HasMember(L"children"))
-			{
-				for (auto& child : tree[L"children"].GetArray())
-				{
-					if (isDiffNode(child))
-					{
-						const int nodeId = child[L"nodeId"].GetInt();
-						if (child[L"children"].GetArray().Size() > 0)
-						{
-							child.CopyFrom(child[L"children"].GetArray()[0], doc.GetAllocator());
-						}
-						else
-						{
-							child[L"nodeType"].SetInt(NodeType::TEXT_NODE);
-							child[L"nodeValue"].SetString(L"");
-						}
-						child[L"nodeId"].SetInt(nodeId);
-						child.AddMember(L"modified", true, doc.GetAllocator());
-					}
-					else
-						unhighlightNodes(doc, child);
-				}
-			}
-			if (tree.HasMember(L"contentDocument") && tree[L"contentDocument"].HasMember(L"children"))
-			{
-				for (auto& child : tree[L"contentDocument"][L"children"].GetArray())
-					unhighlightNodes(doc, child);
-			}
-			break;
-		}
-		}
-	}
-
-	void getDiffNodes(WDocument& doc, WValue& tree, std::map<int, int>& nodes)
-	{
-		NodeType nodeType = static_cast<NodeType>(tree[L"nodeType"].GetInt());
-		switch (nodeType)
-		{
-		case NodeType::DOCUMENT_NODE:
-		{
-			if (tree.HasMember(L"children"))
-			{
-				for (auto& child : tree[L"children"].GetArray())
-					getDiffNodes(doc, child, nodes);
-			}
-			break;
-		}
-		case NodeType::ELEMENT_NODE:
-		{
-			if (tree.HasMember(L"children"))
-			{
-				for (auto& child : tree[L"children"].GetArray())
-				{
-					if (isDiffNode(child))
-					{
-						const int nodeId = child[L"nodeId"].GetInt();
-						auto attributes = child[L"attributes"].GetArray();
-						const wchar_t* buf = attributes[3].GetString();
-						const int diffIndex = attributes.Size() > 3 ? _wtoi(attributes[3].GetString()) : -1;
-						nodes.insert_or_assign(diffIndex, nodeId);
-					}
-					else
-						getDiffNodes(doc, child, nodes);
-				}
-			}
-			if (tree.HasMember(L"contentDocument") && tree[L"contentDocument"].HasMember(L"children"))
-			{
-				for (auto& child : tree[L"contentDocument"][L"children"].GetArray())
-					getDiffNodes(doc, child, nodes);
-			}
-			break;
-		}
-		}
-	}
-
-	std::wstring getDiffStyleValue(COLORREF color, COLORREF backcolor) const
-	{
-		wchar_t styleValue[256];
-		if (color == CLR_NONE)
-			swprintf_s(styleValue, L"background-color: #%02x%02x%02x",
-				GetRValue(backcolor), GetGValue(backcolor), GetBValue(backcolor));
-		else
-			swprintf_s(styleValue, L"color: #%02x%02x%02x; background-color: #%02x%02x%02x",
-				GetRValue(color), GetGValue(color), GetBValue(color),
-				GetRValue(backcolor), GetGValue(backcolor), GetBValue(backcolor));
-		return styleValue;
 	}
 
 	HRESULT saveFilesLoop(FormatType kind, std::shared_ptr<std::vector<std::wstring>> filenames, IWebDiffCallback* callback, int pane = 0)
@@ -1405,72 +1543,6 @@ private:
 					return S_OK;
 				}).Get());
 		return hr;
-	}
-
-	void highlightNodes(std::vector<DiffInfo>& diffInfoList, std::vector<WDocument>& documents)
-	{
-		std::wstring styleValue = getDiffStyleValue(m_colorSettings.clrDiffText, m_colorSettings.clrDiff);
-		std::wstring styleSNPValue = getDiffStyleValue(m_colorSettings.clrSNPText, m_colorSettings.clrSNP);
-		for (size_t i = 0; i < diffInfoList.size(); ++i)
-		{
-			const auto& diffInfo = diffInfoList[i];
-			for (int pane = 0; pane < m_nPanes; ++pane)
-			{
-				WValue spanNode, attributes, children, id;
-				auto& allocator = documents[pane].GetAllocator();
-				id.SetString(std::to_wstring(i).c_str(), allocator);
-				attributes.SetArray();
-				attributes.PushBack(L"class", allocator);
-				attributes.PushBack(L"wwd-diff", allocator);
-				attributes.PushBack(L"data-wwdid", allocator);
-				attributes.PushBack(id, allocator);
-				attributes.PushBack(L"style", allocator);
-				if ((pane == 0 && diffInfo.op == OP_3RDONLY) ||
-				    (pane == 2 && diffInfo.op == OP_1STONLY))
-					attributes.PushBack(WValue(styleSNPValue.c_str(), allocator), allocator);
-				else
-					attributes.PushBack(WValue(styleValue.c_str(), allocator), allocator);
-				spanNode.SetObject();
-				spanNode.AddMember(L"nodeName", L"SPAN", allocator);
-				spanNode.AddMember(L"attributes", attributes, allocator);
-				spanNode.AddMember(L"nodeType", 1, allocator);
-				if (diffInfo.nodeIds[pane] >= 0)
-				{
-					auto [pvalue, pparent] = findNodeId(documents[pane][L"root"], diffInfo.nodeIds[pane]);
-					if (pvalue)
-					{
-						WValue textNode;
-						textNode.CopyFrom(*pvalue, allocator);
-						textNode.RemoveMember(L"modified");
-						const int nodeId = textNode[L"nodeId"].GetInt();
-						children.SetArray();
-						children.PushBack(textNode, allocator);
-						spanNode.AddMember(L"children", children, allocator);
-						spanNode.AddMember(L"nodeId", nodeId, allocator);
-						spanNode.AddMember(L"modified", true, allocator);
-						pvalue->CopyFrom(spanNode, allocator);
-					}
-				}
-				else
-				{
-					auto [pvalue, pparent] = findNodeId(documents[pane][L"root"], -diffInfo.nodeIds[pane] - 1);
-					if (pvalue)
-					{
-						spanNode.AddMember(L"nodeId", -1, allocator);
-						children.SetArray();
-						spanNode.AddMember(L"children", children, allocator);
-						if (!pvalue->HasMember(L"insertedNodes"))
-						{
-							WValue insertedNodes;
-							insertedNodes.SetArray();
-							pvalue->AddMember(L"insertedNodes", insertedNodes, allocator);
-						}
-						(*pvalue)[L"insertedNodes"].GetArray().PushBack(spanNode, allocator);
-						pvalue->AddMember(L"modified", true, allocator);
-					}
-				}
-			}
-		}
 	}
 
 	HRESULT applyHTMLLoop(
@@ -1510,7 +1582,7 @@ private:
 	{
 		ComPtr<IWebDiffCallback> callback2(callback);
 		auto nodes = std::make_shared<std::list<ModifiedNode>>();
-		modifiedNodesToHTMLs((*documents)[pane][L"root"], *nodes);
+		Highlighter::modifiedNodesToHTMLs((*documents)[pane][L"root"], *nodes);
 		HRESULT hr = applyHTMLLoop(pane, nodes,
 			Callback<IWebDiffCallback>([this, documents, callback2, pane](const WebDiffCallbackResult& result) -> HRESULT
 				{
@@ -1558,9 +1630,9 @@ private:
 					{
 						WDocument doc;
 						doc.Parse(result.returnObjectAsJson);
-						unhighlightNodes(doc, doc[L"root"]);
+						Highlighter::unhighlightNodes(doc, doc[L"root"]);
 						auto nodes = std::make_shared<std::list<ModifiedNode>>();
-						modifiedNodesToHTMLs(doc[L"root"], *nodes);
+						Highlighter::modifiedNodesToHTMLs(doc[L"root"], *nodes);
 						hr = applyHTMLLoop(pane, nodes,
 							Callback<IWebDiffCallback>([this, pane, callback2](const WebDiffCallbackResult& result) -> HRESULT
 								{
@@ -1598,7 +1670,7 @@ private:
 						WDocument doc;
 						doc.Parse(result.returnObjectAsJson);
 						std::map<int, int> nodes;
-						getDiffNodes(doc, doc[L"root"], nodes);
+						Highlighter::getDiffNodes(doc, doc[L"root"], nodes);
 						for (unsigned i = 0; i < m_diffInfos.size(); ++i)
 						{
 							if (m_diffInfos[i].nodeIds[pane] != -1)
@@ -1620,10 +1692,10 @@ private:
 	{
 		if (diffIndex < 0 || diffIndex >= m_diffInfos.size())
 			return false;
-		std::wstring styleValue = getDiffStyleValue(m_colorSettings.clrDiffText, m_colorSettings.clrDiff);
-		std::wstring styleSelValue = getDiffStyleValue(m_colorSettings.clrSelDiffText, m_colorSettings.clrSelDiff);
-		std::wstring styleSNPValue = getDiffStyleValue(m_colorSettings.clrSNPText, m_colorSettings.clrSNP);
-		std::wstring styleSelSNPValue = getDiffStyleValue(m_colorSettings.clrSelSNPText, m_colorSettings.clrSelSNP);
+		std::wstring styleValue = Highlighter::getDiffStyleValue(m_colorSettings.clrDiffText, m_colorSettings.clrDiff);
+		std::wstring styleSelValue = Highlighter::getDiffStyleValue(m_colorSettings.clrSelDiffText, m_colorSettings.clrSelDiff);
+		std::wstring styleSNPValue = Highlighter::getDiffStyleValue(m_colorSettings.clrSNPText, m_colorSettings.clrSNP);
+		std::wstring styleSelSNPValue = Highlighter::getDiffStyleValue(m_colorSettings.clrSelSNPText, m_colorSettings.clrSelSNP);
 		for (int pane = 0; pane < m_nPanes; ++pane)
 		{
 			std::wstring args = L"{ \"nodeId\": " + std::to_wstring(m_diffInfos[diffIndex].nodeIds[pane]) + L" }";
@@ -1947,6 +2019,7 @@ private:
 	std::vector<DiffInfo> m_diffInfos;
 	DiffOptions m_diffOptions{};
 	bool m_bShowDifferences = true;
+	bool m_bShowWordDifferences = true;
 	IWebDiffWindow::ColorSettings m_colorSettings = {
 		RGB(239, 203,   5), RGB(192, 192, 192), RGB(0, 0, 0),
 		RGB(239, 119, 116), RGB(240, 192, 192), RGB(0, 0, 0),
