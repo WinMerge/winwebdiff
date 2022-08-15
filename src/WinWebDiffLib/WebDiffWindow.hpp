@@ -118,7 +118,7 @@ struct TextBlocks
 				charType = 2;
 			else
 				charType = 0;
-			if (charType != charTypePrev)
+			if (charType == 2 || charType != charTypePrev)
 			{
 				if (i > 0)
 				{
@@ -127,8 +127,8 @@ struct TextBlocks
 					seg.begin = begin;
 					seg.size = i - begin;
 					segments.insert_or_assign(seg.begin, seg);
+					begin = i;
 				}
-				begin = i;
 				charTypePrev = charType;
 			}
 		}
@@ -672,15 +672,11 @@ namespace Highlighter
 					if (isDiffNode(child))
 					{
 						const int nodeId = child[L"nodeId"].GetInt();
-						if (child[L"children"].GetArray().Size() > 0)
-						{
-							child.CopyFrom(child[L"children"].GetArray()[0], doc.GetAllocator());
-						}
-						else
-						{
-							child[L"nodeType"].SetInt(NodeType::TEXT_NODE);
-							child[L"nodeValue"].SetString(L"");
-						}
+						std::wstring text;
+						if (child[L"attributes"].GetArray().Size() > 5)
+							text = child[L"attributes"].GetArray()[5].GetString();
+						child[L"nodeValue"].SetString(text.c_str(), doc.GetAllocator());
+						child[L"nodeType"].SetInt(NodeType::TEXT_NODE);
 						child[L"nodeId"].SetInt(nodeId);
 						child.AddMember(L"modified", true, doc.GetAllocator());
 					}
@@ -753,12 +749,88 @@ namespace Highlighter
 		return styleValue;
 	}
 
+	void makeTextNode(WValue& textNode, const std::wstring& text, WDocument::AllocatorType& allocator)
+	{
+		WValue children;
+		WValue textValue(text.c_str(), static_cast<unsigned>(text.size()), allocator);
+		children.SetArray();
+		textNode.SetObject();
+		textNode.AddMember(L"nodeId", -1, allocator);
+		textNode.AddMember(L"nodeType", 3, allocator);
+		textNode.AddMember(L"nodeValue", textValue, allocator);
+		textNode.AddMember(L"children", children, allocator);
+	}
+
+	void makeWordDiffNodes(size_t pane, const std::vector<DiffInfo>& wordDiffInfoList,
+		const IWebDiffWindow::ColorSettings& colorSettings,
+		const TextBlocks& textBlocks, WValue& children, WDocument::AllocatorType& allocator)
+	{
+		size_t begin = 0;
+		for (const auto& diffInfo: wordDiffInfoList)
+		{
+			auto it = textBlocks.segments.begin();
+			std::advance(it, diffInfo.begin[pane]);
+			if (it != textBlocks.segments.end())
+			{
+				size_t begin2 = it->second.begin;
+				size_t end2 = 0;
+				if (diffInfo.end[pane] != -1)
+				{
+					it = textBlocks.segments.begin();
+					std::advance(it, diffInfo.end[pane]);
+					end2 = it->second.begin + it->second.size;
+				}
+				std::wstring text = textBlocks.textBlocks.substr(begin, begin2 - begin);
+				std::wstring textDiff = textBlocks.textBlocks.substr(begin2, end2 - begin2);
+				begin = end2;
+
+				if (!text.empty())
+				{
+					WValue textNode;
+					makeTextNode(textNode, text, allocator);
+					children.PushBack(textNode, allocator);
+				}
+
+				if (!textDiff.empty())
+				{
+					std::wstring style = getDiffStyleValue(colorSettings.clrWordDiffText, colorSettings.clrWordDiff);
+					WValue spanNode, diffTextNode, attributes, spanChildren;
+					WValue styleValue(style.c_str(), static_cast<unsigned>(style.size()), allocator);
+					WValue textDiffValue(textDiff.c_str(), static_cast<unsigned>(textDiff.size()), allocator);
+					makeTextNode(diffTextNode, textDiff, allocator);
+					spanChildren.SetArray();
+					spanChildren.PushBack(diffTextNode, allocator);
+					attributes.SetArray();
+					attributes.PushBack(L"class", allocator);
+					attributes.PushBack(L"wwd-wdiff", allocator);
+					attributes.PushBack(L"style", allocator);
+					attributes.PushBack(styleValue, allocator);
+					spanNode.SetObject();
+					spanNode.AddMember(L"nodeId", -1, allocator);
+					spanNode.AddMember(L"nodeName", L"SPAN", allocator);
+					spanNode.AddMember(L"attributes", attributes, allocator);
+					spanNode.AddMember(L"nodeType", 1, allocator);
+					spanNode.AddMember(L"nodeValue", L"", allocator);
+					spanNode.AddMember(L"children", spanChildren, allocator);
+					children.PushBack(spanNode, allocator);
+				}
+			}
+		}
+		std::wstring text = textBlocks.textBlocks.substr(begin);
+		if (!text.empty())
+		{
+			WValue textNode;
+			makeTextNode(textNode, text, allocator);
+			children.PushBack(textNode, allocator);
+		}
+	}
+
 	void highlightNodes(std::vector<DiffInfo>& diffInfoList, std::vector<WDocument>& documents,
 		const IWebDiffWindow::ColorSettings& colorSettings,
 		const IWebDiffWindow::DiffOptions& diffOptions, bool showWordDifferences)
 	{
-		std::wstring styleValue = getDiffStyleValue(colorSettings.clrDiffText, colorSettings.clrDiff);
-		std::wstring styleSNPValue = getDiffStyleValue(colorSettings.clrSNPText, colorSettings.clrSNP);
+		std::wstring style = getDiffStyleValue(colorSettings.clrDiffText, colorSettings.clrDiff);
+		std::wstring styleSNP = getDiffStyleValue(colorSettings.clrSNPText, colorSettings.clrSNP);
 		for (size_t i = 0; i < diffInfoList.size(); ++i)
 		{
 			const auto& diffInfo = diffInfoList[i];
@@ -778,34 +850,51 @@ namespace Highlighter
 				wordDiffInfoList = Comparer::compare(diffOptions, textBlocks);
 			for (size_t pane = 0; pane < documents.size(); ++pane)
 			{
-				WValue spanNode, attributes, children, id;
+				WValue spanNode, attributes, children;
 				auto& allocator = documents[pane].GetAllocator();
-				id.SetString(std::to_wstring(i).c_str(), allocator);
+				WValue id(std::to_wstring(i).c_str(), allocator);
+				WValue textValue(textBlocks[pane].textBlocks.c_str(), static_cast<unsigned>(textBlocks[pane].textBlocks.size()), allocator);
 				attributes.SetArray();
 				attributes.PushBack(L"class", allocator);
 				attributes.PushBack(L"wwd-diff", allocator);
 				attributes.PushBack(L"data-wwdid", allocator);
 				attributes.PushBack(id, allocator);
+				attributes.PushBack(L"data-wwdtext", allocator);
+				attributes.PushBack(textValue, allocator);
 				attributes.PushBack(L"style", allocator);
 				if ((pane == 0 && diffInfo.op == OP_3RDONLY) ||
 					(pane == 2 && diffInfo.op == OP_1STONLY))
-					attributes.PushBack(WValue(styleSNPValue.c_str(), allocator), allocator);
+				{
+					WValue styleSNPValue(styleSNP.c_str(), allocator);
+					attributes.PushBack(styleSNPValue, allocator);
+				}
 				else
-					attributes.PushBack(WValue(styleValue.c_str(), allocator), allocator);
+				{
+					WValue styleValue(style.c_str(), allocator);
+					attributes.PushBack(styleValue, allocator);
+				}
 				spanNode.SetObject();
 				spanNode.AddMember(L"nodeName", L"SPAN", allocator);
 				spanNode.AddMember(L"attributes", attributes, allocator);
 				spanNode.AddMember(L"nodeType", 1, allocator);
+				spanNode.AddMember(L"nodeValue", L"", allocator);
 				if (diffInfo.nodeIds[pane] >= 0)
 				{
 					if (pvalues[pane])
 					{
-						WValue textNode;
-						textNode.CopyFrom(*pvalues[pane], allocator);
-						textNode.RemoveMember(L"modified");
-						const int nodeId = textNode[L"nodeId"].GetInt();
+						const int nodeId = (*pvalues[pane])[L"nodeId"].GetInt();
 						children.SetArray();
-						children.PushBack(textNode, allocator);
+						if (showWordDifferences)
+						{
+							makeWordDiffNodes(pane, wordDiffInfoList, colorSettings, textBlocks[pane], children, allocator);
+						}
+						else
+						{
+							WValue textNode;
+							textNode.CopyFrom(*pvalues[pane], allocator);
+							textNode.RemoveMember(L"modified");
+							children.PushBack(textNode, allocator);
+						}
 						spanNode.AddMember(L"children", children, allocator);
 						spanNode.AddMember(L"nodeId", nodeId, allocator);
 						spanNode.AddMember(L"modified", true, allocator);
