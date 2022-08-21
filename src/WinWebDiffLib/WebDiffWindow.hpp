@@ -512,6 +512,19 @@ namespace Highlighter
 		DOCUMENT_FRAGMENT_NODE = 11,
 	};
 
+	std::wstring getDiffStyleValue(COLORREF color, COLORREF backcolor)
+	{
+		wchar_t styleValue[256];
+		if (color == CLR_NONE)
+			swprintf_s(styleValue, L"background-color: #%02x%02x%02x",
+				GetRValue(backcolor), GetGValue(backcolor), GetBValue(backcolor));
+		else
+			swprintf_s(styleValue, L"color: #%02x%02x%02x; background-color: #%02x%02x%02x",
+				GetRValue(color), GetGValue(color), GetBValue(color),
+				GetRValue(backcolor), GetGValue(backcolor), GetBValue(backcolor));
+		return styleValue;
+	}
+
 	std::pair<WValue*, WValue*> findNodeId(WValue& nodeTree, int nodeId)
 	{
 		if (nodeTree[L"nodeId"].GetInt() == nodeId)
@@ -644,7 +657,7 @@ namespace Highlighter
 		const auto& ary = value[L"attributes"].GetArray();
 		if (ary.Size() < 2 ||
 			wcscmp(ary[0].GetString(), L"class") != 0 ||
-			wcscmp(ary[1].GetString(), L"wwd-diff") != 0)
+			wcsstr(ary[1].GetString(), L"wwd-diff") == nullptr)
 			return false;
 		return true;
 	}
@@ -694,6 +707,78 @@ namespace Highlighter
 		}
 	}
 
+	void selectDiffNode(int pane, std::vector<DiffInfo>& diffInfoList, WDocument& doc, WValue& tree, int diffIndex, int prevDiffIndex, const IWebDiffWindow::ColorSettings& colorSettings)
+	{
+		NodeType nodeType = static_cast<NodeType>(tree[L"nodeType"].GetInt());
+		switch (nodeType)
+		{
+		case NodeType::DOCUMENT_NODE:
+		{
+			if (tree.HasMember(L"children"))
+			{
+				for (auto& child : tree[L"children"].GetArray())
+					selectDiffNode(pane, diffInfoList, doc, child, diffIndex, prevDiffIndex, colorSettings);
+			}
+			break;
+		}
+		case NodeType::ELEMENT_NODE:
+		{
+			if (tree.HasMember(L"children"))
+			{
+				for (auto& child : tree[L"children"].GetArray())
+				{
+					if (isDiffNode(child))
+					{
+						const int nodeId = child[L"nodeId"].GetInt();
+						int thisDiffIndex = _wtoi(child[L"attributes"].GetArray()[3].GetString());
+						if (prevDiffIndex == thisDiffIndex || diffIndex == thisDiffIndex)
+						{
+							std::wstring styleValue;
+							std::wstring styleWordValue;
+							if (prevDiffIndex == thisDiffIndex)
+							{
+								OP_TYPE op = diffInfoList[prevDiffIndex].op;
+								if ((pane == 0 && op == OP_3RDONLY) ||
+									(pane == 2 && op == OP_1STONLY))
+								{
+									styleValue = getDiffStyleValue(colorSettings.clrSNPText, colorSettings.clrSNP);
+								}
+								else
+									styleValue = getDiffStyleValue(colorSettings.clrDiffText, colorSettings.clrDiff);
+							}
+							if (diffIndex == thisDiffIndex)
+							{
+								OP_TYPE op = diffInfoList[diffIndex].op;
+								if ((pane == 0 && op == OP_3RDONLY) ||
+									(pane == 2 && op == OP_1STONLY))
+									styleValue = getDiffStyleValue(colorSettings.clrSelSNPText, colorSettings.clrSelSNP);
+								else
+									styleValue = getDiffStyleValue(colorSettings.clrSelDiffText, colorSettings.clrSelDiff);
+							}
+							if (child[L"attributes"].GetArray().Size() > 6)
+							{
+								child[L"attributes"].GetArray()[7].SetString(styleValue.c_str(), doc.GetAllocator());
+							}
+						}
+						child.AddMember(L"modified", true, doc.GetAllocator());
+						for (auto& child2 : child[L"children"].GetArray())
+						{
+						}
+					}
+					else
+						selectDiffNode(pane, diffInfoList, doc, child, diffIndex, prevDiffIndex, colorSettings);
+				}
+			}
+			if (tree.HasMember(L"contentDocument") && tree[L"contentDocument"].HasMember(L"children"))
+			{
+				for (auto& child : tree[L"contentDocument"][L"children"].GetArray())
+					selectDiffNode(pane, diffInfoList, doc, child, diffIndex, prevDiffIndex, colorSettings);
+			}
+			break;
+		}
+		}
+	}
+
 	void getDiffNodes(WDocument& doc, WValue& tree, std::map<int, int>& nodes)
 	{
 		NodeType nodeType = static_cast<NodeType>(tree[L"nodeType"].GetInt());
@@ -736,19 +821,6 @@ namespace Highlighter
 		}
 	}
 
-	std::wstring getDiffStyleValue(COLORREF color, COLORREF backcolor)
-	{
-		wchar_t styleValue[256];
-		if (color == CLR_NONE)
-			swprintf_s(styleValue, L"background-color: #%02x%02x%02x",
-				GetRValue(backcolor), GetGValue(backcolor), GetBValue(backcolor));
-		else
-			swprintf_s(styleValue, L"color: #%02x%02x%02x; background-color: #%02x%02x%02x",
-				GetRValue(color), GetGValue(color), GetBValue(color),
-				GetRValue(backcolor), GetGValue(backcolor), GetBValue(backcolor));
-		return styleValue;
-	}
-
 	void makeTextNode(WValue& textNode, const std::wstring& text, WDocument::AllocatorType& allocator)
 	{
 		WValue children;
@@ -759,6 +831,17 @@ namespace Highlighter
 		textNode.AddMember(L"nodeType", 3, allocator);
 		textNode.AddMember(L"nodeValue", textValue, allocator);
 		textNode.AddMember(L"children", children, allocator);
+	}
+
+	const wchar_t* diffOpToString(OP_TYPE op)
+	{
+		switch (op)
+		{
+		case OP_1STONLY: return L"wwd-op-1stonly";
+		case OP_2NDONLY: return L"wwd-op-2ndonly";
+		case OP_3RDONLY: return L"wwd-op-3rdonly";
+		default: return L"wwd-op-diff";
+		}
 	}
 
 	void makeWordDiffNodes(size_t pane, const std::vector<DiffInfo>& wordDiffInfoList,
@@ -794,15 +877,19 @@ namespace Highlighter
 				if (!textDiff.empty())
 				{
 					std::wstring style = getDiffStyleValue(colorSettings.clrWordDiffText, colorSettings.clrWordDiff);
+					std::wstring className = L"wwd-wdiff ";
+					className += diffOpToString(diffInfo.op);
+					className += L" wwd-pane-" + std::to_wstring(pane);
 					WValue spanNode, diffTextNode, attributes, spanChildren;
 					WValue styleValue(style.c_str(), static_cast<unsigned>(style.size()), allocator);
 					WValue textDiffValue(textDiff.c_str(), static_cast<unsigned>(textDiff.size()), allocator);
+					WValue classNameValue(className.c_str(), static_cast<unsigned>(className.size()), allocator);
 					makeTextNode(diffTextNode, textDiff, allocator);
 					spanChildren.SetArray();
 					spanChildren.PushBack(diffTextNode, allocator);
 					attributes.SetArray();
 					attributes.PushBack(L"class", allocator);
-					attributes.PushBack(L"wwd-wdiff", allocator);
+					attributes.PushBack(classNameValue, allocator);
 					attributes.PushBack(L"style", allocator);
 					attributes.PushBack(styleValue, allocator);
 					spanNode.SetObject();
@@ -850,13 +937,17 @@ namespace Highlighter
 				wordDiffInfoList = Comparer::compare(diffOptions, textBlocks);
 			for (size_t pane = 0; pane < documents.size(); ++pane)
 			{
+				std::wstring className = L"wwd-diff ";
+				className += diffOpToString(diffInfo.op);
+				className += L" wwd-pane-" + std::to_wstring(pane);
 				WValue spanNode, attributes, children;
 				auto& allocator = documents[pane].GetAllocator();
 				WValue id(std::to_wstring(i).c_str(), allocator);
 				WValue textValue(textBlocks[pane].textBlocks.c_str(), static_cast<unsigned>(textBlocks[pane].textBlocks.size()), allocator);
+				WValue classNameValue(className.c_str(), static_cast<unsigned>(className.size()), allocator);
 				attributes.SetArray();
 				attributes.PushBack(L"class", allocator);
-				attributes.PushBack(L"wwd-diff", allocator);
+				attributes.PushBack(classNameValue, allocator);
 				attributes.PushBack(L"data-wwdid", allocator);
 				attributes.PushBack(id, allocator);
 				attributes.PushBack(L"data-wwdtext", allocator);
@@ -1356,8 +1447,7 @@ public:
 			m_currentDiffIndex = 0;
 		if (oldDiffIndex == m_currentDiffIndex)
 			return false;
-		selectDiff(m_currentDiffIndex, oldDiffIndex);
-		return true;
+		return SUCCEEDED(selectDiff(m_currentDiffIndex, oldDiffIndex, nullptr));
 	}
 
 	bool LastDiff() override
@@ -1366,8 +1456,7 @@ public:
 		m_currentDiffIndex = static_cast<int>(m_diffInfos.size()) - 1;
 		if (oldDiffIndex == m_currentDiffIndex)
 			return false;
-		selectDiff(m_currentDiffIndex, oldDiffIndex);
-		return true;
+		return SUCCEEDED(selectDiff(m_currentDiffIndex, oldDiffIndex, nullptr));
 	}
 
 	bool NextDiff() override
@@ -1378,8 +1467,7 @@ public:
 			m_currentDiffIndex = static_cast<int>(m_diffInfos.size()) - 1;
 		if (oldDiffIndex == m_currentDiffIndex)
 			return false;
-		selectDiff(m_currentDiffIndex, oldDiffIndex);
-		return true;
+		return SUCCEEDED(selectDiff(m_currentDiffIndex, oldDiffIndex, nullptr));
 	}
 	
 	bool PrevDiff() override
@@ -1395,8 +1483,7 @@ public:
 		}
 		if (oldDiffIndex == m_currentDiffIndex)
 			return false;
-		selectDiff(m_currentDiffIndex, oldDiffIndex);
-		return true;
+		return SUCCEEDED(selectDiff(m_currentDiffIndex, oldDiffIndex, nullptr));
 	}
 
 	bool FirstConflict() override
@@ -1407,8 +1494,7 @@ public:
 				m_currentDiffIndex = static_cast<int>(i);
 		if (oldDiffIndex == m_currentDiffIndex)
 			return false;
-		selectDiff(m_currentDiffIndex, oldDiffIndex);
-		return true;
+		return SUCCEEDED(selectDiff(m_currentDiffIndex, oldDiffIndex, nullptr));
 	}
 
 	bool LastConflict() override
@@ -1424,8 +1510,7 @@ public:
 		}
 		if (oldDiffIndex == m_currentDiffIndex)
 			return false;
-		selectDiff(m_currentDiffIndex, oldDiffIndex);
-		return true;
+		return SUCCEEDED(selectDiff(m_currentDiffIndex, oldDiffIndex, nullptr));
 	}
 
 	bool NextConflict() override
@@ -1441,8 +1526,7 @@ public:
 		}
 		if (oldDiffIndex == m_currentDiffIndex)
 			return false;
-		selectDiff(m_currentDiffIndex, oldDiffIndex);
-		return true;
+		return SUCCEEDED(selectDiff(m_currentDiffIndex, oldDiffIndex, nullptr));
 	}
 
 	bool PrevConflict()  override
@@ -1458,13 +1542,12 @@ public:
 		}
 		if (oldDiffIndex == m_currentDiffIndex)
 			return false;
-		selectDiff(m_currentDiffIndex, oldDiffIndex);
-		return true;
+		return SUCCEEDED(selectDiff(m_currentDiffIndex, oldDiffIndex, nullptr));
 	}
 
 	bool SelectDiff(int diffIndex) override
 	{
-		return selectDiff(diffIndex, m_currentDiffIndex);
+		return SUCCEEDED(selectDiff(diffIndex, m_currentDiffIndex, nullptr));
 	}
 
 	int  GetNextDiffIndex() const override
@@ -1777,8 +1860,33 @@ private:
 		return hr;
 	}
 
-	bool selectDiff(int diffIndex, int prevDiffIndex)
+	HRESULT selectDiff(int diffIndex, int prevDiffIndex, IWebDiffCallback* callback)
 	{
+		if (diffIndex < 0 || diffIndex >= m_diffInfos.size())
+			return false;
+		ComPtr<IWebDiffCallback> callback2(callback);
+		std::shared_ptr<std::vector<std::wstring>> jsons(new std::vector<std::wstring>());
+		HRESULT hr = getDocumentsLoop(jsons,
+			Callback<IWebDiffCallback>([this, diffIndex, prevDiffIndex, jsons, callback2](const WebDiffCallbackResult& result) -> HRESULT
+				{
+					HRESULT hr = result.errorCode;
+					if (SUCCEEDED(hr))
+					{
+						std::vector<TextBlocks> textBlocks(m_nPanes);
+						std::shared_ptr<std::vector<WDocument>> documents(new std::vector<WDocument>(m_nPanes));
+						for (int pane = 0; pane < m_nPanes; ++pane)
+						{
+							(*documents)[pane].Parse((*jsons)[pane].c_str());
+							Highlighter::selectDiffNode(pane, m_diffInfos, (*documents)[pane], (*documents)[pane][L"root"], diffIndex, prevDiffIndex, m_colorSettings);
+						}
+						hr = highlightDocuments(documents, callback2.Get());
+					}
+					if (FAILED(hr) && callback2)
+						callback2->Invoke(result);
+					return S_OK;
+				}).Get());
+		return hr;
+		/*
 		if (diffIndex < 0 || diffIndex >= m_diffInfos.size())
 			return false;
 		std::wstring styleValue = Highlighter::getDiffStyleValue(m_colorSettings.clrDiffText, m_colorSettings.clrDiff);
@@ -1805,7 +1913,7 @@ private:
 				     + L", \"name\": \"style\", \"value\": \"" + (snp ? styleSelSNPValue : styleSelValue) + L"\" }";
 				m_webWindow[pane].CallDevToolsProtocolMethod(L"DOM.setAttributeValue", args.c_str(), nullptr);
 			}
-		}
+		}*/
 		return true;
 	}
 
