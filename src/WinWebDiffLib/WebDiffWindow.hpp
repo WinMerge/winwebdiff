@@ -646,7 +646,7 @@ namespace Highlighter
 		return html;
 	}
 
-	bool isDiffNode(const WValue& value)
+	bool containsClassName(const WValue& value, const wchar_t* name)
 	{
 		if (value[L"nodeType"].GetInt() != NodeType::ELEMENT_NODE)
 			return false;
@@ -657,9 +657,47 @@ namespace Highlighter
 		const auto& ary = value[L"attributes"].GetArray();
 		if (ary.Size() < 2 ||
 			wcscmp(ary[0].GetString(), L"class") != 0 ||
-			wcsstr(ary[1].GetString(), L"wwd-diff") == nullptr)
+			wcsstr(ary[1].GetString(), name) == nullptr)
 			return false;
 		return true;
+	}
+
+	bool isDiffNode(const WValue& value)
+	{
+		return containsClassName(value, L"wwd-diff");
+	}
+
+	bool isWordDiffNode(const WValue& value)
+	{
+		return containsClassName(value, L"wwd-wdiff");
+	}
+
+	const wchar_t* getAttribute(WValue& node, const wchar_t* name)
+	{
+		if (!node.HasMember(L"attributes"))
+			return nullptr;
+		const auto& ary = node[L"attributes"].GetArray();
+		for (unsigned i = 0; i < ary.Size(); i += 2)
+		{
+			if (wcscmp(ary[i].GetString(), name) == 0 && i + 1 < ary.Size())
+				return ary[i + 1].GetString();
+		}
+		return nullptr;
+	}
+
+	void setAttribute(WValue& node, const wchar_t* name, const std::wstring& value, WDocument::AllocatorType& allocator)
+	{
+		if (!node.HasMember(L"attributes"))
+			return;
+		const auto& ary = node[L"attributes"].GetArray();
+		for (unsigned i = 0; i < ary.Size(); i += 2)
+		{
+			if (wcscmp(ary[i].GetString(), name) == 0 && i + 1 < ary.Size())
+			{
+				ary[i + 1].SetString(value.c_str(), static_cast<unsigned>(value.length()), allocator);
+				break;
+			}
+		}
 	}
 
 	void unhighlightNodes(WDocument& doc, WValue& tree)
@@ -686,8 +724,9 @@ namespace Highlighter
 					{
 						const int nodeId = child[L"nodeId"].GetInt();
 						std::wstring text;
-						if (child[L"attributes"].GetArray().Size() > 5)
-							text = child[L"attributes"].GetArray()[5].GetString();
+						const wchar_t* value = getAttribute(child, L"data-wwdtext");
+						if (value)
+							text = value;
 						child[L"nodeValue"].SetString(text.c_str(), doc.GetAllocator());
 						child[L"nodeType"].SetInt(NodeType::TEXT_NODE);
 						child[L"nodeId"].SetInt(nodeId);
@@ -730,7 +769,8 @@ namespace Highlighter
 					if (isDiffNode(child))
 					{
 						const int nodeId = child[L"nodeId"].GetInt();
-						int thisDiffIndex = _wtoi(child[L"attributes"].GetArray()[3].GetString());
+						const wchar_t* data = getAttribute(child, L"data-wwdid");
+						int thisDiffIndex = data ? _wtoi(data) : -1;
 						if (prevDiffIndex == thisDiffIndex || diffIndex == thisDiffIndex)
 						{
 							std::wstring styleValue;
@@ -744,25 +784,32 @@ namespace Highlighter
 									styleValue = getDiffStyleValue(colorSettings.clrSNPText, colorSettings.clrSNP);
 								}
 								else
+								{
 									styleValue = getDiffStyleValue(colorSettings.clrDiffText, colorSettings.clrDiff);
+									styleWordValue = getDiffStyleValue(colorSettings.clrWordDiffText, colorSettings.clrWordDiff);
+								}
 							}
 							if (diffIndex == thisDiffIndex)
 							{
 								OP_TYPE op = diffInfoList[diffIndex].op;
 								if ((pane == 0 && op == OP_3RDONLY) ||
 									(pane == 2 && op == OP_1STONLY))
+								{
 									styleValue = getDiffStyleValue(colorSettings.clrSelSNPText, colorSettings.clrSelSNP);
+								}
 								else
+								{
 									styleValue = getDiffStyleValue(colorSettings.clrSelDiffText, colorSettings.clrSelDiff);
+									styleWordValue = getDiffStyleValue(colorSettings.clrSelWordDiffText, colorSettings.clrSelWordDiff);
+								}
 							}
-							if (child[L"attributes"].GetArray().Size() > 6)
+							setAttribute(child, L"style", styleValue, doc.GetAllocator());
+							child.AddMember(L"modified", true, doc.GetAllocator());
+							for (auto& child2 : child[L"children"].GetArray())
 							{
-								child[L"attributes"].GetArray()[7].SetString(styleValue.c_str(), doc.GetAllocator());
+								if (isWordDiffNode(child2))
+									setAttribute(child2, L"style", styleWordValue, doc.GetAllocator());
 							}
-						}
-						child.AddMember(L"modified", true, doc.GetAllocator());
-						for (auto& child2 : child[L"children"].GetArray())
-						{
 						}
 					}
 					else
@@ -802,9 +849,8 @@ namespace Highlighter
 					if (isDiffNode(child))
 					{
 						const int nodeId = child[L"nodeId"].GetInt();
-						auto attributes = child[L"attributes"].GetArray();
-						const wchar_t* buf = attributes[3].GetString();
-						const int diffIndex = attributes.Size() > 3 ? _wtoi(attributes[3].GetString()) : -1;
+						const wchar_t* data = getAttribute(child, L"data-wwdid");
+						const int diffIndex = data ? _wtoi(data) : -1;
 						nodes.insert_or_assign(diffIndex, nodeId);
 					}
 					else
@@ -1879,7 +1925,18 @@ private:
 							(*documents)[pane].Parse((*jsons)[pane].c_str());
 							Highlighter::selectDiffNode(pane, m_diffInfos, (*documents)[pane], (*documents)[pane][L"root"], diffIndex, prevDiffIndex, m_colorSettings);
 						}
-						hr = highlightDocuments(documents, callback2.Get());
+						hr = highlightDocuments(documents,
+							Callback<IWebDiffCallback>([this, diffIndex, documents, callback2](const WebDiffCallbackResult& result) -> HRESULT
+								{
+									for (int pane = 0; pane < m_nPanes; ++pane)
+									{
+										std::wstring args = L"{ \"nodeId\": " + std::to_wstring(m_diffInfos[diffIndex].nodeIds[pane]) + L" }";
+										m_webWindow[pane].CallDevToolsProtocolMethod(L"DOM.scrollIntoViewIfNeeded", args.c_str(), nullptr);
+									}
+									if (callback2)
+										callback2->Invoke({ result.errorCode, nullptr });
+									return S_OK;
+								}).Get());
 					}
 					if (FAILED(hr) && callback2)
 						callback2->Invoke(result);
