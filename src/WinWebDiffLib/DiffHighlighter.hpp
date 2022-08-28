@@ -6,6 +6,8 @@
 #include <string>
 #include <vector>
 #include <map>
+#include <list>
+#include <algorithm>
 #include <rapidjson/document.h>
 #include <rapidjson/prettywriter.h>
 #include <rapidjson/stringbuffer.h>
@@ -862,7 +864,7 @@ private:
 	static std::wstring getDiffStyleValue(COLORREF color, COLORREF backcolor)
 	{
 		wchar_t styleValue[256];
-		if (color == CLR_NONE)
+		if (color == 0xFFFFFFFF)
 			swprintf_s(styleValue, L"background-color: #%02x%02x%02x",
 				GetRValue(backcolor), GetGValue(backcolor), GetBValue(backcolor));
 		else

@@ -3,6 +3,7 @@
 #include <vector>
 #include <cstdlib>
 #include <string>
+#include <windows.h>
 
 namespace utils
 {
