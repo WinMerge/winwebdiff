@@ -643,8 +643,6 @@ public:
 
 	HRESULT SetOuterHTML(int nodeId, const std::wstring& html, IWebDiffCallback* callback)
 	{
-		std::wstring buf = L"html=" + html + L"\n";
-		OutputDebugStringW(buf.c_str());
 		if (!GetActiveWebView())
 			return E_FAIL;
 		ComPtr<IWebDiffCallback> callback2(callback);

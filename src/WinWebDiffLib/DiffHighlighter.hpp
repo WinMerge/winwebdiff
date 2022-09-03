@@ -27,6 +27,8 @@ struct DiffInfo
 	         int begin3 = 0, int end3 = 0)
 		: begin{ begin1, begin2, begin3}
 		, end{ end1, end2, end3 }
+		, nodeIds { 0, 0, 0 }
+		, nodePos { 0, 0, 0 }
 		, op(OP_DIFF)
 	{}
 
@@ -542,9 +544,13 @@ public:
 	void highlightNodes()
 	{
 		std::wstring style = getDiffStyleValue(m_colorSettings.clrDiffText, m_colorSettings.clrDiff);
+		std::wstring styleDeleted = getDiffStyleValue(m_colorSettings.clrDiffText, m_colorSettings.clrDiffDeleted);
 		std::wstring styleSel = getDiffStyleValue(m_colorSettings.clrSelDiffText, m_colorSettings.clrSelDiff);
+		std::wstring styleSelDeleted = getDiffStyleValue(m_colorSettings.clrSelDiffText, m_colorSettings.clrSelDiffDeleted);
 		std::wstring styleSNP = getDiffStyleValue(m_colorSettings.clrSNPText, m_colorSettings.clrSNP);
+		std::wstring styleSNPDeleted = getDiffStyleValue(m_colorSettings.clrSNPText, m_colorSettings.clrSNPDeleted);
 		std::wstring styleSelSNP = getDiffStyleValue(m_colorSettings.clrSelSNPText, m_colorSettings.clrSelSNP);
+		std::wstring styleSelSNPDeleted = getDiffStyleValue(m_colorSettings.clrSelSNPText, m_colorSettings.clrSelSNPDeleted);
 		for (size_t i = 0; i < m_diffInfoList.size(); ++i)
 		{
 			const auto& diffInfo = m_diffInfoList[i];
@@ -561,6 +567,7 @@ public:
 				wordDiffInfoList = Comparer::compare(m_diffOptions, textBlocks);
 			for (size_t pane = 0; pane < m_documents.size(); ++pane)
 			{
+				bool deleted = (diffInfo.nodePos[pane] != 0);
 				std::wstring className = L"wwd-diff ";
 				className += diffOpToString(diffInfo.op);
 				className += L" wwd-pane-" + std::to_wstring(pane);
@@ -582,12 +589,17 @@ public:
 				if ((pane == 0 && diffInfo.op == OP_3RDONLY) ||
 					(pane == 2 && diffInfo.op == OP_1STONLY))
 				{
-					WValue styleSNPValue(i == m_diffIndex ? styleSelSNP.c_str() : styleSNP.c_str(), allocator);
+					WValue styleSNPValue(
+						deleted ? 
+							(i == m_diffIndex ? styleSelSNPDeleted.c_str() : styleSNPDeleted.c_str())
+						:   (i == m_diffIndex ? styleSelSNP.c_str() : styleSNP.c_str()), allocator);
 					attributes.PushBack(styleSNPValue, allocator);
 				}
 				else
 				{
-					WValue styleValue(i == m_diffIndex ? styleSel.c_str() : style.c_str(), allocator);
+					WValue styleValue(
+						deleted ? (i == m_diffIndex ? styleSelDeleted.c_str() : styleDeleted.c_str())
+						: (i == m_diffIndex ? styleSel.c_str() : style.c_str()), allocator);
 					attributes.PushBack(styleValue, allocator);
 				}
 				spanNode.SetObject();
@@ -601,7 +613,7 @@ public:
 					{
 						const int nodeId = (*pvalues[pane])[L"nodeId"].GetInt();
 						children.SetArray();
-						if (m_showWordDifferences)
+						if (m_showWordDifferences && isNeededWordDiffHighlighting(wordDiffInfoList))
 						{
 							makeWordDiffNodes(pane, wordDiffInfoList, textBlocks[pane], children, i == m_diffIndex, allocator);
 						}
@@ -674,26 +686,23 @@ public:
 		}
 		case NodeType::ELEMENT_NODE:
 		{
+			if (isDiffNode(tree))
+			{
+				const int nodeId = tree[L"nodeId"].GetInt();
+				std::wstring text;
+				const wchar_t* value = getAttribute(tree, L"data-wwdtext");
+				if (value)
+					text = value;
+				tree[L"nodeValue"].SetString(text.c_str(), allocator);
+				tree[L"nodeType"].SetInt(NodeType::TEXT_NODE);
+				tree[L"nodeId"].SetInt(nodeId);
+				tree[L"children"].Clear();
+				tree.AddMember(L"modified", true, allocator);
+			}
 			if (tree.HasMember(L"children"))
 			{
 				for (auto& child : tree[L"children"].GetArray())
-				{
-					if (isDiffNode(child))
-					{
-						const int nodeId = child[L"nodeId"].GetInt();
-						std::wstring text;
-						const wchar_t* value = getAttribute(child, L"data-wwdtext");
-						if (value)
-							text = value;
-						child[L"nodeValue"].SetString(text.c_str(), allocator);
-						child[L"nodeType"].SetInt(NodeType::TEXT_NODE);
-						child[L"nodeId"].SetInt(nodeId);
-						child[L"children"].Clear();
-						child.AddMember(L"modified", true, allocator);
-					}
-					else
-						unhighlightNodes(child, allocator);
-				}
+					unhighlightNodes(child, allocator);
 			}
 			if (tree.HasMember(L"contentDocument") && tree[L"contentDocument"].HasMember(L"children"))
 			{
@@ -835,20 +844,17 @@ public:
 		}
 		case NodeType::ELEMENT_NODE:
 		{
+			if (isDiffNode(tree))
+			{
+				const int nodeId = tree[L"nodeId"].GetInt();
+				const wchar_t* data = getAttribute(tree, L"data-wwdid");
+				const int diffIndex = data ? _wtoi(data) : -1;
+				nodes.insert_or_assign(diffIndex, nodeId);
+			}
 			if (tree.HasMember(L"children"))
 			{
 				for (auto& child : tree[L"children"].GetArray())
-				{
-					if (isDiffNode(child))
-					{
-						const int nodeId = child[L"nodeId"].GetInt();
-						const wchar_t* data = getAttribute(child, L"data-wwdid");
-						const int diffIndex = data ? _wtoi(data) : -1;
-						nodes.insert_or_assign(diffIndex, nodeId);
-					}
-					else
-						getDiffNodes(child, nodes);
-				}
+					getDiffNodes(child, nodes);
 			}
 			if (tree.HasMember(L"contentDocument") && tree[L"contentDocument"].HasMember(L"children"))
 			{
@@ -974,6 +980,18 @@ private:
 		}
 	}
 
+	bool isNeededWordDiffHighlighting(const std::vector<DiffInfo>& wordDiffInfoList)
+	{
+		if (wordDiffInfoList.empty())
+			return false;
+		if (wordDiffInfoList.size() == 1 &&
+			wordDiffInfoList[0].end[0] < wordDiffInfoList[0].begin[0] ||
+			wordDiffInfoList[0].end[1] < wordDiffInfoList[0].begin[1] ||
+			(m_documents.size() > 2 && wordDiffInfoList[0].end[2] < wordDiffInfoList[0].begin[2]))
+			return false;
+		return true;
+	}
+
 	void makeWordDiffNodes(size_t pane, const std::vector<DiffInfo>& wordDiffInfoList,
 		const TextBlocks& textBlocks, WValue& children, bool selected, WDocument::AllocatorType& allocator)
 	{
@@ -1059,59 +1077,56 @@ private:
 		}
 		case NodeType::ELEMENT_NODE:
 		{
+			if (isDiffNode(tree))
+			{
+				const int nodeId = tree[L"nodeId"].GetInt();
+				const wchar_t* data = getAttribute(tree, L"data-wwdid");
+				int thisDiffIndex = data ? _wtoi(data) : -1;
+				if (prevDiffIndex == thisDiffIndex || diffIndex == thisDiffIndex)
+				{
+					std::wstring styleValue;
+					std::wstring styleWordValue;
+					if (prevDiffIndex == thisDiffIndex)
+					{
+						OP_TYPE op = m_diffInfoList[prevDiffIndex].op;
+						if ((pane == 0 && op == OP_3RDONLY) ||
+							(pane == 2 && op == OP_1STONLY))
+						{
+							styleValue = getDiffStyleValue(m_colorSettings.clrSNPText, m_colorSettings.clrSNP);
+						}
+						else
+						{
+							styleValue = getDiffStyleValue(m_colorSettings.clrDiffText, m_colorSettings.clrDiff);
+							styleWordValue = getDiffStyleValue(m_colorSettings.clrWordDiffText, m_colorSettings.clrWordDiff);
+						}
+					}
+					if (diffIndex == thisDiffIndex)
+					{
+						OP_TYPE op = m_diffInfoList[diffIndex].op;
+						if ((pane == 0 && op == OP_3RDONLY) ||
+							(pane == 2 && op == OP_1STONLY))
+						{
+							styleValue = getDiffStyleValue(m_colorSettings.clrSelSNPText, m_colorSettings.clrSelSNP);
+						}
+						else
+						{
+							styleValue = getDiffStyleValue(m_colorSettings.clrSelDiffText, m_colorSettings.clrSelDiff);
+							styleWordValue = getDiffStyleValue(m_colorSettings.clrSelWordDiffText, m_colorSettings.clrSelWordDiff);
+						}
+					}
+					setAttribute(tree, L"style", styleValue, allocator);
+					tree.AddMember(L"modified", true, allocator);
+					for (auto& tree2 : tree[L"children"].GetArray())
+					{
+						if (isWordDiffNode(tree2))
+							setAttribute(tree2, L"style", styleWordValue, allocator);
+					}
+				}
+			}
 			if (tree.HasMember(L"children"))
 			{
 				for (auto& child : tree[L"children"].GetArray())
-				{
-					if (isDiffNode(child))
-					{
-						const int nodeId = child[L"nodeId"].GetInt();
-						const wchar_t* data = getAttribute(child, L"data-wwdid");
-						int thisDiffIndex = data ? _wtoi(data) : -1;
-						if (prevDiffIndex == thisDiffIndex || diffIndex == thisDiffIndex)
-						{
-							std::wstring styleValue;
-							std::wstring styleWordValue;
-							if (prevDiffIndex == thisDiffIndex)
-							{
-								OP_TYPE op = m_diffInfoList[prevDiffIndex].op;
-								if ((pane == 0 && op == OP_3RDONLY) ||
-									(pane == 2 && op == OP_1STONLY))
-								{
-									styleValue = getDiffStyleValue(m_colorSettings.clrSNPText, m_colorSettings.clrSNP);
-								}
-								else
-								{
-									styleValue = getDiffStyleValue(m_colorSettings.clrDiffText, m_colorSettings.clrDiff);
-									styleWordValue = getDiffStyleValue(m_colorSettings.clrWordDiffText, m_colorSettings.clrWordDiff);
-								}
-							}
-							if (diffIndex == thisDiffIndex)
-							{
-								OP_TYPE op = m_diffInfoList[diffIndex].op;
-								if ((pane == 0 && op == OP_3RDONLY) ||
-									(pane == 2 && op == OP_1STONLY))
-								{
-									styleValue = getDiffStyleValue(m_colorSettings.clrSelSNPText, m_colorSettings.clrSelSNP);
-								}
-								else
-								{
-									styleValue = getDiffStyleValue(m_colorSettings.clrSelDiffText, m_colorSettings.clrSelDiff);
-									styleWordValue = getDiffStyleValue(m_colorSettings.clrSelWordDiffText, m_colorSettings.clrSelWordDiff);
-								}
-							}
-							setAttribute(child, L"style", styleValue, allocator);
-							child.AddMember(L"modified", true, allocator);
-							for (auto& child2 : child[L"children"].GetArray())
-							{
-								if (isWordDiffNode(child2))
-									setAttribute(child2, L"style", styleWordValue, allocator);
-							}
-						}
-					}
-					else
-						selectDiffNode(pane, child, diffIndex, prevDiffIndex, allocator);
-				}
+					selectDiffNode(pane, child, diffIndex, prevDiffIndex, allocator);
 			}
 			if (tree.HasMember(L"contentDocument") && tree[L"contentDocument"].HasMember(L"children"))
 			{

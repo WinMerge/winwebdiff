@@ -855,6 +855,27 @@ private:
 		return hr;
 	}
 
+	HRESULT scrollIntoViewIfNeededLoop(int diffIndex, IWebDiffCallback* callback, int pane = 0)
+	{
+		ComPtr<IWebDiffCallback> callback2(callback);
+		std::wstring args = L"{ \"nodeId\": " + std::to_wstring(m_diffInfos[diffIndex].nodeIds[pane]) + L" }";
+		return m_webWindow[pane].CallDevToolsProtocolMethod(L"DOM.scrollIntoViewIfNeeded", args.c_str(),
+			Callback<IWebDiffCallback>([this, diffIndex, pane, callback2](const WebDiffCallbackResult& result) -> HRESULT
+				{
+					HRESULT hr = result.errorCode;
+					if (SUCCEEDED(hr))
+					{
+						if (pane + 1 < m_nPanes)
+							hr = scrollIntoViewIfNeededLoop(diffIndex, callback2.Get(), pane + 1);
+						else if (callback2)
+							callback2->Invoke({ hr, nullptr });
+					}
+					if (FAILED(hr) && callback2)
+						callback2->Invoke(result);
+					return S_OK;
+				}).Get());
+	}
+
 	HRESULT selectDiff(int diffIndex, int prevDiffIndex, IWebDiffCallback* callback)
 	{
 		if (diffIndex < 0 || diffIndex >= m_diffInfos.size())
@@ -876,13 +897,11 @@ private:
 						hr = highlightDocuments(documents,
 							Callback<IWebDiffCallback>([this, diffIndex, documents, callback2](const WebDiffCallbackResult& result) -> HRESULT
 								{
-									for (int pane = 0; pane < m_nPanes; ++pane)
-									{
-										std::wstring args = L"{ \"nodeId\": " + std::to_wstring(m_diffInfos[diffIndex].nodeIds[pane]) + L" }";
-										m_webWindow[pane].CallDevToolsProtocolMethod(L"DOM.scrollIntoViewIfNeeded", args.c_str(), nullptr);
-									}
-									if (callback2)
-										callback2->Invoke({ result.errorCode, nullptr });
+									HRESULT hr = result.errorCode;
+									if (SUCCEEDED(hr))
+										hr = scrollIntoViewIfNeededLoop(diffIndex, callback2.Get());
+									if (FAILED(hr) && callback2)
+										callback2->Invoke({ hr, nullptr });
 									return S_OK;
 								}).Get());
 					}
