@@ -1,6 +1,5 @@
 #pragma once
 
-#include "WinWebDiffLib.h"
 #include "Diff.hpp"
 #include "Utils.hpp"
 #include <string>
@@ -11,6 +10,7 @@
 #include <rapidjson/document.h>
 #include <rapidjson/prettywriter.h>
 #include <rapidjson/stringbuffer.h>
+#include "WinWebDiffLib.h"
 
 using WDocument = rapidjson::GenericDocument<rapidjson::UTF16<>>;
 using WValue = rapidjson::GenericValue<rapidjson::UTF16<>>;
@@ -543,14 +543,6 @@ public:
 
 	void highlightNodes()
 	{
-		std::wstring style = getDiffStyleValue(m_colorSettings.clrDiffText, m_colorSettings.clrDiff);
-		std::wstring styleDeleted = getDiffStyleValue(m_colorSettings.clrDiffText, m_colorSettings.clrDiffDeleted);
-		std::wstring styleSel = getDiffStyleValue(m_colorSettings.clrSelDiffText, m_colorSettings.clrSelDiff);
-		std::wstring styleSelDeleted = getDiffStyleValue(m_colorSettings.clrSelDiffText, m_colorSettings.clrSelDiffDeleted);
-		std::wstring styleSNP = getDiffStyleValue(m_colorSettings.clrSNPText, m_colorSettings.clrSNP);
-		std::wstring styleSNPDeleted = getDiffStyleValue(m_colorSettings.clrSNPText, m_colorSettings.clrSNPDeleted);
-		std::wstring styleSelSNP = getDiffStyleValue(m_colorSettings.clrSelSNPText, m_colorSettings.clrSelSNP);
-		std::wstring styleSelSNPDeleted = getDiffStyleValue(m_colorSettings.clrSelSNPText, m_colorSettings.clrSelSNPDeleted);
 		for (size_t i = 0; i < m_diffInfoList.size(); ++i)
 		{
 			const auto& diffInfo = m_diffInfoList[i];
@@ -569,8 +561,11 @@ public:
 			{
 				bool deleted = (diffInfo.nodePos[pane] != 0);
 				std::wstring className = L"wwd-diff ";
-				className += diffOpToString(diffInfo.op);
-				className += L" wwd-pane-" + std::to_wstring(pane);
+				if ((pane == 0 && diffInfo.op == OP_3RDONLY) ||
+					(pane == 2 && diffInfo.op == OP_1STONLY))
+					className += deleted ? L" wwd-snpdeleted" : L" wwd-snpchanged";
+				else
+					className += deleted ? L" wwd-deleted" : L" wwd-changed";
 				WValue spanNode, attributes, children;
 				auto& allocator = m_documents[pane].GetAllocator();
 				WValue id(std::to_wstring(i).c_str(), allocator);
@@ -585,23 +580,6 @@ public:
 				attributes.PushBack(id, allocator);
 				attributes.PushBack(L"data-wwdtext", allocator);
 				attributes.PushBack(textValue, allocator);
-				attributes.PushBack(L"style", allocator);
-				if ((pane == 0 && diffInfo.op == OP_3RDONLY) ||
-					(pane == 2 && diffInfo.op == OP_1STONLY))
-				{
-					WValue styleSNPValue(
-						deleted ? 
-							(i == m_diffIndex ? styleSelSNPDeleted.c_str() : styleSNPDeleted.c_str())
-						:   (i == m_diffIndex ? styleSelSNP.c_str() : styleSNP.c_str()), allocator);
-					attributes.PushBack(styleSNPValue, allocator);
-				}
-				else
-				{
-					WValue styleValue(
-						deleted ? (i == m_diffIndex ? styleSelDeleted.c_str() : styleDeleted.c_str())
-						: (i == m_diffIndex ? styleSel.c_str() : style.c_str()), allocator);
-					attributes.PushBack(styleValue, allocator);
-				}
 				spanNode.SetObject();
 				spanNode.AddMember(L"nodeName", L"SPAN", allocator);
 				spanNode.AddMember(L"attributes", attributes, allocator);
@@ -662,12 +640,6 @@ public:
 				}
 			}
 		}
-	}
-
-	void selectDiffNode(int diffIndex)
-	{
-		for (size_t i = 0; i < m_documents.size(); ++i)
-			selectDiffNode(static_cast<int>(i), m_documents[i][L"root"], diffIndex, m_diffIndex, m_documents[i].GetAllocator());
 	}
 
 	static void unhighlightNodes(WValue& tree, WDocument::AllocatorType& allocator)
@@ -866,15 +838,33 @@ public:
 		}
 	}
 
+	static std::wstring getStyleSheetText(int diffIndex, const IWebDiffWindow::ColorSettings& colorSettings)
+	{
+		std::wstring styles;
+		styles += L" .wwd-changed { " + getDiffStyleValue(colorSettings.clrDiffText, colorSettings.clrDiff) + L" }\n";
+		styles += L" .wwd-deleted { " + getDiffStyleValue(colorSettings.clrDiffText, colorSettings.clrDiffDeleted) + L" }\n";
+		styles += L" .wwd-snpchanged { " + getDiffStyleValue(colorSettings.clrSNPText, colorSettings.clrSNP) + L" }\n";
+		styles += L" .wwd-snpdeleted { " + getDiffStyleValue(colorSettings.clrSNPText, colorSettings.clrSNPDeleted) + L" }\n";
+		styles += L" .wwd-word { " + getDiffStyleValue(colorSettings.clrWordDiffText, colorSettings.clrWordDiff) + L" }\n";
+
+		std::wstring datawwdid = L"[data-wwdid=\"" + std::to_wstring(diffIndex) + L"\"]";
+		styles += L" .wwd-changed" + datawwdid + L" { " + getDiffStyleValue(colorSettings.clrSelDiffText, colorSettings.clrSelDiff) + L" }\n";
+		styles += L" .wwd-deleted" + datawwdid + L" { " + getDiffStyleValue(colorSettings.clrSelDiffText, colorSettings.clrSelDiffDeleted) + L" }\n";
+		styles += L" .wwd-snpchanged" + datawwdid + L" { " + getDiffStyleValue(colorSettings.clrSelSNPText, colorSettings.clrSelSNP) + L" }\n";
+		styles += L" .wwd-snpdeleted" + datawwdid + L" { " + getDiffStyleValue(colorSettings.clrSelSNPText, colorSettings.clrSelSNPDeleted) + L" }\n";
+		styles += L" .wwd-diff" + datawwdid + L" .wwd-word { " + getDiffStyleValue(colorSettings.clrSelWordDiffText, colorSettings.clrSelWordDiff) + L" }\n";
+		return styles;
+	}
+
 private:
 	static std::wstring getDiffStyleValue(COLORREF color, COLORREF backcolor)
 	{
 		wchar_t styleValue[256];
 		if (color == 0xFFFFFFFF)
-			swprintf_s(styleValue, L"background-color: #%02x%02x%02x",
+			swprintf_s(styleValue, L"background-color: #%02x%02x%02x;",
 				GetRValue(backcolor), GetGValue(backcolor), GetBValue(backcolor));
 		else
-			swprintf_s(styleValue, L"color: #%02x%02x%02x; background-color: #%02x%02x%02x",
+			swprintf_s(styleValue, L"color: #%02x%02x%02x; background-color: #%02x%02x%02x;",
 				GetRValue(color), GetGValue(color), GetBValue(color),
 				GetRValue(backcolor), GetGValue(backcolor), GetBValue(backcolor));
 		return styleValue;
@@ -969,17 +959,6 @@ private:
 		textNode.AddMember(L"children", children, allocator);
 	}
 
-	static const wchar_t* diffOpToString(OP_TYPE op)
-	{
-		switch (op)
-		{
-		case OP_1STONLY: return L"wwd-op-1stonly";
-		case OP_2NDONLY: return L"wwd-op-2ndonly";
-		case OP_3RDONLY: return L"wwd-op-3rdonly";
-		default: return L"wwd-op-diff";
-		}
-	}
-
 	bool isNeededWordDiffHighlighting(const std::vector<DiffInfo>& wordDiffInfoList)
 	{
 		if (wordDiffInfoList.empty())
@@ -1023,14 +1002,9 @@ private:
 
 				if (!textDiff.empty())
 				{
-					std::wstring style = selected ? 
-						getDiffStyleValue(m_colorSettings.clrSelWordDiffText, m_colorSettings.clrSelWordDiff) :
-						getDiffStyleValue(m_colorSettings.clrWordDiffText, m_colorSettings.clrWordDiff);
 					std::wstring className = L"wwd-wdiff ";
-					className += diffOpToString(diffInfo.op);
-					className += L" wwd-pane-" + std::to_wstring(pane);
+					className += L" wwd-word";
 					WValue spanNode, diffTextNode, attributes, spanChildren;
-					WValue styleValue(style.c_str(), static_cast<unsigned>(style.size()), allocator);
 					WValue textDiffValue(textDiff.c_str(), static_cast<unsigned>(textDiff.size()), allocator);
 					WValue classNameValue(className.c_str(), static_cast<unsigned>(className.size()), allocator);
 					makeTextNode(diffTextNode, textDiff, allocator);
@@ -1039,8 +1013,6 @@ private:
 					attributes.SetArray();
 					attributes.PushBack(L"class", allocator);
 					attributes.PushBack(classNameValue, allocator);
-					attributes.PushBack(L"style", allocator);
-					attributes.PushBack(styleValue, allocator);
 					spanNode.SetObject();
 					spanNode.AddMember(L"nodeId", -1, allocator);
 					spanNode.AddMember(L"nodeName", L"SPAN", allocator);
@@ -1058,83 +1030,6 @@ private:
 			WValue textNode;
 			makeTextNode(textNode, text, allocator);
 			children.PushBack(textNode, allocator);
-		}
-	}
-
-	void selectDiffNode(int pane, WValue& tree, int diffIndex, int prevDiffIndex, WDocument::AllocatorType& allocator)
-	{
-		NodeType nodeType = static_cast<NodeType>(tree[L"nodeType"].GetInt());
-		switch (nodeType)
-		{
-		case NodeType::DOCUMENT_NODE:
-		{
-			if (tree.HasMember(L"children"))
-			{
-				for (auto& child : tree[L"children"].GetArray())
-					selectDiffNode(pane, child, diffIndex, prevDiffIndex, allocator);
-			}
-			break;
-		}
-		case NodeType::ELEMENT_NODE:
-		{
-			if (isDiffNode(tree))
-			{
-				const int nodeId = tree[L"nodeId"].GetInt();
-				const wchar_t* data = getAttribute(tree, L"data-wwdid");
-				int thisDiffIndex = data ? _wtoi(data) : -1;
-				if (prevDiffIndex == thisDiffIndex || diffIndex == thisDiffIndex)
-				{
-					std::wstring styleValue;
-					std::wstring styleWordValue;
-					if (prevDiffIndex == thisDiffIndex)
-					{
-						OP_TYPE op = m_diffInfoList[prevDiffIndex].op;
-						if ((pane == 0 && op == OP_3RDONLY) ||
-							(pane == 2 && op == OP_1STONLY))
-						{
-							styleValue = getDiffStyleValue(m_colorSettings.clrSNPText, m_colorSettings.clrSNP);
-						}
-						else
-						{
-							styleValue = getDiffStyleValue(m_colorSettings.clrDiffText, m_colorSettings.clrDiff);
-							styleWordValue = getDiffStyleValue(m_colorSettings.clrWordDiffText, m_colorSettings.clrWordDiff);
-						}
-					}
-					if (diffIndex == thisDiffIndex)
-					{
-						OP_TYPE op = m_diffInfoList[diffIndex].op;
-						if ((pane == 0 && op == OP_3RDONLY) ||
-							(pane == 2 && op == OP_1STONLY))
-						{
-							styleValue = getDiffStyleValue(m_colorSettings.clrSelSNPText, m_colorSettings.clrSelSNP);
-						}
-						else
-						{
-							styleValue = getDiffStyleValue(m_colorSettings.clrSelDiffText, m_colorSettings.clrSelDiff);
-							styleWordValue = getDiffStyleValue(m_colorSettings.clrSelWordDiffText, m_colorSettings.clrSelWordDiff);
-						}
-					}
-					setAttribute(tree, L"style", styleValue, allocator);
-					tree.AddMember(L"modified", true, allocator);
-					for (auto& tree2 : tree[L"children"].GetArray())
-					{
-						if (isWordDiffNode(tree2))
-							setAttribute(tree2, L"style", styleWordValue, allocator);
-					}
-				}
-			}
-			if (tree.HasMember(L"children"))
-			{
-				for (auto& child : tree[L"children"].GetArray())
-					selectDiffNode(pane, child, diffIndex, prevDiffIndex, allocator);
-			}
-			if (tree.HasMember(L"contentDocument") && tree[L"contentDocument"].HasMember(L"children"))
-			{
-				for (auto& child : tree[L"contentDocument"][L"children"].GetArray())
-					selectDiffNode(pane, child, diffIndex, prevDiffIndex, allocator);
-			}
-			break;
-		}
 		}
 	}
 
