@@ -186,16 +186,23 @@ public:
 		return unhighlightDifferencesLoop(
 			Callback<IWebDiffCallback>([this, kind, pane, sfilename, callback2](const WebDiffCallbackResult& result) -> HRESULT
 				{
-					return m_webWindow[pane].SaveFile(sfilename, kind,
-						Callback<IWebDiffCallback>([this, callback2](const WebDiffCallbackResult& result) -> HRESULT
-							{
-								HRESULT hr = result.errorCode;
-								if (SUCCEEDED(hr))
-									hr = compare(callback2.Get());
-								if (FAILED(hr) && callback2)
-									callback2->Invoke({ hr, nullptr });
-								return S_OK;
-							}).Get());
+					HRESULT hr = result.errorCode;
+					if (SUCCEEDED(hr))
+					{
+						hr = m_webWindow[pane].SaveFile(sfilename, kind,
+							Callback<IWebDiffCallback>([this, callback2](const WebDiffCallbackResult& result) -> HRESULT
+								{
+									HRESULT hr = result.errorCode;
+									if (SUCCEEDED(hr))
+										hr = compare(callback2.Get());
+									if (FAILED(hr) && callback2)
+										callback2->Invoke({ hr, nullptr });
+									return S_OK;
+								}).Get());
+					}
+					if (FAILED(hr) && callback2)
+						callback2->Invoke({ hr, nullptr });
+					return S_OK;
 				}).Get());
 	}
 
@@ -208,16 +215,23 @@ public:
 		return unhighlightDifferencesLoop(
 			Callback<IWebDiffCallback>([this, kind, sfilenames, callback2](const WebDiffCallbackResult& result) -> HRESULT
 				{
-					return saveFilesLoop(kind, sfilenames,
-						Callback<IWebDiffCallback>([this, sfilenames, callback2](const WebDiffCallbackResult& result) -> HRESULT
-							{
-								HRESULT hr = result.errorCode;
-								if (SUCCEEDED(hr))
-									hr = compare(callback2.Get());
-								if (FAILED(hr) && callback2)
-									callback2->Invoke({ hr, nullptr });
-								return S_OK;
-							}).Get());
+					HRESULT hr = result.errorCode;
+					if (SUCCEEDED(hr))
+					{
+						hr = saveFilesLoop(kind, sfilenames,
+							Callback<IWebDiffCallback>([this, sfilenames, callback2](const WebDiffCallbackResult& result) -> HRESULT
+								{
+									HRESULT hr = result.errorCode;
+									if (SUCCEEDED(hr))
+										hr = compare(callback2.Get());
+									if (FAILED(hr) && callback2)
+										callback2->Invoke({ hr, nullptr });
+									return S_OK;
+								}).Get());
+					}
+					if (FAILED(hr) && callback2)
+						callback2->Invoke({ hr, nullptr });
+					return S_OK;
 				}).Get());
 	}
 
@@ -687,7 +701,7 @@ private:
 								{
 									HRESULT hr = result.errorCode;
 									if (SUCCEEDED(hr))
-										hr = addStyleSheetLoop(Highlighter::getStyleSheetText(m_currentDiffIndex, m_colorSettings).c_str(), nullptr);
+										hr = setStyleSheetLoop(Highlighter::getStyleSheetText(m_currentDiffIndex, m_colorSettings).c_str(), nullptr);
 									if (FAILED(hr) && callback2)
 										callback2->Invoke({ hr, nullptr });
 									return S_OK;
@@ -744,7 +758,7 @@ private:
 						++it2;
 						if (it2 != nodes->end())
 							hr = applyHTMLLoop(pane, nodes, callback2.Get(), it2);
-						else
+						else if (callback2)
 							callback2->Invoke({ hr, nullptr });
 					}
 					if (FAILED(hr) && callback2)
@@ -777,17 +791,17 @@ private:
 		return hr;
 	}
 
-	HRESULT addStyleSheetLoop(const std::wstring& styles, IWebDiffCallback* callback, int pane = 0)
+	HRESULT setStyleSheetLoop(const std::wstring& styles, IWebDiffCallback* callback, int pane = 0)
 	{
 		ComPtr<IWebDiffCallback> callback2(callback);
-		HRESULT hr = addStyleSheet(pane, styles,
+		HRESULT hr = setStyleSheet(pane, styles,
 			Callback<IWebDiffCallback>([this, pane, styles, callback2](const WebDiffCallbackResult& result) -> HRESULT
 				{
 					HRESULT hr = result.errorCode;
 					if (SUCCEEDED(hr))
 					{
 						if (pane + 1 < m_nPanes)
-							hr = addStyleSheetLoop(styles, callback2.Get(), pane + 1);
+							hr = setStyleSheetLoop(styles, callback2.Get(), pane + 1);
 						else if (callback2)
 							callback2->Invoke({ hr, nullptr });
 					}
@@ -801,7 +815,7 @@ private:
 	HRESULT highlightDocuments(std::shared_ptr<std::vector<WDocument>> documents, IWebDiffCallback* callback)
 	{
 		ComPtr<IWebDiffCallback> callback2(callback);
-		applyDOMLoop(documents,
+		HRESULT hr = applyDOMLoop(documents,
 			Callback<IWebDiffCallback>([this, documents, callback2](const WebDiffCallbackResult& result) -> HRESULT
 				{
 					HRESULT hr = result.errorCode;
@@ -811,7 +825,7 @@ private:
 						callback2->Invoke({ hr, nullptr });
 					return S_OK;
 				}).Get());
-		return S_OK;
+		return hr;
 	}
 
 	HRESULT unhighlightDifferencesLoop(IWebDiffCallback* callback, int pane = 0)
@@ -889,7 +903,7 @@ private:
 	{
 		ComPtr<IWebDiffCallback> callback2(callback);
 		std::wstring args = L"{ \"nodeId\": " + std::to_wstring(m_diffInfos[diffIndex].nodeIds[pane]) + L" }";
-		return m_webWindow[pane].CallDevToolsProtocolMethod(L"DOM.scrollIntoViewIfNeeded", args.c_str(),
+		HRESULT hr = m_webWindow[pane].CallDevToolsProtocolMethod(L"DOM.scrollIntoViewIfNeeded", args.c_str(),
 			Callback<IWebDiffCallback>([this, diffIndex, pane, callback2](const WebDiffCallbackResult& result) -> HRESULT
 				{
 					HRESULT hr = result.errorCode;
@@ -904,6 +918,7 @@ private:
 						callback2->Invoke(result);
 					return S_OK;
 				}).Get());
+		return hr;
 	}
 
 	HRESULT setStyleSheetText(int pane, const std::wstring& styleSheetId, const std::wstring& styles, IWebDiffCallback* callback)
@@ -923,7 +938,7 @@ private:
 		return hr;
 	}
 
-	HRESULT addStyleSheet(int pane, const std::wstring& frameId, const std::wstring& styles, IWebDiffCallback* callback)
+	HRESULT setFrameStyleSheet(int pane, const std::wstring& frameId, const std::wstring& styles, IWebDiffCallback* callback)
 	{
 		static const wchar_t* method = L"CSS.createStyleSheet";
 		std::wstring params = L"{ \"frameId\": \"" + frameId + L"\" }";
@@ -940,7 +955,7 @@ private:
 						hr = setStyleSheetText(pane, styleSheetId, styles, callback2.Get());
 					}
 					if (FAILED(hr) && callback2)
-						callback2->Invoke(result);
+						callback2->Invoke({ hr, nullptr });
 					return S_OK;
 				}).Get());
 		return hr;
@@ -956,7 +971,7 @@ private:
 		}
 	}
 
-	HRESULT addFrameStyleSheetLoop(int pane,
+	HRESULT setFrameStyleSheetLoop(int pane,
 		std::shared_ptr<std::vector<std::wstring>> frameIdList,
 		std::shared_ptr<const std::wstring> styles,
 		IWebDiffCallback* callback,
@@ -969,7 +984,7 @@ private:
 			return S_OK;
 		}
 		ComPtr<IWebDiffCallback> callback2(callback);
-		HRESULT hr = addStyleSheet(pane, *it, *styles,
+		HRESULT hr = setFrameStyleSheet(pane, *it, *styles,
 			Callback<IWebDiffCallback>([this, pane, frameIdList, styles, it, callback2](const WebDiffCallbackResult& result) -> HRESULT
 				{
 					HRESULT hr = result.errorCode;
@@ -978,7 +993,7 @@ private:
 						std::vector<std::wstring>::iterator it2(it);
 						++it2;
 						if (it2 != frameIdList->end())
-							hr = addFrameStyleSheetLoop(pane, frameIdList, styles, callback2.Get(), it2);
+							hr = setFrameStyleSheetLoop(pane, frameIdList, styles, callback2.Get(), it2);
 						else
 							callback2->Invoke({ hr, nullptr });
 					}
@@ -989,7 +1004,7 @@ private:
 		return hr;
 	}
 
-	HRESULT addStyleSheet(int pane, const std::wstring& styles, IWebDiffCallback* callback)
+	HRESULT setStyleSheet(int pane, const std::wstring& styles, IWebDiffCallback* callback)
 	{
 		static const wchar_t* method = L"Page.getFrameTree";
 		static const wchar_t* params = L"{}";
@@ -1004,7 +1019,7 @@ private:
 						document.Parse(result.returnObjectAsJson);
 						std::shared_ptr<std::vector<std::wstring>> frameIdList(new std::vector<std::wstring>());
 						getFrameIdList(document[L"frameTree"], *frameIdList);
-						hr = addFrameStyleSheetLoop(pane, frameIdList,
+						hr = setFrameStyleSheetLoop(pane, frameIdList,
 							std::shared_ptr<std::wstring>(new std::wstring(styles)),
 							callback2.Get(), frameIdList->begin());
 					}
@@ -1021,7 +1036,7 @@ private:
 			return false;
 		ComPtr<IWebDiffCallback> callback2(callback);
 		std::shared_ptr<std::vector<std::wstring>> jsons(new std::vector<std::wstring>());
-		HRESULT hr = addStyleSheetLoop(Highlighter::getStyleSheetText(diffIndex, m_colorSettings).c_str(),
+		HRESULT hr = setStyleSheetLoop(Highlighter::getStyleSheetText(diffIndex, m_colorSettings).c_str(),
 			Callback<IWebDiffCallback>([this, diffIndex, callback2](const WebDiffCallbackResult& result) -> HRESULT
 				{
 					HRESULT hr = result.errorCode;

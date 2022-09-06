@@ -559,11 +559,15 @@ public:
 				wordDiffInfoList = Comparer::compare(m_diffOptions, textBlocks);
 			for (size_t pane = 0; pane < m_documents.size(); ++pane)
 			{
+				bool snp = false;
 				bool deleted = (diffInfo.nodePos[pane] != 0);
 				std::wstring className = L"wwd-diff ";
 				if ((pane == 0 && diffInfo.op == OP_3RDONLY) ||
 					(pane == 2 && diffInfo.op == OP_1STONLY))
+				{
+					snp = true;
 					className += deleted ? L" wwd-snpdeleted" : L" wwd-snpchanged";
+				}
 				else
 					className += deleted ? L" wwd-deleted" : L" wwd-changed";
 				WValue spanNode, attributes, children;
@@ -591,7 +595,7 @@ public:
 					{
 						const int nodeId = (*pvalues[pane])[L"nodeId"].GetInt();
 						children.SetArray();
-						if (m_showWordDifferences && isNeededWordDiffHighlighting(wordDiffInfoList))
+						if (m_showWordDifferences && !snp/* && isNeededWordDiffHighlighting(wordDiffInfoList) */)
 						{
 							makeWordDiffNodes(pane, wordDiffInfoList, textBlocks[pane], children, i == m_diffIndex, allocator);
 						}
