@@ -994,7 +994,7 @@ private:
 						++it2;
 						if (it2 != frameIdList->end())
 							hr = setFrameStyleSheetLoop(pane, frameIdList, styles, callback2.Get(), it2);
-						else
+						else if (callback2)
 							callback2->Invoke({ hr, nullptr });
 					}
 					if (FAILED(hr) && callback2)
