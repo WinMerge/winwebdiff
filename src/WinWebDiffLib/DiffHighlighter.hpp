@@ -165,23 +165,95 @@ public:
 			return scanline + it->second.size * sizeof(wchar_t);
 		return nullptr;
 	}
+	bool match_a_wchar(wchar_t ch1, wchar_t ch2) const
+	{
+		if (ch1 == ch2)
+			return true;
+		if (iswupper(ch1))
+			ch1 = towlower(ch1);
+		if (iswupper(ch2))
+			ch2 = towlower(ch2);
+		return (ch1 == ch2);
+	}
 	bool equals(const char* scanline1, unsigned size1,
 		const char* scanline2, unsigned size2) const
 	{
 		if (size1 != size2)
 			return false;
-		return memcmp(scanline1, scanline2, size1) == 0;
+		if (!m_diffOptions.ignoreCase && m_diffOptions.ignoreWhitespace == 0)
+			return memcmp(scanline1, scanline2, size1) == 0;
+		const wchar_t* l1 = reinterpret_cast<const wchar_t*>(scanline1);
+		const wchar_t* l2 = reinterpret_cast<const wchar_t*>(scanline2);
+		const int s1 = size1 / sizeof(wchar_t);
+		const int s2 = size2 / sizeof(wchar_t);
+		int i1 = 0, i2 = 0;
+		if (m_diffOptions.ignoreWhitespace == 2) {
+			goto skip_ws;
+			while (i1 < s1 && i2 < s2) {
+				if (!match_a_wchar(l1[i1++], l2[i2++]))
+					return false;
+			skip_ws:
+				while (i1 < s1 && iswspace(l1[i1]))
+					i1++;
+				while (i2 < s2 && iswspace(l2[i2]))
+					i2++;
+			}
+		}
+		else if (m_diffOptions.ignoreWhitespace == 1) {
+			while (i1 < s1 && i2 < s2) {
+				if (iswspace(l1[i1]) && iswspace(l2[i2])) {
+					/* Skip matching spaces and try again */
+					while (i1 < s1 && iswspace(l1[i1]))
+						i1++;
+					while (i2 < s2 && iswspace(l2[i2]))
+						i2++;
+					continue;
+				}
+				if (!match_a_wchar(l1[i1++], l2[i2++]))
+					return false;
+			}
+		}
+		return true;
+	}
+	unsigned long hash_a_wchar(wchar_t ch_) const
+	{
+		wint_t ch = ch_;
+		if (m_diffOptions.ignoreCase && iswupper(ch))
+			ch = towlower(ch);
+		return ch;
 	}
 	unsigned long hash(const char* scanline) const
 	{
 		unsigned long ha = 5381;
-		const char* begin = scanline;
-		const char* end = this->next(scanline);
+		const wchar_t* begin = reinterpret_cast<const wchar_t*>(scanline);
+		const wchar_t* end = reinterpret_cast<const wchar_t*>(this->next(scanline));
 
-		for (const auto* ptr = begin; ptr < end; ptr++)
+		if (!m_diffOptions.ignoreCase && m_diffOptions.ignoreWhitespace == 0)
 		{
+			for (const auto* ptr = begin; ptr < end; ptr++)
+			{
+				ha += (ha << 5);
+				ha ^= *ptr & 0xFF;
+			}
+			return ha;
+		}
+		for (const wchar_t* ptr = begin; ptr < end; ptr++)
+		{
+			if (iswspace(*ptr))
+			{
+				while (ptr + 1 < end && iswspace(ptr[1]))
+					ptr++;
+				if (m_diffOptions.ignoreWhitespace == 2)
+					; /* already handled */
+				else if (m_diffOptions.ignoreWhitespace == 1)
+				{
+					ha += (ha << 5);
+					ha ^= hash_a_wchar(' ');
+				}
+				continue;
+			}
 			ha += (ha << 5);
-			ha ^= *ptr & 0xFF;
+			ha ^= hash_a_wchar(*ptr);
 		}
 		return ha;
 	}
