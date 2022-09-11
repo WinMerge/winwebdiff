@@ -684,6 +684,13 @@ private:
 						for (int pane = 0; pane < m_nPanes; ++pane)
 						{
 							(*documents)[pane].Parse((*jsons)[pane].c_str());
+#ifdef _DEBUG
+							WStringBuffer buffer;
+							WPrettyWriter writer(buffer);
+							(*documents)[pane].Accept(writer);
+							WriteToTextFile((L"c:\\tmp\\file" + std::to_wstring(pane) + L".json"),
+								buffer.GetString());
+#endif
 							Highlighter::unhighlightNodes((*documents)[pane][L"root"], (*documents)[pane].GetAllocator());
 							textBlocks[pane].Make((*documents)[pane][L"root"]);
 						}
@@ -739,9 +746,9 @@ private:
 		int pane,
 		std::shared_ptr<const std::list<ModifiedNode>> nodes,
 		IWebDiffCallback* callback,
-		std::list<ModifiedNode>::iterator it)
+		std::list<ModifiedNode>::reverse_iterator it)
 	{
-		if (it == nodes->end())
+		if (it == nodes->rend())
 		{
 			if (callback)
 				callback->Invoke({ S_OK, nullptr });
@@ -754,9 +761,9 @@ private:
 					HRESULT hr = result.errorCode;
 					if (SUCCEEDED(hr))
 					{
-						std::list<ModifiedNode>::iterator it2(it);
+						std::list<ModifiedNode>::reverse_iterator it2(it);
 						++it2;
-						if (it2 != nodes->end())
+						if (it2 != nodes->rend())
 							hr = applyHTMLLoop(pane, nodes, callback2.Get(), it2);
 						else if (callback2)
 							callback2->Invoke({ hr, nullptr });
@@ -787,7 +794,7 @@ private:
 					if (FAILED(hr) && callback2)
 						callback2->Invoke({ hr, nullptr });
 					return hr;
-				}).Get(), nodes->begin());
+				}).Get(), nodes->rbegin());
 		return hr;
 	}
 
@@ -858,7 +865,7 @@ private:
 									if (FAILED(hr) && callback2)
 										callback2->Invoke({ hr, nullptr });
 									return S_OK;
-								}).Get(), nodes->begin());
+								}).Get(), nodes->rbegin());
 					}
 					if (FAILED(hr) && callback2)
 						callback2->Invoke({ hr, nullptr });
@@ -1326,6 +1333,15 @@ private:
 		wcex.hbrBackground = (HBRUSH)(COLOR_3DFACE + 1);
 		wcex.lpszClassName = L"WinWebDiffWindowClass";
 		return RegisterClassExW(&wcex);
+	}
+
+	static HRESULT WriteToTextFile(const std::wstring& path, const std::wstring& data)
+	{
+		wil::unique_file fp;
+		_wfopen_s(&fp, path.c_str(), L"wt,ccs=UTF-8");
+		if (fp)
+			fwprintf(fp.get(), L"%s", data.c_str());
+		return fp != nullptr ? S_OK : (GetLastError() == 0 ? E_FAIL : HRESULT_FROM_WIN32(GetLastError()));
 	}
 
 	int m_nPanes = 0;
