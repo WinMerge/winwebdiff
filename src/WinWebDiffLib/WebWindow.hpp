@@ -59,6 +59,12 @@ class CWebWindow
 			ComPtr<IWebDiffCallback> callback2(callback);
 			HRESULT hr = m_parent->m_webviewEnvironment->CreateCoreWebView2Controller(m_parent->m_hWebViewParent, Callback<ICoreWebView2CreateCoreWebView2ControllerCompletedHandler>(
 				[this, url2, zoom, userAgent, args, deferral, callback2](HRESULT result, ICoreWebView2Controller* controller) -> HRESULT {
+					if (FAILED(result))
+					{
+						m_parent->SetToolTipText(L"Failed to create WebView2 controller");
+						m_parent->ShowToolTip(true);
+					}
+
 					if (controller != nullptr) {
 						m_webviewController = controller;
 						m_webviewController->get_CoreWebView2(&m_webview);
@@ -143,6 +149,13 @@ class CWebWindow
 								return m_parent->OnNavigationCompleted(sender, args);
 							}).Get(), nullptr);
 
+					m_webview->add_WebMessageReceived(
+						Microsoft::WRL::Callback<ICoreWebView2WebMessageReceivedEventHandler>(
+							[this](ICoreWebView2* sender, ICoreWebView2WebMessageReceivedEventArgs* args)
+							{
+								return m_parent->OnWebMessageReceived(sender, args);
+							}).Get(), nullptr);
+
 					m_webview->CallDevToolsProtocolMethod(L"Page.enable", L"{}", nullptr);
 					m_webview->CallDevToolsProtocolMethod(L"DOM.enable", L"{}", nullptr);
 					m_webview->CallDevToolsProtocolMethod(L"CSS.enable", L"{}", nullptr);
@@ -163,6 +176,34 @@ class CWebWindow
 								}).Get(), nullptr);
 					}
 					*/
+
+					wil::com_ptr<ICoreWebView2_4> webview2_4 = m_webview.try_query<ICoreWebView2_4>();
+					if (webview2_4)
+					{
+						webview2_4->add_FrameCreated(
+							Callback<ICoreWebView2FrameCreatedEventHandler>(
+								[this](ICoreWebView2* sender, ICoreWebView2FrameCreatedEventArgs* args) -> HRESULT
+								{
+									wil::com_ptr<ICoreWebView2Frame> webviewFrame;
+									args->get_Frame(&webviewFrame);
+
+									m_frames.emplace_back(webviewFrame);
+
+									webviewFrame->add_Destroyed(
+										Callback<ICoreWebView2FrameDestroyedEventHandler>(
+											[this](ICoreWebView2Frame* sender, IUnknown* args) -> HRESULT
+											{
+												auto frame =
+													std::find(m_frames.begin(), m_frames.end(), sender);
+												if (frame != m_frames.end())
+												{
+													m_frames.erase(frame);
+												}
+												return S_OK;
+											}).Get(), nullptr);
+									return S_OK;
+								}).Get(), nullptr);
+					}
 
 					if (args && deferral)
 					{
@@ -188,6 +229,7 @@ class CWebWindow
 	private:
 		wil::com_ptr<ICoreWebView2Controller> m_webviewController;
 		wil::com_ptr<ICoreWebView2> m_webview;
+		std::vector<wil::com_ptr<ICoreWebView2Frame>> m_frames;
 		CWebWindow* m_parent;
 		bool m_navigationCompleted = false;
 	};
@@ -209,7 +251,7 @@ public:
 
 	HRESULT Create(HINSTANCE hInstance, HWND hWndParent, const wchar_t* url, const wchar_t* userDataFolder,
 		const SIZE& size, bool fitToWindow, double zoom, std::wstring& userAgent,
-		IWebDiffCallback* callback, std::function<void (WebDiffEvent::EVENT_TYPE)> eventHandler)
+		IWebDiffCallback* callback, std::function<void(WebDiffEvent::EVENT_TYPE)> eventHandler)
 	{
 		m_fitToWindow = fitToWindow;
 		m_size = size;
@@ -229,6 +271,10 @@ public:
 		m_hWebViewParent = CreateWindowExW(0, L"WebViewParentClass", nullptr,
 			WS_CHILD | WS_VISIBLE,
 			0, 0, 0, 0, m_hWnd, nullptr, hInstance, this);
+		m_hToolTip = CreateWindowEx(WS_EX_TOPMOST, TOOLTIPS_CLASS, nullptr,
+			WS_POPUP | TTS_NOPREFIX | TTS_ALWAYSTIP,
+			CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT,
+			m_hWebViewParent, nullptr, hInstance, nullptr);
 		HDC hDC = GetDC(m_hWnd);
 		LOGFONT lfToolbar{};
 		lfToolbar.lfHeight = MulDiv(-14, GetDeviceCaps(hDC, LOGPIXELSX), 72);
@@ -238,8 +284,7 @@ public:
 		lfToolbar.lfQuality = PROOF_QUALITY;
 		lfToolbar.lfPitchAndFamily = VARIABLE_PITCH | FF_DECORATIVE;
 		wcscpy_s(lfToolbar.lfFaceName, L"Segoe MDL2 Assets");
-		NONCLIENTMETRICS info;
-		info.cbSize = sizeof(info);
+		NONCLIENTMETRICS info{ sizeof(info) };
 		SystemParametersInfo(SPI_GETNONCLIENTMETRICS, sizeof(info), &info, 0);
 		LOGFONT lfEdit = info.lfCaptionFont;
 		ReleaseDC(m_hWnd, hDC);
@@ -263,11 +308,23 @@ public:
 		SendMessage(m_hEdit, WM_SETFONT, (WPARAM)m_hEditFont, 0);
 		SendMessage(m_hToolbar, TB_ADDBUTTONS, (WPARAM)std::size(tbb), (LPARAM)&tbb);
 		SendMessage(m_hToolbar, WM_SETFONT, (WPARAM)m_hToolbarFont, 0);
+
+		m_toolItem.cbSize = sizeof(TOOLINFO);
+		m_toolItem.uFlags = TTF_IDISHWND | TTF_TRACK | TTF_ABSOLUTE;
+		m_toolItem.hwnd = m_hWebViewParent;
+		m_toolItem.hinst = hInstance;
+		m_toolItem.lpszText = (WCHAR*)m_toolTipText.c_str();
+		m_toolItem.uId = (UINT_PTR)m_hWebViewParent;
+		m_toolItem.rect = { 0, 0, 300, 100 };
+		SendMessage(m_hToolTip, TTM_ADDTOOL, 0, (LPARAM)(LPTOOLINFO)&m_toolItem);
+
 		return InitializeWebView(url, zoom, userAgent, userDataFolder, callback);
 	}
 
 	bool Destroy()
 	{
+		if (m_hToolTip)
+			DestroyWindow(m_hToolTip);
 		if (m_hWebViewParent)
 			DestroyWindow(m_hWebViewParent);
 		if (m_hToolbar)
@@ -930,6 +987,42 @@ public:
 		return webView2ExperimentalProfile4->ClearBrowsingData(static_cast<COREWEBVIEW2_BROWSING_DATA_KINDS>(dataKinds), nullptr);
 	}
 
+	HRESULT SetToolTipText(const std::wstring& text)
+	{
+		if (!m_hToolTip)
+			return E_FAIL;
+		m_toolTipText = text;
+		m_toolItem.lpszText = (WCHAR *)m_toolTipText.c_str();
+		SendMessage(m_hToolTip, TTM_SETTOOLINFO, (WPARAM)TRUE, (LPARAM)&m_toolItem);
+		return S_OK;
+	}
+
+	HRESULT ShowToolTip(bool show)
+	{
+		m_showToolTip = show;
+		if (!m_hToolTip)
+			return E_FAIL;
+		if (show)
+		{
+			RECT rc{};
+			GetClientRect(m_hWebViewParent, &rc);
+			POINT pt{rc.left, rc.top};
+			ClientToScreen(m_hWebViewParent, &pt);
+			SendMessage(m_hToolTip, TTM_TRACKACTIVATE, (WPARAM)TRUE, (LPARAM)&m_toolItem);
+			SendMessage(m_hToolTip, TTM_TRACKPOSITION, 0, (LPARAM)MAKELONG(pt.x + 10, pt.y + 10));
+		}
+		else
+		{
+			SendMessage(m_hToolTip, TTM_TRACKACTIVATE, (WPARAM)FALSE, (LPARAM)&m_toolItem);
+		}
+		return S_OK;
+	}
+
+	std::wstring GetWebMessage() const
+	{
+		return m_webmessage;
+	}
+
 private:
 
 	HRESULT InitializeWebView(const wchar_t* url, double zoom, const std::wstring& userAgent, const wchar_t* userDataFolder, IWebDiffCallback* callback)
@@ -1182,7 +1275,7 @@ private:
 
 	static void TimetToFileTime(time_t t, LPFILETIME pft)
 	{
-		ULARGE_INTEGER time_value;
+		ULARGE_INTEGER time_value{};
 		time_value.QuadPart = (t * 10000000LL) + 116444736000000000LL;
 		pft->dwLowDateTime = time_value.LowPart;
 		pft->dwHighDateTime = time_value.HighPart;
@@ -1366,6 +1459,15 @@ private:
 		return S_OK;
 	}
 
+	HRESULT OnWebMessageReceived(ICoreWebView2* sender, ICoreWebView2WebMessageReceivedEventArgs* args)
+	{
+		wil::unique_cotaskmem_string messageRaw;
+		args->TryGetWebMessageAsString(&messageRaw);
+		m_webmessage = messageRaw.get();
+		m_eventHandler(WebDiffEvent::WebMessageReceived);
+		return S_OK;
+	}
+
 	HRESULT OnDevToolsProtocolEventReceived(ICoreWebView2* sender, ICoreWebView2DevToolsProtocolEventReceivedEventArgs* args, const std::wstring& event)
 	{
 		wil::unique_cotaskmem_string parameterObjectAsJson;
@@ -1465,6 +1567,8 @@ private:
 				CalcScrollBarRange(m_nHScrollPos, m_nVScrollPos);
 				if (!m_fitToWindow)
 					ScrollWindow(m_hWebViewParent, -m_nHScrollPos, -m_nVScrollPos, nullptr, nullptr);
+				if (m_showToolTip)
+					ShowToolTip(TRUE);
 			};
 			break;
 		case WM_PAINT:
@@ -1582,11 +1686,13 @@ private:
 	HWND m_hTabCtrl = nullptr;
 	HWND m_hToolbar = nullptr;
 	HWND m_hEdit = nullptr;
+	HWND m_hToolTip = nullptr;
 	HWND m_hWebViewParent = nullptr;
 	HFONT m_hToolbarFont = nullptr;
 	HFONT m_hEditFont = nullptr;
 	WNDPROC m_oldTabCtrlWndProc = nullptr;
 	WNDPROC m_oldEditWndProc = nullptr;
+	TOOLINFO m_toolItem{};
 	wil::com_ptr<ICoreWebView2Environment> m_webviewEnvironment;
 	std::vector<std::unique_ptr<CWebTab>> m_tabs;
 	int m_activeTab = -1;
@@ -1596,5 +1702,8 @@ private:
 	bool m_fitToWindow = true;
 	std::function<void(WebDiffEvent::EVENT_TYPE)> m_eventHandler;
 	std::wstring m_currentUrl;
+	std::wstring m_toolTipText = L"test";
+	bool m_showToolTip = false;
+	std::wstring m_webmessage;
 };
 

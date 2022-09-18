@@ -126,6 +126,11 @@ public:
 									if (*counter == 0)
 										Recompare(callback2.Get());
 								}
+								else if (event == WebDiffEvent::WebMessageReceived)
+								{
+									const int diffIndex = _wtoi(m_webWindow[i].GetWebMessage().c_str() + sizeof(L"wwdid=") / sizeof(wchar_t) - 1);
+									SelectDiff(diffIndex);
+								}
 								for (const auto& listener : m_listeners)
 									listener->Invoke(ev);
 							});
@@ -453,7 +458,7 @@ public:
 			m_currentDiffIndex = 0;
 		if (oldDiffIndex == m_currentDiffIndex)
 			return false;
-		return SUCCEEDED(selectDiff(m_currentDiffIndex, oldDiffIndex, nullptr));
+		return SUCCEEDED(selectDiff(m_currentDiffIndex, nullptr));
 	}
 
 	bool LastDiff() override
@@ -462,7 +467,7 @@ public:
 		m_currentDiffIndex = static_cast<int>(m_diffInfos.size()) - 1;
 		if (oldDiffIndex == m_currentDiffIndex)
 			return false;
-		return SUCCEEDED(selectDiff(m_currentDiffIndex, oldDiffIndex, nullptr));
+		return SUCCEEDED(selectDiff(m_currentDiffIndex, nullptr));
 	}
 
 	bool NextDiff() override
@@ -473,7 +478,7 @@ public:
 			m_currentDiffIndex = static_cast<int>(m_diffInfos.size()) - 1;
 		if (oldDiffIndex == m_currentDiffIndex)
 			return false;
-		return SUCCEEDED(selectDiff(m_currentDiffIndex, oldDiffIndex, nullptr));
+		return SUCCEEDED(selectDiff(m_currentDiffIndex, nullptr));
 	}
 	
 	bool PrevDiff() override
@@ -489,7 +494,7 @@ public:
 		}
 		if (oldDiffIndex == m_currentDiffIndex)
 			return false;
-		return SUCCEEDED(selectDiff(m_currentDiffIndex, oldDiffIndex, nullptr));
+		return SUCCEEDED(selectDiff(m_currentDiffIndex, nullptr));
 	}
 
 	bool FirstConflict() override
@@ -500,7 +505,7 @@ public:
 				m_currentDiffIndex = static_cast<int>(i);
 		if (oldDiffIndex == m_currentDiffIndex)
 			return false;
-		return SUCCEEDED(selectDiff(m_currentDiffIndex, oldDiffIndex, nullptr));
+		return SUCCEEDED(selectDiff(m_currentDiffIndex, nullptr));
 	}
 
 	bool LastConflict() override
@@ -516,7 +521,7 @@ public:
 		}
 		if (oldDiffIndex == m_currentDiffIndex)
 			return false;
-		return SUCCEEDED(selectDiff(m_currentDiffIndex, oldDiffIndex, nullptr));
+		return SUCCEEDED(selectDiff(m_currentDiffIndex, nullptr));
 	}
 
 	bool NextConflict() override
@@ -532,7 +537,7 @@ public:
 		}
 		if (oldDiffIndex == m_currentDiffIndex)
 			return false;
-		return SUCCEEDED(selectDiff(m_currentDiffIndex, oldDiffIndex, nullptr));
+		return SUCCEEDED(selectDiff(m_currentDiffIndex, nullptr));
 	}
 
 	bool PrevConflict()  override
@@ -548,12 +553,15 @@ public:
 		}
 		if (oldDiffIndex == m_currentDiffIndex)
 			return false;
-		return SUCCEEDED(selectDiff(m_currentDiffIndex, oldDiffIndex, nullptr));
+		return SUCCEEDED(selectDiff(m_currentDiffIndex, nullptr));
 	}
 
 	bool SelectDiff(int diffIndex) override
 	{
-		return SUCCEEDED(selectDiff(diffIndex, m_currentDiffIndex, nullptr));
+		if (diffIndex < 0 || diffIndex >= m_diffInfos.size())
+			return false;
+		m_currentDiffIndex = diffIndex;
+		return SUCCEEDED(selectDiff(diffIndex, nullptr));
 	}
 
 	int  GetNextDiffIndex() const override
@@ -669,6 +677,36 @@ private:
 		return hr;
 	}
 
+	HRESULT addDblClickEventListenerLoop(IWebDiffCallback* callback, int pane = 0)
+	{
+		ComPtr<IWebDiffCallback> callback2(callback);
+		const wchar_t* script =
+LR"(
+  const elms = document.querySelectorAll('.wwd-diff');
+  elms.forEach(function(el) {
+    el.addEventListener('dblclick', function() {
+      window.chrome.webview.postMessage('wwdid=' + el.dataset['wwdid']);
+    });
+  });
+)";
+		HRESULT hr = m_webWindow[pane].ExecuteScript(script,
+			Callback<IWebDiffCallback>([this, pane, callback2](const WebDiffCallbackResult& result) -> HRESULT
+				{
+					HRESULT hr = result.errorCode;
+					if (SUCCEEDED(hr))
+					{
+						if (pane + 1 < m_nPanes)
+							hr = addDblClickEventListenerLoop(callback2.Get(), pane + 1);
+						else if (callback2)
+							callback2->Invoke({ hr, nullptr });
+					}
+					if (FAILED(hr) && callback2)
+						callback2->Invoke({ hr, nullptr });
+					return S_OK;
+				}).Get());
+		return hr;
+	}
+
 	HRESULT compare(IWebDiffCallback* callback)
 	{
 		ComPtr<IWebDiffCallback> callback2(callback);
@@ -708,7 +746,18 @@ private:
 								{
 									HRESULT hr = result.errorCode;
 									if (SUCCEEDED(hr))
-										hr = setStyleSheetLoop(Highlighter::getStyleSheetText(m_currentDiffIndex, m_colorSettings).c_str(), nullptr);
+									{
+										hr = setStyleSheetLoop(Highlighter::getStyleSheetText(m_currentDiffIndex, m_colorSettings).c_str(),
+											Callback<IWebDiffCallback>([this, callback2](const WebDiffCallbackResult& result) -> HRESULT
+												{
+													HRESULT hr = result.errorCode;
+													if (SUCCEEDED(hr))
+														hr = addDblClickEventListenerLoop(callback2.Get());
+													if (FAILED(hr) && callback2)
+														callback2->Invoke({ hr, nullptr });
+													return S_OK;
+												}).Get());
+									}
 									if (FAILED(hr) && callback2)
 										callback2->Invoke({ hr, nullptr });
 									return S_OK;
@@ -914,6 +963,12 @@ private:
 			Callback<IWebDiffCallback>([this, diffIndex, pane, callback2](const WebDiffCallbackResult& result) -> HRESULT
 				{
 					HRESULT hr = result.errorCode;
+					m_webWindow[pane].ShowToolTip(FAILED(hr));
+					if (FAILED(hr))
+					{
+						m_webWindow[pane].SetToolTipText(result.returnObjectAsJson);
+						hr = S_OK;
+					}
 					if (SUCCEEDED(hr))
 					{
 						if (pane + 1 < m_nPanes)
@@ -1037,7 +1092,7 @@ private:
 		return hr;
 	}
 
-	HRESULT selectDiff(int diffIndex, int prevDiffIndex, IWebDiffCallback* callback)
+	HRESULT selectDiff(int diffIndex, IWebDiffCallback* callback)
 	{
 		if (diffIndex < 0 || diffIndex >= m_diffInfos.size())
 			return false;

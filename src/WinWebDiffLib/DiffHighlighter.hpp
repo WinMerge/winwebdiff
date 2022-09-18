@@ -526,13 +526,12 @@ namespace Comparer
 					{
 						m_diffInfoList[i].nodePos[pane] = -1;
 					}
-					m_diffInfoList[i].nodeIds[pane] = it->second.nodeId;
 				}
 				else
 				{
 					m_diffInfoList[i].nodePos[pane] = 0;
-					m_diffInfoList[i].nodeIds[pane] = it->second.nodeId;
 				}
+				m_diffInfoList[i].nodeIds[pane] = (it == textBlocks[pane].segments.end()) ? -1 : it->second.nodeId;
 			}
 		}
 	}
@@ -623,16 +622,12 @@ public:
 			std::vector<DiffInfo> wordDiffInfoList;
 			for (size_t pane = 0; pane < m_documents.size(); ++pane)
 			{
-				if (diffInfo.nodePos[pane] == 0)
-				{
-					std::pair<WValue*, WValue*> pair = findNodeId(m_documents[pane][L"root"], diffInfo.nodeIds[pane]);
-					pvalues[pane] = pair.first;
-					textBlocks[pane].Make((*pair.first)[L"nodeValue"].GetString());
-				}
+				std::pair<WValue*, WValue*> pair = findNodeId(m_documents[pane][L"root"], diffInfo.nodeIds[pane]);
+				pvalues[pane] = pair.first;
+				if (diffInfo.nodePos[pane] == 0 && pvalues[pane])
+					textBlocks[pane].Make((*pvalues[pane])[L"nodeValue"].GetString());
 				else
-				{
 					textBlocks[pane].Make(L"");
-				}
 			}
 			if (m_showWordDifferences)
 				wordDiffInfoList = Comparer::compare(m_diffOptions, textBlocks);
@@ -697,6 +692,12 @@ public:
 					{
 						spanNode.AddMember(L"nodeId", -1, allocator);
 						children.SetArray();
+						WValue textNode;
+						textNode.SetObject();
+						textNode.AddMember(L"nodeId", -1, allocator);
+						textNode.AddMember(L"nodeType", 3, allocator);
+						textNode.AddMember(L"nodeValue", L"&#8203;", allocator);
+						children.PushBack(textNode, allocator);
 						spanNode.AddMember(L"children", children, allocator);
 						if (diffInfo.nodePos[pane] == -1)
 						{
