@@ -29,18 +29,21 @@ struct DiffInfo
 		, end{ end1, end2, end3 }
 		, nodeIds { 0, 0, 0 }
 		, nodePos { 0, 0, 0 }
+		, nodeTypes { 0, 0, 0 }
 		, op(OP_DIFF)
 	{}
 
 	DiffInfo(const DiffInfo& src)
 		: nodeIds{ src.nodeIds[0], src.nodeIds[1], src.nodeIds[2] }
 		, nodePos{ src.nodePos[0], src.nodePos[1], src.nodePos[2] }
+		, nodeTypes{ src.nodeTypes[0], src.nodeTypes[1], src.nodeTypes[2] }
 		, begin{ src.begin[0], src.begin[1], src.begin[2] }
 		, end{ src.end[0], src.end[1], src.end[2] }
 		, op(src.op)
 	{}
 	int nodeIds[3];
 	int nodePos[3];
+	int nodeTypes[3];
 	int begin[3];
 	int end[3];
 	OP_TYPE op;
@@ -49,6 +52,7 @@ struct DiffInfo
 struct TextSegment
 {
 	int nodeId;
+	int nodeType;
 	size_t begin;
 	size_t size;
 };
@@ -58,21 +62,39 @@ struct TextBlocks
 	void Make(const WValue& nodeTree)
 	{
 		const int nodeType = nodeTree[L"nodeType"].GetInt();
+		const auto* nodeName = nodeTree[L"nodeName"].GetString();
 
 		if (nodeType == 3 /* TEXT_NODE */)
 		{
 			std::wstring text = nodeTree[L"nodeValue"].GetString();
-			TextSegment seg;
+			TextSegment seg{};
 			seg.nodeId = nodeTree[L"nodeId"].GetInt();
+			seg.nodeType = nodeType;
 			seg.begin = textBlocks.size();
 			seg.size = text.size();
 			textBlocks += text;
 			segments.insert_or_assign(seg.begin, seg);
 
 		}
+		else if (nodeType == 1 /* ELEMENT_NODE */ && 
+			wcscmp(nodeName, L"INPUT") == 0)
+		{
+			const wchar_t* type = getAttribute(nodeTree, L"type");
+			if (wcscmp(type, L"hidden") != 0)
+			{
+				const wchar_t* value = getAttribute(nodeTree, L"value");
+				std::wstring text = value ? value : L"";
+				TextSegment seg{};
+				seg.nodeId = nodeTree[L"nodeId"].GetInt();
+				seg.nodeType = nodeType;
+				seg.begin = textBlocks.size();
+				seg.size = text.size();
+				textBlocks += text;
+				segments.insert_or_assign(seg.begin, seg);
+			}
+		}
 		if (nodeTree.HasMember(L"children") && nodeTree[L"children"].IsArray())
 		{
-			const auto* nodeName = nodeTree[L"nodeName"].GetString();
 			if (wcscmp(nodeName, L"SCRIPT") != 0 &&
 			    wcscmp(nodeName, L"NOSCRIPT") != 0 &&
 			    wcscmp(nodeName, L"NOFRAMES") != 0 &&
@@ -126,7 +148,7 @@ struct TextBlocks
 			{
 				if (i > 0)
 				{
-					TextSegment seg;
+					TextSegment seg{};
 					seg.nodeId = -1;
 					seg.begin = begin;
 					seg.size = i - begin;
@@ -136,12 +158,26 @@ struct TextBlocks
 				charTypePrev = charType;
 			}
 		}
-		TextSegment seg;
+		TextSegment seg{};
 		seg.nodeId = -1;
 		seg.begin = begin;
 		seg.size = text.size() - begin;
 		segments.insert_or_assign(seg.begin, seg);
 	}
+
+	static const wchar_t* getAttribute(const WValue& node, const wchar_t* name)
+	{
+		if (!node.HasMember(L"attributes"))
+			return nullptr;
+		const auto& ary = node[L"attributes"].GetArray();
+		for (unsigned i = 0; i < ary.Size(); i += 2)
+		{
+			if (wcscmp(ary[i].GetString(), name) == 0 && i + 1 < ary.Size())
+				return ary[i + 1].GetString();
+		}
+		return nullptr;
+	}
+
 	std::wstring textBlocks;
 	std::map<size_t, TextSegment> segments;
 };
@@ -544,7 +580,16 @@ namespace Comparer
 				{
 					m_diffInfoList[i].nodePos[pane] = 0;
 				}
-				m_diffInfoList[i].nodeIds[pane] = (it == textBlocks[pane].segments.end()) ? -1 : it->second.nodeId;
+				if (it == textBlocks[pane].segments.end())
+				{
+					m_diffInfoList[i].nodeIds[pane] = -1;
+					m_diffInfoList[i].nodeTypes[pane] = -1;
+				}
+				else
+				{
+					m_diffInfoList[i].nodeIds[pane] = it->second.nodeId;
+					m_diffInfoList[i].nodeTypes[pane] = it->second.nodeType;
+				}
 			}
 		}
 	}
@@ -646,6 +691,8 @@ public:
 				wordDiffInfoList = Comparer::compare(m_diffOptions, textBlocks);
 			for (size_t pane = 0; pane < m_documents.size(); ++pane)
 			{
+				if (!pvalues[pane])
+					continue;
 				bool snp = false;
 				bool deleted = (diffInfo.nodePos[pane] != 0);
 				std::wstring className = L"wwd-diff";
@@ -657,29 +704,27 @@ public:
 				}
 				else
 					className += deleted ? L" wwd-deleted" : L" wwd-changed";
-				WValue spanNode, attributes, children;
 				auto& allocator = m_documents[pane].GetAllocator();
-				WValue id(std::to_wstring(i).c_str(), allocator);
-				WValue textValue(textBlocks[pane].textBlocks.c_str(), static_cast<unsigned>(textBlocks[pane].textBlocks.size()), allocator);
-				if (diffInfo.nodePos[pane] != 0)
-					textValue.SetString(L"");
-				WValue classNameValue(className.c_str(), static_cast<unsigned>(className.size()), allocator);
-				attributes.SetArray();
-				attributes.PushBack(L"class", allocator);
-				attributes.PushBack(classNameValue, allocator);
-				attributes.PushBack(L"data-wwdid", allocator);
-				attributes.PushBack(id, allocator);
-				attributes.PushBack(L"data-wwdtext", allocator);
-				attributes.PushBack(textValue, allocator);
-				spanNode.SetObject();
-				spanNode.AddMember(L"nodeName", L"SPAN", allocator);
-				spanNode.AddMember(L"attributes", attributes, allocator);
-				spanNode.AddMember(L"nodeType", 1, allocator);
-				spanNode.AddMember(L"nodeValue", L"", allocator);
+				std::wstring orgtext;
+				if (diffInfo.nodePos[pane] == 0)
+					orgtext = textBlocks[pane].textBlocks;
 				if (diffInfo.nodePos[pane] == 0)
 				{
-					if (pvalues[pane])
+					if (diffInfo.nodeTypes[pane] == 1 /* ELEMENT_NODE */)
 					{
+						appendAttributes((*pvalues[pane])[L"attributes"], className, i, allocator);
+						(*pvalues[pane]).AddMember(L"modified", true, allocator);
+					}
+					else if (diffInfo.nodeTypes[pane] == 3 /* TEXT_NODE */)
+					{
+						WValue spanNode, attributes, children;
+						attributes.SetArray();
+						appendAttributes(attributes, className, i, orgtext, allocator);
+						spanNode.SetObject();
+						spanNode.AddMember(L"nodeName", L"SPAN", allocator);
+						spanNode.AddMember(L"attributes", attributes, allocator);
+						spanNode.AddMember(L"nodeType", 1, allocator);
+						spanNode.AddMember(L"nodeValue", L"", allocator);
 						const int nodeId = (*pvalues[pane])[L"nodeId"].GetInt();
 						children.SetArray();
 						if (m_showWordDifferences && !snp/* && isNeededWordDiffHighlighting(wordDiffInfoList) */)
@@ -701,39 +746,44 @@ public:
 				}
 				else
 				{
-					if (pvalues[pane])
+					WValue spanNode, attributes, children;
+					attributes.SetArray();
+					appendAttributes(attributes, className, i, orgtext, allocator);
+					spanNode.SetObject();
+					spanNode.AddMember(L"nodeName", L"SPAN", allocator);
+					spanNode.AddMember(L"attributes", attributes, allocator);
+					spanNode.AddMember(L"nodeType", 1, allocator);
+					spanNode.AddMember(L"nodeValue", L"", allocator);
+					spanNode.AddMember(L"nodeId", -1, allocator);
+					children.SetArray();
+					WValue textNode;
+					textNode.SetObject();
+					textNode.AddMember(L"nodeId", -1, allocator);
+					textNode.AddMember(L"nodeType", 3, allocator);
+					textNode.AddMember(L"nodeValue", L"&#8203;", allocator);
+					children.PushBack(textNode, allocator);
+					spanNode.AddMember(L"children", children, allocator);
+					if (diffInfo.nodePos[pane] == -1)
 					{
-						spanNode.AddMember(L"nodeId", -1, allocator);
-						children.SetArray();
-						WValue textNode;
-						textNode.SetObject();
-						textNode.AddMember(L"nodeId", -1, allocator);
-						textNode.AddMember(L"nodeType", 3, allocator);
-						textNode.AddMember(L"nodeValue", L"&#8203;", allocator);
-						children.PushBack(textNode, allocator);
-						spanNode.AddMember(L"children", children, allocator);
-						if (diffInfo.nodePos[pane] == -1)
+						if (!pvalues[pane]->HasMember(L"insertedNodes"))
 						{
-							if (!pvalues[pane]->HasMember(L"insertedNodes"))
-							{
-								WValue insertedNodes;
-								insertedNodes.SetArray();
-								pvalues[pane]->AddMember(L"insertedNodes", insertedNodes, allocator);
-							}
-							(*pvalues[pane])[L"insertedNodes"].GetArray().PushBack(spanNode, allocator);
+							WValue insertedNodes;
+							insertedNodes.SetArray();
+							pvalues[pane]->AddMember(L"insertedNodes", insertedNodes, allocator);
 						}
-						else
-						{
-							if (!pvalues[pane]->HasMember(L"appendedNodes"))
-							{
-								WValue appendedNodes;
-								appendedNodes.SetArray();
-								pvalues[pane]->AddMember(L"appendedNodes", appendedNodes, allocator);
-							}
-							(*pvalues[pane])[L"appendedNodes"].GetArray().PushBack(spanNode, allocator);
-						}
-						pvalues[pane]->AddMember(L"modified", true, allocator);
+						(*pvalues[pane])[L"insertedNodes"].GetArray().PushBack(spanNode, allocator);
 					}
+					else
+					{
+						if (!pvalues[pane]->HasMember(L"appendedNodes"))
+						{
+							WValue appendedNodes;
+							appendedNodes.SetArray();
+							pvalues[pane]->AddMember(L"appendedNodes", appendedNodes, allocator);
+						}
+						(*pvalues[pane])[L"appendedNodes"].GetArray().PushBack(spanNode, allocator);
+					}
+					pvalues[pane]->AddMember(L"modified", true, allocator);
 				}
 			}
 		}
@@ -758,15 +808,24 @@ public:
 			if (isDiffNode(tree))
 			{
 				const int nodeId = tree[L"nodeId"].GetInt();
-				std::wstring text;
-				const wchar_t* value = getAttribute(tree, L"data-wwdtext");
-				if (value)
-					text = value;
-				tree[L"nodeValue"].SetString(text.c_str(), allocator);
-				tree[L"nodeType"].SetInt(NodeType::TEXT_NODE);
-				tree[L"nodeId"].SetInt(nodeId);
-				tree[L"children"].Clear();
-				tree.AddMember(L"modified", true, allocator);
+				const std::wstring nodeName = tree[L"nodeName"].GetString();
+				if (nodeName == L"INPUT")
+				{
+					removeAttributes(tree[L"attributes"], allocator);
+					tree.AddMember(L"modified", true, allocator);
+				}
+				else
+				{
+					std::wstring text;
+					const wchar_t* value = getAttribute(tree, L"data-wwdtext");
+					if (value)
+						text = value;
+					tree[L"nodeValue"].SetString(text.c_str(), allocator);
+					tree[L"nodeType"].SetInt(NodeType::TEXT_NODE);
+					tree[L"nodeId"].SetInt(nodeId);
+					tree[L"children"].Clear();
+					tree.AddMember(L"modified", true, allocator);
+				}
 			}
 			if (tree.HasMember(L"children"))
 			{
@@ -954,6 +1013,99 @@ public:
 	}
 
 private:
+	static void appendAttributes(WValue& attributes, const std::wstring& className, size_t diffIndex, WDocument::AllocatorType& allocator)
+	{
+		std::wstring className2 = className;
+		const auto& ary = attributes.GetArray();
+		unsigned i = 0;
+		for (i = 0; i < ary.Size(); ++i)
+		{
+			const auto& el = ary[i];
+			if (wcscmp(el.GetString(), L"class") == 0)
+			{
+				if (i + 1 < ary.Size())
+				{
+					className2 += L" ";
+					className2 += ary[i + 1].GetString();
+				}
+				break;
+			}
+		}
+		WValue classNameValue(className2.c_str(), static_cast<unsigned>(className2.size()), allocator);
+		WValue id(std::to_wstring(diffIndex).c_str(), allocator);
+		if (i == ary.Size())
+		{
+			attributes.PushBack(L"class", allocator);
+			attributes.PushBack(classNameValue, allocator);
+		}
+		else
+		{
+			if (i + 1 < ary.Size())
+				attributes[i + 1].SetString(className2.c_str(), allocator);
+			else
+				attributes.PushBack(classNameValue, allocator);
+		}
+		attributes.PushBack(L"data-wwdid", allocator);
+		attributes.PushBack(id, allocator);
+	}
+
+	static void appendAttributes(WValue& attributes, const std::wstring& className, size_t diffIndex, const std::wstring& orgtext, WDocument::AllocatorType& allocator)
+	{
+		WValue classNameValue(className.c_str(), static_cast<unsigned>(className.size()), allocator);
+		WValue id(std::to_wstring(diffIndex).c_str(), allocator);
+		WValue textValue(orgtext.c_str(), static_cast<unsigned>(orgtext.size()), allocator);
+		attributes.PushBack(L"class", allocator);
+		attributes.PushBack(classNameValue, allocator);
+		attributes.PushBack(L"data-wwdid", allocator);
+		attributes.PushBack(id, allocator);
+		attributes.PushBack(L"data-wwdtext", allocator);
+		attributes.PushBack(textValue, allocator);
+	}
+
+	static void removeAttributes(WValue& attributes, WDocument::AllocatorType& allocator)
+	{
+		const auto& ary = attributes.GetArray();
+		unsigned i = 0;
+		while (i + 1 < ary.Size())
+		{
+			const auto& el = ary[i];
+			if (wcscmp(el.GetString(), L"class") == 0)
+			{
+				std::wstring classValue = ary[i + 1].GetString();
+				size_t pos = 0;
+				while ((pos = classValue.find(L"wwd-", pos)) != classValue.npos)
+				{
+					size_t posend = classValue.find(' ', pos);
+					if (posend == classValue.npos)
+						classValue.erase(pos);
+					else
+						classValue.erase(pos, posend + 1 - pos);
+				}
+				utils::trim_ws(classValue);
+				if (classValue.empty())
+				{
+					ary.Erase(&ary[i]);
+					ary.Erase(&ary[i]);
+				}
+				else
+				{
+					ary[i + 1].SetString(classValue.c_str(), allocator);
+					i += 2;
+				}
+			}
+			else if (wcscmp(el.GetString(), L"data-wwdid") == 0 ||
+			         wcscmp(el.GetString(), L"data-wwdtext") == 0)
+			{
+				ary.Erase(&ary[i]);
+				ary.Erase(&ary[i]);
+			}
+			else
+			{
+				i += 2;
+			}
+		}
+	}
+
 	static std::wstring getDiffStyleValue(COLORREF color, COLORREF backcolor)
 	{
 		wchar_t styleValue[256];
@@ -994,16 +1146,16 @@ private:
 	{
 		if (value[L"nodeType"].GetInt() != NodeType::ELEMENT_NODE)
 			return false;
-		if (wcscmp(value[L"nodeName"].GetString(), L"SPAN") != 0)
-			return false;
 		if (!value.HasMember(L"attributes"))
 			return false;
 		const auto& ary = value[L"attributes"].GetArray();
-		if (ary.Size() < 2 ||
-			wcscmp(ary[0].GetString(), L"class") != 0 ||
-			wcsstr(ary[1].GetString(), name) == nullptr)
-			return false;
-		return true;
+		for (unsigned int i = 0; i + 1 < ary.Size(); i += 2)
+		{
+			if (wcscmp(ary[i].GetString(), L"class") == 0 ||
+			    wcsstr(ary[i].GetString(), name) != nullptr)
+				return true;
+		}
+		return false;
 	}
 
 	static bool isDiffNode(const WValue& value)
@@ -1016,7 +1168,7 @@ private:
 		return containsClassName(value, L"wwd-wdiff");
 	}
 
-	static const wchar_t* getAttribute(WValue& node, const wchar_t* name)
+	static const wchar_t* getAttribute(const WValue& node, const wchar_t* name)
 	{
 		if (!node.HasMember(L"attributes"))
 			return nullptr;

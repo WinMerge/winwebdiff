@@ -16,6 +16,7 @@
 #include <rapidjson/stringbuffer.h>
 #include <WebView2.h>
 #include <WebView2Experimental.h>
+#include <WebView2EnvironmentOptions.h>
 #include <CommCtrl.h>
 #include <Shlwapi.h>
 #include <WinInet.h>

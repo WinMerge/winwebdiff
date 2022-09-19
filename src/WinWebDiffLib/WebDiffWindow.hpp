@@ -88,7 +88,7 @@ public:
 						m_size, m_fitToWindow, m_zoom, m_userAgent, nullptr,
 						[this, i, counter, callback2](WebDiffEvent::EVENT_TYPE event)
 							{
-								WebDiffEvent ev;
+								WebDiffEvent ev{};
 								ev.type = event;
 								ev.pane = i;
 								if (event == WebDiffEvent::SourceChanged)
