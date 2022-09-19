@@ -972,6 +972,62 @@ public:
 		return hr;
 	}
 
+	HRESULT executeScriptLoop(const wchar_t* script, IWebDiffCallback *callback,
+		std::vector<wil::com_ptr<ICoreWebView2Frame>>::iterator it)
+	{
+		if (!GetActiveTab())
+			return E_FAIL;
+		if (it == GetActiveTab()->m_frames.end())
+		{
+			if (callback)
+				callback->Invoke({ S_OK, nullptr });
+			return S_OK;
+		}
+		ComPtr<IWebDiffCallback> callback2(callback);
+		std::wstring script2(script);
+		wil::com_ptr<ICoreWebView2Frame2> frame2 =
+			it->try_query<ICoreWebView2Frame2>();
+		if (!frame2)
+			return E_FAIL;
+		HRESULT hr = frame2->ExecuteScript(script,
+			Callback<ICoreWebView2ExecuteScriptCompletedHandler>(
+				[this, it, callback2, script2](HRESULT errorCode, LPCWSTR resultObjectAsJson) -> HRESULT {
+					HRESULT hr = errorCode;
+					if (SUCCEEDED(hr))
+					{
+						std::vector<wil::com_ptr<ICoreWebView2Frame>>::iterator it2(it);
+						++it2;
+						if (it2 != GetActiveTab()->m_frames.end())
+							hr = executeScriptLoop(script2.c_str(), callback2.Get(), it2);
+						else if (callback2)
+							callback2->Invoke({ hr, nullptr });
+					}
+					if (FAILED(hr) && callback2)
+						callback2->Invoke({ errorCode, resultObjectAsJson });
+					return S_OK;
+				}).Get());
+		return hr;
+	}
+
+	HRESULT ExecuteScriptInAllFrames(const wchar_t* script, IWebDiffCallback *callback)
+	{
+		if (!GetActiveWebView())
+			return E_FAIL;
+		ComPtr<IWebDiffCallback> callback2(callback);
+		std::wstring script2(script);
+		HRESULT hr = GetActiveWebView()->ExecuteScript(script,
+			Callback<ICoreWebView2ExecuteScriptCompletedHandler>(
+				[this, callback2, script2](HRESULT errorCode, LPCWSTR resultObjectAsJson) -> HRESULT {
+					HRESULT hr = errorCode;
+					if (SUCCEEDED(hr))
+						hr = executeScriptLoop(script2.c_str(), callback2.Get(), GetActiveTab()->m_frames.begin());
+					if (FAILED(hr) && callback2)
+						callback2->Invoke({ errorCode, nullptr });
+					return S_OK;
+				}).Get());
+		return hr;
+	}
+
 	HRESULT ClearBrowsingData(IWebDiffWindow::BrowsingDataType dataKinds)
 	{
 		if (!GetActiveWebView())

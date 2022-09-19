@@ -187,9 +187,11 @@ public:
 		const int s1 = size1 / sizeof(wchar_t);
 		const int s2 = size2 / sizeof(wchar_t);
 		int i1 = 0, i2 = 0;
-		if (m_diffOptions.ignoreWhitespace == 2) {
+		if (m_diffOptions.ignoreWhitespace == 2)
+		{
 			goto skip_ws;
-			while (i1 < s1 && i2 < s2) {
+			while (i1 < s1 && i2 < s2)
+			{
 				if (!match_a_wchar(l1[i1++], l2[i2++]))
 					return false;
 			skip_ws:
@@ -199,9 +201,12 @@ public:
 					i2++;
 			}
 		}
-		else if (m_diffOptions.ignoreWhitespace == 1) {
-			while (i1 < s1 && i2 < s2) {
-				if (iswspace(l1[i1]) && iswspace(l2[i2])) {
+		else if (m_diffOptions.ignoreWhitespace == 1)
+		{
+			while (i1 < s1 && i2 < s2)
+			{
+				if (iswspace(l1[i1]) && iswspace(l2[i2]))
+				{
 					/* Skip matching spaces and try again */
 					while (i1 < s1 && iswspace(l1[i1]))
 						i1++;
@@ -209,6 +214,14 @@ public:
 						i2++;
 					continue;
 				}
+				if (!match_a_wchar(l1[i1++], l2[i2++]))
+					return false;
+			}
+		}
+		else
+		{
+			while (i1 < s1 && i2 < s2)
+			{
 				if (!match_a_wchar(l1[i1++], l2[i2++]))
 					return false;
 			}
@@ -239,7 +252,7 @@ public:
 		}
 		for (const wchar_t* ptr = begin; ptr < end; ptr++)
 		{
-			if (iswspace(*ptr))
+			if (m_diffOptions.ignoreWhitespace != 0 && iswspace(*ptr))
 			{
 				while (ptr + 1 < end && iswspace(ptr[1]))
 					ptr++;
@@ -569,11 +582,11 @@ namespace Comparer
 			std::advance(it2, wd3.begin[2]);
 			if (it2 == textBlocks[2].segments.end())
 				return false;
-			unsigned s0 = static_cast<unsigned>(textBlocks[0].segments[it0->second.begin].size);
-			unsigned s2 = static_cast<unsigned>(textBlocks[2].segments[it2->second.begin].size);
+			unsigned s0 = static_cast<unsigned>(textBlocks[0].segments[it0->second.begin].size) * sizeof(wchar_t);
+			unsigned s2 = static_cast<unsigned>(textBlocks[2].segments[it2->second.begin].size) * sizeof(wchar_t);
 			return data2.equals(
-				reinterpret_cast<const char *>(textBlocks[0].textBlocks.data()) + it0->second.begin, s0,
-				reinterpret_cast<const char *>(textBlocks[2].textBlocks.data()) + it2->second.begin, s2
+				reinterpret_cast<const char *>(textBlocks[0].textBlocks.data() + it0->second.begin), s0,
+				reinterpret_cast<const char *>(textBlocks[2].textBlocks.data() + it2->second.begin), s2
 				);
 		};
 

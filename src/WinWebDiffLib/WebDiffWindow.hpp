@@ -689,7 +689,7 @@ LR"(
     });
   });
 )";
-		HRESULT hr = m_webWindow[pane].ExecuteScript(script,
+		HRESULT hr = m_webWindow[pane].ExecuteScriptInAllFrames(script,
 			Callback<IWebDiffCallback>([this, pane, callback2](const WebDiffCallbackResult& result) -> HRESULT
 				{
 					HRESULT hr = result.errorCode;
