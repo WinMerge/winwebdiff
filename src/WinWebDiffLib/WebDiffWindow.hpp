@@ -740,6 +740,16 @@ LR"(
 						{
 							Highlighter highlighter(*documents.get(), m_diffInfos, m_colorSettings, m_diffOptions, m_bShowWordDifferences, m_currentDiffIndex);
 							highlighter.highlightNodes();
+#ifdef _DEBUG
+							for (int pane = 0; pane < m_nPanes; ++pane)
+							{
+								WStringBuffer buffer;
+								WPrettyWriter writer(buffer);
+								(*documents)[pane].Accept(writer);
+								WriteToTextFile((L"c:\\tmp\\file" + std::to_wstring(pane) + L"_1.json"),
+									buffer.GetString());
+							}
+#endif
 						}
 						hr = highlightDocuments(documents,
 							Callback<IWebDiffCallback>([this, callback2](const WebDiffCallbackResult& result) -> HRESULT
@@ -936,6 +946,14 @@ LR"(
 					{
 						WDocument doc;
 						doc.Parse(result.returnObjectAsJson);
+#ifdef _DEBUG
+						WStringBuffer buffer;
+						WPrettyWriter writer(buffer);
+						doc.Accept(writer);
+						WriteToTextFile((L"c:\\tmp\\file" + std::to_wstring(pane) + L"_2.json"),
+							buffer.GetString());
+#endif
+
 						std::map<int, int> nodes;
 						Highlighter::getDiffNodes(doc[L"root"], nodes);
 						for (unsigned i = 0; i < m_diffInfos.size(); ++i)

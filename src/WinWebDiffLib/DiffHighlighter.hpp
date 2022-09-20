@@ -707,8 +707,6 @@ public:
 				auto& allocator = m_documents[pane].GetAllocator();
 				std::wstring orgtext;
 				if (diffInfo.nodePos[pane] == 0)
-					orgtext = textBlocks[pane].textBlocks;
-				if (diffInfo.nodePos[pane] == 0)
 				{
 					if (diffInfo.nodeTypes[pane] == 1 /* ELEMENT_NODE */)
 					{
@@ -719,7 +717,7 @@ public:
 					{
 						WValue spanNode, attributes, children;
 						attributes.SetArray();
-						appendAttributes(attributes, className, i, orgtext, allocator);
+						appendAttributes(attributes, className, i, textBlocks[pane].textBlocks, allocator);
 						spanNode.SetObject();
 						spanNode.AddMember(L"nodeName", L"SPAN", allocator);
 						spanNode.AddMember(L"attributes", attributes, allocator);
@@ -748,7 +746,7 @@ public:
 				{
 					WValue spanNode, attributes, children;
 					attributes.SetArray();
-					appendAttributes(attributes, className, i, orgtext, allocator);
+					appendAttributes(attributes, className, i, L"", allocator);
 					spanNode.SetObject();
 					spanNode.AddMember(L"nodeName", L"SPAN", allocator);
 					spanNode.AddMember(L"attributes", attributes, allocator);
@@ -1151,8 +1149,8 @@ private:
 		const auto& ary = value[L"attributes"].GetArray();
 		for (unsigned int i = 0; i + 1 < ary.Size(); i += 2)
 		{
-			if (wcscmp(ary[i].GetString(), L"class") == 0 ||
-			    wcsstr(ary[i].GetString(), name) != nullptr)
+			if (wcscmp(ary[i].GetString(), L"class") == 0 && 
+			    wcsstr(ary[i + 1].GetString(), name) != nullptr)
 				return true;
 		}
 		return false;
