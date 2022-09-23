@@ -74,7 +74,7 @@ class CWebWindow
 					if (!m_webview)
 					{
 						if (callback2)
-							callback2->Invoke({ result, nullptr });
+							return callback2->Invoke({ result, nullptr });
 						return result;
 					}
 
@@ -221,7 +221,7 @@ class CWebWindow
 					m_parent->SetActiveTab(this);
 
 					if (callback2)
-						callback2->Invoke({ S_OK, nullptr });
+						return callback2->Invoke({ S_OK, nullptr });
 					return S_OK;
 				}).Get());
 			return SUCCEEDED(hr);
@@ -552,10 +552,10 @@ public:
 		if (!GetActiveWebView())
 			return E_FAIL;
 		ComPtr<IWebDiffCallback> callback2(callback);
-		HRESULT hr = GetActiveWebView()->CallDevToolsProtocolMethod(L"Page.getLayoutMetrics", L"{}",
-			Callback<ICoreWebView2CallDevToolsProtocolMethodCompletedHandler>(
-				[this, filename, fullSize, callback2](HRESULT errorCode, LPCWSTR returnObjectAsJson) -> HRESULT {
-					HRESULT hr = errorCode;
+		HRESULT hr = CallDevToolsProtocolMethod(L"Page.getLayoutMetrics", L"{}",
+			Callback<IWebDiffCallback>(
+				[this, filename, fullSize, callback2](const WebDiffCallbackResult& result) -> HRESULT {
+					HRESULT hr = result.errorCode;
 					if (SUCCEEDED(hr))
 					{
 						wil::com_ptr<IStream> stream;
@@ -566,7 +566,7 @@ public:
 							GetActiveWebViewController()->get_Bounds(&rcOrg);
 
 							WDocument document;
-							document.Parse(returnObjectAsJson);
+							document.Parse(result.returnObjectAsJson);
 							UINT dpi = GetDpiForWindow(m_hWnd);
 							int width = document[L"cssContentSize"][L"width"].GetInt()
 								* dpi / 96;
@@ -587,17 +587,17 @@ public:
 										if (fullSize)
 											GetActiveWebViewController()->put_Bounds(rcOrg);
 										if (callback2)
-											callback2->Invoke({ errorCode, nullptr });
+											return callback2->Invoke({ errorCode, nullptr });
 										return S_OK;
 									}).Get());
 						}
 					}
 					if (FAILED(hr) && callback2)
-						callback2->Invoke({ hr, nullptr });
+						return callback2->Invoke({ hr, nullptr });
 					return S_OK;
 				}).Get());
 		if (FAILED(hr) && callback2)
-			callback2->Invoke({ hr, nullptr });
+			return callback2->Invoke({ hr, nullptr });
 		return hr;
 	}
 
@@ -653,25 +653,25 @@ public:
 			return E_FAIL;
 		ComPtr<IWebDiffCallback> callback2(callback);
 		std::wstring params = L"{ \"depth\": -1, \"pierce\": true }";
-		HRESULT hr = GetActiveWebView()->CallDevToolsProtocolMethod(L"DOM.getDocument", params.c_str(),
-			Callback<ICoreWebView2CallDevToolsProtocolMethodCompletedHandler>(
-				[this, filename, callback2](HRESULT errorCode, LPCWSTR returnObjectAsJson) -> HRESULT {
-					HRESULT hr = errorCode;
+		HRESULT hr = CallDevToolsProtocolMethod(L"DOM.getDocument", params.c_str(),
+			Callback<IWebDiffCallback>(
+				[this, filename, callback2](const WebDiffCallbackResult& result) -> HRESULT {
+					HRESULT hr = result.errorCode;
 					if (SUCCEEDED(hr))
 					{
 						WDocument document;
-						document.Parse(returnObjectAsJson);
+						document.Parse(result.returnObjectAsJson);
 						wil::unique_file fp;
 						_wfopen_s(&fp, filename.c_str(), L"at,ccs=UTF-8");
 						size_t textLength = 0;
 						hr = SaveText(fp.get(), document[L"root"], textLength);
 					}
 					if (callback2)
-						callback2->Invoke({ hr, nullptr });
+						return callback2->Invoke({ hr, nullptr });
 					return S_OK;
 				}).Get());
 		if (FAILED(hr) && callback2)
-			callback2->Invoke({ hr, nullptr });
+			return callback2->Invoke({ hr, nullptr });
 		return hr;
 	}
 
@@ -691,11 +691,11 @@ public:
 						errorCode = WriteToTextFile(filename, document.GetString());
 					}
 					if (callback2)
-						callback2->Invoke({ errorCode, resultObjectAsJson });
+						return callback2->Invoke({ errorCode, resultObjectAsJson });
 					return S_OK;
 				}).Get());
 		if (FAILED(hr) && callback2)
-			callback2->Invoke({ hr, nullptr });
+			return callback2->Invoke({ hr, nullptr });
 		return hr;
 	}
 
@@ -706,12 +706,12 @@ public:
 		ComPtr<IWebDiffCallback> callback2(callback);
 		std::wstring params = L"{ \"nodeId\": " + std::to_wstring(nodeId)
 			+ L", \"outerHTML\":" + utils::Quote(html) + L" }";
-		HRESULT hr = GetActiveWebView()->CallDevToolsProtocolMethod(L"DOM.setOuterHTML", params.c_str(),
-			Callback<ICoreWebView2CallDevToolsProtocolMethodCompletedHandler>(
-				[this, callback2](HRESULT errorCode, LPCWSTR returnObjectAsJson) -> HRESULT {
-					HRESULT hr = errorCode;
+		HRESULT hr = CallDevToolsProtocolMethod(L"DOM.setOuterHTML", params.c_str(),
+			Callback<IWebDiffCallback>(
+				[this, callback2](const WebDiffCallbackResult& result) -> HRESULT {
+					HRESULT hr = result.errorCode;
 					if (callback2)
-						callback2->Invoke({ hr, nullptr });
+						return callback2->Invoke({ hr, nullptr });
 					return S_OK;
 				}).Get());
 		return hr;
@@ -723,55 +723,55 @@ public:
 			return E_FAIL;
 		ComPtr<IWebDiffCallback> callback2(callback);
 		std::wstring params = L"{ \"frameId\": \"" + frameId + L"\" }";
-		HRESULT hr = GetActiveWebView()->CallDevToolsProtocolMethod(L"DOM.getFrameOwner", params.c_str(),
-			Callback<ICoreWebView2CallDevToolsProtocolMethodCompletedHandler>(
-				[this, dirname, callback2](HRESULT errorCode, LPCWSTR returnObjectAsJson) -> HRESULT {
-					HRESULT hr = errorCode;
+		HRESULT hr = CallDevToolsProtocolMethod(L"DOM.getFrameOwner", params.c_str(),
+			Callback<IWebDiffCallback>(
+				[this, dirname, callback2](const WebDiffCallbackResult& result) -> HRESULT {
+					HRESULT hr = result.errorCode;
 					if (SUCCEEDED(hr))
 					{
 						WDocument document;
-						document.Parse(returnObjectAsJson);
+						document.Parse(result.returnObjectAsJson);
 						const int backendNodeId = document[L"backendNodeId"].GetInt();
 						const std::wstring params = L"{ \"backendNodeId\": " + std::to_wstring(backendNodeId) + L"}";
-						hr = GetActiveWebView()->CallDevToolsProtocolMethod(L"DOM.describeNode", params.c_str(),
-							Callback<ICoreWebView2CallDevToolsProtocolMethodCompletedHandler>(
-								[this, dirname, callback2](HRESULT errorCode, LPCWSTR returnObjectAsJson) -> HRESULT {
-									HRESULT hr = errorCode;
+						hr = CallDevToolsProtocolMethod(L"DOM.describeNode", params.c_str(),
+							Callback<IWebDiffCallback>(
+								[this, dirname, callback2](const WebDiffCallbackResult& result) -> HRESULT {
+									HRESULT hr = result.errorCode;
 									if (SUCCEEDED(hr))
 									{
 										WDocument document;
-										document.Parse(returnObjectAsJson);
+										document.Parse(result.returnObjectAsJson);
 										int backendNodeId = document[L"node"][L"contentDocument"][L"backendNodeId"].GetInt();
 										std::wstring params = L"{ \"backendNodeId\": " + std::to_wstring(backendNodeId) + L"}";
-										hr = GetActiveWebView()->CallDevToolsProtocolMethod(L"DOM.getOuterHTML", params.c_str(),
-											Callback<ICoreWebView2CallDevToolsProtocolMethodCompletedHandler>(
-												[this, dirname, callback2](HRESULT errorCode, LPCWSTR returnObjectAsJson) -> HRESULT {
-													HRESULT hr = errorCode;
+										hr = CallDevToolsProtocolMethod(L"DOM.getOuterHTML", params.c_str(),
+											Callback<IWebDiffCallback>(
+												[this, dirname, callback2](const WebDiffCallbackResult& result) -> HRESULT {
+													HRESULT hr = result.errorCode;
 													if (SUCCEEDED(hr))
 													{
 														WDocument document;
-														document.Parse(returnObjectAsJson);
+														document.Parse(result.returnObjectAsJson);
 														std::filesystem::path path = dirname;
 														path /= L"[Source].html";
 														if (FAILED(hr = WriteToTextFile(path, document[L"outerHTML"].GetString())))
 															WriteToErrorLog(dirname, path, hr);
 													}
 													if (callback2)
-														callback2->Invoke({ hr, nullptr });
+														return callback2->Invoke({ hr, nullptr });
 													return S_OK;
 												}).Get());
 									}
 									if (FAILED(hr) && callback2)
-										callback2->Invoke({ hr, nullptr });
+										return callback2->Invoke({ hr, nullptr });
 									return S_OK;
 								}).Get());
 					}
 					if (FAILED(hr) && callback2)
-						callback2->Invoke({ hr, nullptr });
+						return callback2->Invoke({ hr, nullptr });
 					return S_OK;
 				}).Get());
 		if (FAILED(hr) && callback2)
-			callback2->Invoke({ hr, nullptr });
+			return callback2->Invoke({ hr, nullptr });
 		return hr;
 	}
 
@@ -784,11 +784,11 @@ public:
 		int64_t lastModified = resource.HasMember(L"lastModified") ? resource[L"lastModified"].GetInt64() : 0;
 		std::wstring args = L"{ \"frameId\": \"" + frameId + L"\", \"url\": \"" + url + L"\" }";
 		ComPtr<IWebDiffCallback> callback2(callback);
-		HRESULT hr = GetActiveWebView()->CallDevToolsProtocolMethod(L"Page.getResourceContent", args.c_str(),
-			Callback<ICoreWebView2CallDevToolsProtocolMethodCompletedHandler>(
-				[this, dirname, url, mimeType, lastModified, callback2](HRESULT errorCode, LPCWSTR returnObjectAsJson) -> HRESULT {
+		HRESULT hr = CallDevToolsProtocolMethod(L"Page.getResourceContent", args.c_str(),
+			Callback<IWebDiffCallback>(
+				[this, dirname, url, mimeType, lastModified, callback2](const WebDiffCallbackResult& result) -> HRESULT {
 					std::filesystem::path path(dirname);
-					if (SUCCEEDED(errorCode))
+					if (SUCCEEDED(result.errorCode))
 					{
 						std::wstring filename;
 						if (url.compare(0, 5, L"data:") == 0)
@@ -826,7 +826,8 @@ public:
 							path = RenameFile(path);
 
 						WDocument document;
-						document.Parse(returnObjectAsJson);
+						document.Parse(result.returnObjectAsJson);
+						HRESULT errorCode;
 						if (document[L"base64Encoded"].GetBool())
 						{
 							if (FAILED(errorCode = WriteToBinaryFile(path, document[L"content"].GetString())))
@@ -842,14 +843,14 @@ public:
 					}
 					else
 					{
-						WriteToErrorLog(dirname, url, errorCode);
+						WriteToErrorLog(dirname, url, result.errorCode);
 					}
 					if (callback2)
-						callback2->Invoke({ errorCode, returnObjectAsJson });
+						return callback2->Invoke({ result.errorCode, result.returnObjectAsJson });
 					return S_OK;
 				}).Get());
 		if (FAILED(hr) && callback2)
-			callback2->Invoke({ hr, nullptr });
+			return callback2->Invoke({ hr, nullptr });
 		return hr;
 	}
 
@@ -911,11 +912,11 @@ public:
 		if (!GetActiveWebView())
 			return E_FAIL;
 		ComPtr<IWebDiffCallback> callback2(callback);
-		HRESULT hr = GetActiveWebView()->CallDevToolsProtocolMethod(L"Page.getResourceTree", L"{}",
-			Callback<ICoreWebView2CallDevToolsProtocolMethodCompletedHandler>(
-				[this, dirname, callback2](HRESULT errorCode, LPCWSTR returnObjectAsJson) -> HRESULT {
+		HRESULT hr = CallDevToolsProtocolMethod(L"Page.getResourceTree", L"{}",
+			Callback<IWebDiffCallback>(
+				[this, dirname, callback2](const WebDiffCallbackResult& result) -> HRESULT {
 					WDocument document;
-					document.Parse(returnObjectAsJson);
+					document.Parse(result.returnObjectAsJson);
 					const WValue& tree = document[L"frameTree"];
 
 					std::filesystem::path path(dirname);
@@ -923,6 +924,7 @@ public:
 					WStringBuffer buffer;
 					WPrettyWriter writer(buffer);
 					document.Accept(writer);
+					HRESULT errorCode;
 					if (FAILED(errorCode = WriteToTextFile(path, buffer.GetString())))
 						WriteToErrorLog(dirname, L"[ResourceTree].json", errorCode);
 
@@ -933,26 +935,41 @@ public:
 							[this, counter, callback2](const WebDiffCallbackResult& result) -> HRESULT {
 								--*counter;
 								if (*counter == 0)
-									callback2->Invoke(result);
+									return callback2->Invoke(result);
 								return S_OK;
 							}).Get());
 					return S_OK;
 				}).Get());
 		if (FAILED(hr) && callback2)
-			callback2->Invoke({ hr, nullptr });
+			return callback2->Invoke({ hr, nullptr });
 		return hr;
 	}
 
-	HRESULT CallDevToolsProtocolMethod(const wchar_t* methodName, const wchar_t* params, IWebDiffCallback *callback)
+	HRESULT CallDevToolsProtocolMethod(const wchar_t* methodName, const wchar_t* params, IWebDiffCallback *callback, bool showError = true)
 	{
 		if (!GetActiveWebView())
 			return E_FAIL;
 		ComPtr<IWebDiffCallback> callback2(callback);
+		std::shared_ptr<std::wstring> msg;
+		if (showError)
+		{
+			msg = std::make_shared<std::wstring>();
+			*msg += L"Error when calling ";
+			*msg += methodName;
+			*msg += L"(";
+			*msg += params;
+			*msg += L")\n";
+		}
 		HRESULT hr = GetActiveWebView()->CallDevToolsProtocolMethod(methodName, params,
 			Callback<ICoreWebView2CallDevToolsProtocolMethodCompletedHandler>(
-				[callback2](HRESULT errorCode, LPCWSTR returnObjectAsJson) -> HRESULT {
+				[this, callback2, msg](HRESULT errorCode, LPCWSTR returnObjectAsJson) -> HRESULT {
+					if (FAILED(errorCode))
+					{
+						SetToolTipText(*msg + returnObjectAsJson);
+						ShowToolTip(true, 5000);
+					}
 					if (callback2)
-						callback2->Invoke({ errorCode, returnObjectAsJson });
+						return callback2->Invoke({ errorCode, returnObjectAsJson });
 					return S_OK;
 				}).Get());
 		return hr;
@@ -965,9 +982,14 @@ public:
 		ComPtr<IWebDiffCallback> callback2(callback);
 		HRESULT hr = GetActiveWebView()->ExecuteScript(script,
 			Callback<ICoreWebView2ExecuteScriptCompletedHandler>(
-				[callback2](HRESULT errorCode, LPCWSTR resultObjectAsJson) -> HRESULT {
+				[this, callback2](HRESULT errorCode, LPCWSTR resultObjectAsJson) -> HRESULT {
+					if (FAILED(errorCode))
+					{
+						SetToolTipText(resultObjectAsJson);
+						ShowToolTip(true, 5000);
+					}
 					if (callback2)
-						callback2->Invoke({ errorCode, resultObjectAsJson });
+						return callback2->Invoke({ errorCode, resultObjectAsJson });
 					return S_OK;
 				}).Get());
 		return hr;
@@ -981,7 +1003,7 @@ public:
 		if (it == GetActiveTab()->m_frames.end())
 		{
 			if (callback)
-				callback->Invoke({ S_OK, nullptr });
+				return callback->Invoke({ S_OK, nullptr });
 			return S_OK;
 		}
 		ComPtr<IWebDiffCallback> callback2(callback);
@@ -1001,10 +1023,10 @@ public:
 						if (it2 != GetActiveTab()->m_frames.end())
 							hr = executeScriptLoop(script2.c_str(), callback2.Get(), it2);
 						else if (callback2)
-							callback2->Invoke({ hr, nullptr });
+							return callback2->Invoke({ hr, nullptr });
 					}
 					if (FAILED(hr) && callback2)
-						callback2->Invoke({ errorCode, resultObjectAsJson });
+						return callback2->Invoke({ errorCode, resultObjectAsJson });
 					return S_OK;
 				}).Get());
 		return hr;
@@ -1023,7 +1045,7 @@ public:
 					if (SUCCEEDED(hr))
 						hr = executeScriptLoop(script2.c_str(), callback2.Get(), GetActiveTab()->m_frames.begin());
 					if (FAILED(hr) && callback2)
-						callback2->Invoke({ errorCode, nullptr });
+						return callback2->Invoke({ errorCode, nullptr });
 					return S_OK;
 				}).Get());
 		return hr;
@@ -1054,7 +1076,7 @@ public:
 		return S_OK;
 	}
 
-	HRESULT ShowToolTip(bool show)
+	HRESULT ShowToolTip(bool show, int timeoutms = -1)
 	{
 		m_showToolTip = show;
 		if (!m_hToolTip)
@@ -1065,8 +1087,11 @@ public:
 			GetClientRect(m_hWebViewParent, &rc);
 			POINT pt{rc.left, rc.top};
 			ClientToScreen(m_hWebViewParent, &pt);
+			SendMessage(m_hToolTip, TTM_SETMAXTIPWIDTH, 0, rc.right - rc.left);
 			SendMessage(m_hToolTip, TTM_TRACKACTIVATE, (WPARAM)TRUE, (LPARAM)&m_toolItem);
 			SendMessage(m_hToolTip, TTM_TRACKPOSITION, 0, (LPARAM)MAKELONG(pt.x + 10, pt.y + 10));
+			if (timeoutms != -1)
+				SetTimer(m_hWnd, ID_TOOLTIP_TIMER, timeoutms, nullptr);
 		}
 		else
 		{
@@ -1635,6 +1660,15 @@ private:
 			EndPaint(hWnd, &ps);
 			return true;
 		}
+		case WM_TIMER:
+		{
+			if (wParam == ID_TOOLTIP_TIMER)
+				ShowToolTip(false);
+			break;
+		}
+		case WM_DESTROY:
+			Destroy();
+			break;
 		default:
 			return DefWindowProc(hWnd, iMsg, wParam, lParam);
 		}
@@ -1739,6 +1773,7 @@ private:
 		return lResult;
 	}
 
+	const int ID_TOOLTIP_TIMER = 1;
 	HWND m_hWnd = nullptr;
 	HWND m_hTabCtrl = nullptr;
 	HWND m_hToolbar = nullptr;

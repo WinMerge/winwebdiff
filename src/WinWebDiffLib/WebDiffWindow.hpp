@@ -201,12 +201,12 @@ public:
 									if (SUCCEEDED(hr))
 										hr = compare(callback2.Get());
 									if (FAILED(hr) && callback2)
-										callback2->Invoke({ hr, nullptr });
+										return callback2->Invoke({ hr, nullptr });
 									return S_OK;
 								}).Get());
 					}
 					if (FAILED(hr) && callback2)
-						callback2->Invoke({ hr, nullptr });
+						return callback2->Invoke({ hr, nullptr });
 					return S_OK;
 				}).Get());
 	}
@@ -230,12 +230,12 @@ public:
 									if (SUCCEEDED(hr))
 										hr = compare(callback2.Get());
 									if (FAILED(hr) && callback2)
-										callback2->Invoke({ hr, nullptr });
+										return callback2->Invoke({ hr, nullptr });
 									return S_OK;
 								}).Get());
 					}
 					if (FAILED(hr) && callback2)
-						callback2->Invoke({ hr, nullptr });
+						return callback2->Invoke({ hr, nullptr });
 					return S_OK;
 				}).Get());
 	}
@@ -668,10 +668,10 @@ private:
 						if (pane + 1 < m_nPanes)
 							hr = getDocumentsLoop(jsons, callback2.Get(), pane + 1);
 						else if (callback2)
-							callback2->Invoke({ hr, nullptr });
+							return callback2->Invoke({ hr, nullptr });
 					}
 					if (FAILED(hr) && callback2)
-						callback2->Invoke({ hr, nullptr });
+						return callback2->Invoke({ hr, nullptr });
 					return S_OK;
 				}).Get());
 		return hr;
@@ -692,16 +692,16 @@ LR"(
 		HRESULT hr = m_webWindow[pane].ExecuteScriptInAllFrames(script,
 			Callback<IWebDiffCallback>([this, pane, callback2](const WebDiffCallbackResult& result) -> HRESULT
 				{
-					HRESULT hr = result.errorCode;
+					HRESULT hr = S_OK; // result.errorCode;
 					if (SUCCEEDED(hr))
 					{
 						if (pane + 1 < m_nPanes)
 							hr = addDblClickEventListenerLoop(callback2.Get(), pane + 1);
 						else if (callback2)
-							callback2->Invoke({ hr, nullptr });
+							return callback2->Invoke({ hr, nullptr });
 					}
 					if (FAILED(hr) && callback2)
-						callback2->Invoke({ hr, nullptr });
+						return callback2->Invoke({ hr, nullptr });
 					return S_OK;
 				}).Get());
 		return hr;
@@ -764,17 +764,17 @@ LR"(
 													if (SUCCEEDED(hr))
 														hr = addDblClickEventListenerLoop(callback2.Get());
 													if (FAILED(hr) && callback2)
-														callback2->Invoke({ hr, nullptr });
+														return callback2->Invoke({ hr, nullptr });
 													return S_OK;
 												}).Get());
 									}
 									if (FAILED(hr) && callback2)
-										callback2->Invoke({ hr, nullptr });
+										return callback2->Invoke({ hr, nullptr });
 									return S_OK;
 								}).Get());
 					}
 					if (FAILED(hr) && callback2)
-						callback2->Invoke({ hr, nullptr });
+						return callback2->Invoke({ hr, nullptr });
 					return S_OK;
 				}).Get());
 		return hr;
@@ -792,10 +792,10 @@ LR"(
 						if (pane + 1 < m_nPanes)
 							hr = saveFilesLoop(kind, filenames, callback2.Get(), pane + 1);
 						else if (callback2)
-							callback2->Invoke({ hr, nullptr });
+							return callback2->Invoke({ hr, nullptr });
 					}
 					if (FAILED(hr) && callback2)
-						callback2->Invoke({ hr, nullptr });
+						return callback2->Invoke({ hr, nullptr });
 					return S_OK;
 				}).Get());
 		return hr;
@@ -817,7 +817,7 @@ LR"(
 		HRESULT hr = m_webWindow[pane].SetOuterHTML(it->nodeId, it->outerHTML,
 			Callback<IWebDiffCallback>([this, pane, nodes, it, callback2](const WebDiffCallbackResult& result) -> HRESULT
 				{
-					HRESULT hr = result.errorCode;
+					HRESULT hr = S_OK; // result.errorCode;
 					if (SUCCEEDED(hr))
 					{
 						std::list<ModifiedNode>::reverse_iterator it2(it);
@@ -825,10 +825,10 @@ LR"(
 						if (it2 != nodes->rend())
 							hr = applyHTMLLoop(pane, nodes, callback2.Get(), it2);
 						else if (callback2)
-							callback2->Invoke({ hr, nullptr });
+							return callback2->Invoke({ hr, nullptr });
 					}
 					if (FAILED(hr) && callback2)
-						callback2->Invoke({ hr, nullptr });
+						return callback2->Invoke({ hr, nullptr });
 					return S_OK;
 				}).Get());
 		return hr;
@@ -848,10 +848,10 @@ LR"(
 						if (pane + 1 < m_nPanes)
 							hr = applyDOMLoop(documents, callback2.Get(), pane + 1);
 						else if (callback2)
-							callback2->Invoke({ hr, nullptr });
+							return callback2->Invoke({ hr, nullptr });
 					}
 					if (FAILED(hr) && callback2)
-						callback2->Invoke({ hr, nullptr });
+						return callback2->Invoke({ hr, nullptr });
 					return hr;
 				}).Get(), nodes->rbegin());
 		return hr;
@@ -869,10 +869,10 @@ LR"(
 						if (pane + 1 < m_nPanes)
 							hr = setStyleSheetLoop(styles, callback2.Get(), pane + 1);
 						else if (callback2)
-							callback2->Invoke({ hr, nullptr });
+							return callback2->Invoke({ hr, nullptr });
 					}
 					if (FAILED(hr) && callback2)
-						callback2->Invoke({ hr, nullptr });
+						return callback2->Invoke({ hr, nullptr });
 					return S_OK;
 				}).Get());
 		return hr;
@@ -888,7 +888,7 @@ LR"(
 					if (SUCCEEDED(hr))
 						hr = makeDiffNodeIdArrayLoop(callback2.Get());
 					if (FAILED(hr) && callback2)
-						callback2->Invoke({ hr, nullptr });
+						return callback2->Invoke({ hr, nullptr });
 					return S_OK;
 				}).Get());
 		return hr;
@@ -919,15 +919,15 @@ LR"(
 										if (pane + 1 < m_nPanes)
 											hr = unhighlightDifferencesLoop(callback2.Get(), pane + 1);
 										else if (callback2)
-											callback2->Invoke({ hr, nullptr });
+											return callback2->Invoke({ hr, nullptr });
 									}
 									if (FAILED(hr) && callback2)
-										callback2->Invoke({ hr, nullptr });
+										return callback2->Invoke({ hr, nullptr });
 									return S_OK;
 								}).Get(), nodes->rbegin());
 					}
 					if (FAILED(hr) && callback2)
-						callback2->Invoke({ hr, nullptr });
+						return callback2->Invoke({ hr, nullptr });
 					return S_OK;
 				}).Get());
 		return hr;
@@ -964,10 +964,10 @@ LR"(
 						if (pane < m_nPanes - 1)
 							hr = makeDiffNodeIdArrayLoop(callback2.Get(), pane + 1);
 						else if (callback2)
-							callback2->Invoke({ hr, nullptr });
+							return callback2->Invoke({ hr, nullptr });
 					}
 					if (FAILED(hr) && callback2)
-						callback2->Invoke({ hr, nullptr });
+						return callback2->Invoke({ hr, nullptr });
 					return S_OK;
 				}).Get());
 		return hr;
@@ -980,22 +980,17 @@ LR"(
 		HRESULT hr = m_webWindow[pane].CallDevToolsProtocolMethod(L"DOM.scrollIntoViewIfNeeded", args.c_str(),
 			Callback<IWebDiffCallback>([this, diffIndex, pane, callback2](const WebDiffCallbackResult& result) -> HRESULT
 				{
-					HRESULT hr = result.errorCode;
-					m_webWindow[pane].ShowToolTip(FAILED(hr));
-					if (FAILED(hr))
-					{
-						m_webWindow[pane].SetToolTipText(result.returnObjectAsJson);
-						hr = S_OK;
-					}
+					HRESULT hr = S_OK; // result.errorCode;
+					m_webWindow[pane].ShowToolTip(FAILED(result.errorCode), 5000);
 					if (SUCCEEDED(hr))
 					{
 						if (pane + 1 < m_nPanes)
 							hr = scrollIntoViewIfNeededLoop(diffIndex, callback2.Get(), pane + 1);
 						else if (callback2)
-							callback2->Invoke({ hr, nullptr });
+							return callback2->Invoke({ hr, nullptr });
 					}
 					if (FAILED(hr) && callback2)
-						callback2->Invoke(result);
+						return callback2->Invoke(result);
 					return S_OK;
 				}).Get());
 		return hr;
@@ -1012,7 +1007,7 @@ LR"(
 				{
 					HRESULT hr = result.errorCode;
 					if (callback2)
-						callback2->Invoke({ hr, nullptr });
+						return callback2->Invoke({ hr, nullptr });
 					return S_OK;
 				}).Get());
 		return hr;
@@ -1035,7 +1030,7 @@ LR"(
 						hr = setStyleSheetText(pane, styleSheetId, styles, callback2.Get());
 					}
 					if (FAILED(hr) && callback2)
-						callback2->Invoke({ hr, nullptr });
+						return callback2->Invoke({ hr, nullptr });
 					return S_OK;
 				}).Get());
 		return hr;
@@ -1067,7 +1062,7 @@ LR"(
 		HRESULT hr = setFrameStyleSheet(pane, *it, *styles,
 			Callback<IWebDiffCallback>([this, pane, frameIdList, styles, it, callback2](const WebDiffCallbackResult& result) -> HRESULT
 				{
-					HRESULT hr = result.errorCode;
+					HRESULT hr = S_OK; // result.errorCode;
 					if (SUCCEEDED(hr))
 					{
 						std::vector<std::wstring>::iterator it2(it);
@@ -1075,10 +1070,10 @@ LR"(
 						if (it2 != frameIdList->end())
 							hr = setFrameStyleSheetLoop(pane, frameIdList, styles, callback2.Get(), it2);
 						else if (callback2)
-							callback2->Invoke({ hr, nullptr });
+							return callback2->Invoke({ hr, nullptr });
 					}
 					if (FAILED(hr) && callback2)
-						callback2->Invoke({ hr, nullptr });
+						return callback2->Invoke({ hr, nullptr });
 					return S_OK;
 				}).Get());
 		return hr;
@@ -1104,7 +1099,7 @@ LR"(
 							callback2.Get(), frameIdList->begin());
 					}
 					if (FAILED(hr) && callback2)
-						callback2->Invoke({ hr, nullptr });
+						return callback2->Invoke({ hr, nullptr });
 					return S_OK;
 				}).Get());
 		return hr;
@@ -1123,7 +1118,7 @@ LR"(
 					if (SUCCEEDED(hr))
 						hr = scrollIntoViewIfNeededLoop(diffIndex, callback2.Get());
 					if (FAILED(hr) && callback2)
-						callback2->Invoke({ hr, nullptr });
+						return callback2->Invoke({ hr, nullptr });
 					return S_OK;
 				}).Get());
 		return hr;
