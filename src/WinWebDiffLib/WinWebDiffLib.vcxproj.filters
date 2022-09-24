@@ -42,6 +42,9 @@
     <ClInclude Include="DiffHighlighter.hpp">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="DOMUtils.hpp">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="dllmain.cpp">

@@ -1,5 +1,6 @@
 #include "pch.h"
 #include "CppUnitTest.h"
+#define NOMINMAX
 #include <Windows.h>
 #include "../WinWebDiffLib/DiffHighlighter.hpp"
 
@@ -242,17 +243,53 @@ const wchar_t* json2 = LR"(
 		TEST_METHOD(TestMethod1)
 		{
             std::vector<WDocument> documents(2);
-			std::vector<TextBlocks> textBlocks(2);
+			std::vector<TextSegments> textSegments(2);
             IWebDiffWindow::DiffOptions diffOptions{};
             IWebDiffWindow::ColorSettings colorSettings{};
             documents[0].Parse(json1);
             documents[1].Parse(json2);
-			textBlocks[0].Make(documents[0][L"root"]);
-			textBlocks[1].Make(documents[1][L"root"]);
-			std::vector<DiffInfo> diffInfos = Comparer::compare(diffOptions, textBlocks);
-			Comparer::setNodeIdInDiffInfoList(diffInfos, textBlocks);
+			textSegments[0].Make(documents[0][L"root"]);
+			textSegments[1].Make(documents[1][L"root"]);
+			std::vector<DiffInfo> diffInfos = Comparer::compare(diffOptions, textSegments);
+			Comparer::setNodeIdInDiffInfoList(diffInfos, textSegments);
 			Highlighter highlighter(documents, diffInfos, colorSettings, diffOptions, true, 0);
 			highlighter.highlightNodes();
+		}
+
+		TEST_METHOD(TestMethod2)
+		{
+			std::vector<TextSegments> textSegments(2);
+            textSegments[0].allText = L"abc";
+            textSegments[0].segments.insert_or_assign(0, TextSegment{0, 0, 0, 3});
+            textSegments[1].allText = L"abc ";
+            textSegments[1].segments.insert_or_assign(0, TextSegment{0, 0, 0, 4});
+
+            IWebDiffWindow::DiffOptions diffOptions1{};
+			std::vector<DiffInfo> diffInfos1 = Comparer::compare(diffOptions1, textSegments);
+            Assert::AreEqual((size_t)1, diffInfos1.size());
+
+            IWebDiffWindow::DiffOptions diffOptions2{};
+            diffOptions2.ignoreWhitespace = 2;
+			std::vector<DiffInfo> diffInfos2 = Comparer::compare(diffOptions2, textSegments);
+            Assert::AreEqual((size_t)0, diffInfos2.size());
+
+		}
+
+		TEST_METHOD(TestMethod3)
+		{
+			std::vector<TextSegments> textSegments(2);
+            textSegments[0].Make(L"abc");
+            textSegments[1].Make(L"abc ");
+
+            IWebDiffWindow::DiffOptions diffOptions1{};
+			std::vector<DiffInfo> diffInfos1 = Comparer::compare(diffOptions1, textSegments);
+            Assert::AreEqual((size_t)1, diffInfos1.size());
+
+            IWebDiffWindow::DiffOptions diffOptions2{};
+            diffOptions2.ignoreWhitespace = 2;
+			std::vector<DiffInfo> diffInfos2 = Comparer::compare(diffOptions2, textSegments);
+            Assert::AreEqual((size_t)0, diffInfos2.size());
+
 		}
 	};
 }

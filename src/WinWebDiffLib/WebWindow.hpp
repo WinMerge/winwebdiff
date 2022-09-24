@@ -25,6 +25,7 @@
 #include <wincrypt.h>
 #include "WinWebDiffLib.h"
 #include "Utils.hpp"
+#include "DOMUtils.hpp"
 #include "resource.h"
 
 #pragma comment(lib, "shlwapi.lib")
@@ -187,8 +188,19 @@ class CWebWindow
 								{
 									wil::com_ptr<ICoreWebView2Frame> webviewFrame;
 									args->get_Frame(&webviewFrame);
+									auto webviewFrame2 = webviewFrame.try_query<ICoreWebView2Frame2>();
 
 									m_frames.emplace_back(webviewFrame);
+
+									if (webviewFrame2)
+									{
+										webviewFrame2->add_WebMessageReceived(
+											Callback<ICoreWebView2FrameWebMessageReceivedEventHandler>(
+												[this](ICoreWebView2Frame* sender, ICoreWebView2WebMessageReceivedEventArgs* args) -> HRESULT
+												{
+													return m_parent->OnFrameWebMessageReceived(sender, args);
+												}).Get(), nullptr);
+									}
 
 									webviewFrame->add_Destroyed(
 										Callback<ICoreWebView2FrameDestroyedEventHandler>(
@@ -314,8 +326,8 @@ public:
 		m_toolItem.uFlags = TTF_IDISHWND | TTF_TRACK | TTF_ABSOLUTE;
 		m_toolItem.hwnd = m_hWebViewParent;
 		m_toolItem.hinst = hInstance;
-		m_toolItem.lpszText = (WCHAR*)m_toolTipText.c_str();
-		m_toolItem.uId = (UINT_PTR)m_hWebViewParent;
+		m_toolItem.lpszText = const_cast<WCHAR*>(m_toolTipText.c_str());
+		m_toolItem.uId = reinterpret_cast<UINT_PTR>(m_hWebViewParent);
 		m_toolItem.rect = { 0, 0, 300, 100 };
 		SendMessage(m_hToolTip, TTM_ADDTOOL, 0, (LPARAM)(LPTOOLINFO)&m_toolItem);
 
@@ -615,6 +627,29 @@ public:
 			if (fwprintf(fp, L"%s", text.c_str()) < 0)
 				return HRESULT_FROM_WIN32(GetLastError());
 			textLength += text.length();
+		}
+		else if (nodeType == 1 /* ELEMENT_NODE */)
+		{
+			const wchar_t* nodeName = value[L"nodeName"].GetString();
+			if (wcscmp(nodeName, L"INPUT") == 0)
+			{
+				const wchar_t* type = domutils::getAttribute(value, L"type");
+				if (!type || wcscmp(type, L"hidden") != 0)
+				{
+					const wchar_t *inputValue = domutils::getAttribute(value, L"value");
+					if (inputValue)
+					{
+						std::wstring text = inputValue;
+						text =
+							((text.length() > 0 && iswspace(text.front())) ? L" " : L"") +
+							utils::trim_ws(text) +
+							((text.length() > 0 && iswspace(text.back())) ? L" " : L"");
+						if (fwprintf(fp, L"%s", text.c_str()) < 0)
+							return HRESULT_FROM_WIN32(GetLastError());
+						textLength += text.length();
+					}
+				}
+			}
 		}
 		if (value.HasMember(L"children") && value[L"children"].IsArray())
 		{
@@ -966,7 +1001,7 @@ public:
 					if (FAILED(errorCode))
 					{
 						SetToolTipText(*msg + returnObjectAsJson);
-						ShowToolTip(true, 5000);
+						ShowToolTip(true, TOOLTIP_TIMEOUT);
 					}
 					if (callback2)
 						return callback2->Invoke({ errorCode, returnObjectAsJson });
@@ -986,7 +1021,7 @@ public:
 					if (FAILED(errorCode))
 					{
 						SetToolTipText(resultObjectAsJson);
-						ShowToolTip(true, 5000);
+						ShowToolTip(true, TOOLTIP_TIMEOUT);
 					}
 					if (callback2)
 						return callback2->Invoke({ errorCode, resultObjectAsJson });
@@ -995,7 +1030,7 @@ public:
 		return hr;
 	}
 
-	HRESULT executeScriptLoop(const wchar_t* script, IWebDiffCallback *callback,
+	HRESULT executeScriptLoop(std::shared_ptr<std::wstring> script, IWebDiffCallback *callback,
 		std::vector<wil::com_ptr<ICoreWebView2Frame>>::iterator it)
 	{
 		if (!GetActiveTab())
@@ -1007,21 +1042,20 @@ public:
 			return S_OK;
 		}
 		ComPtr<IWebDiffCallback> callback2(callback);
-		std::wstring script2(script);
 		wil::com_ptr<ICoreWebView2Frame2> frame2 =
 			it->try_query<ICoreWebView2Frame2>();
 		if (!frame2)
 			return E_FAIL;
-		HRESULT hr = frame2->ExecuteScript(script,
+		HRESULT hr = frame2->ExecuteScript(script->c_str(),
 			Callback<ICoreWebView2ExecuteScriptCompletedHandler>(
-				[this, it, callback2, script2](HRESULT errorCode, LPCWSTR resultObjectAsJson) -> HRESULT {
+				[this, it, callback2, script](HRESULT errorCode, LPCWSTR resultObjectAsJson) -> HRESULT {
 					HRESULT hr = errorCode;
 					if (SUCCEEDED(hr))
 					{
 						std::vector<wil::com_ptr<ICoreWebView2Frame>>::iterator it2(it);
 						++it2;
 						if (it2 != GetActiveTab()->m_frames.end())
-							hr = executeScriptLoop(script2.c_str(), callback2.Get(), it2);
+							hr = executeScriptLoop(script, callback2.Get(), it2);
 						else if (callback2)
 							return callback2->Invoke({ hr, nullptr });
 					}
@@ -1037,15 +1071,114 @@ public:
 		if (!GetActiveWebView())
 			return E_FAIL;
 		ComPtr<IWebDiffCallback> callback2(callback);
-		std::wstring script2(script);
+		auto script2 = std::make_shared<std::wstring>(script);
 		HRESULT hr = GetActiveWebView()->ExecuteScript(script,
 			Callback<ICoreWebView2ExecuteScriptCompletedHandler>(
 				[this, callback2, script2](HRESULT errorCode, LPCWSTR resultObjectAsJson) -> HRESULT {
 					HRESULT hr = errorCode;
 					if (SUCCEEDED(hr))
-						hr = executeScriptLoop(script2.c_str(), callback2.Get(), GetActiveTab()->m_frames.begin());
+						hr = executeScriptLoop(script2, callback2.Get(), GetActiveTab()->m_frames.begin());
 					if (FAILED(hr) && callback2)
 						return callback2->Invoke({ errorCode, nullptr });
+					return S_OK;
+				}).Get());
+		return hr;
+	}
+
+	HRESULT setStyleSheetText(const std::wstring& styleSheetId, const std::wstring& styles, IWebDiffCallback* callback)
+	{
+		static const wchar_t* method = L"CSS.setStyleSheetText";
+		std::wstring params = L"{ \"styleSheetId\": \"" + styleSheetId + L"\", "
+			L"\"text\": " + utils::Quote(styles) + L" }";
+		ComPtr<IWebDiffCallback> callback2(callback);
+		HRESULT hr = CallDevToolsProtocolMethod(method, params.c_str(),
+			Callback<IWebDiffCallback>([this,  callback2](const WebDiffCallbackResult& result) -> HRESULT
+				{
+					HRESULT hr = result.errorCode;
+					if (callback2)
+						return callback2->Invoke({ hr, nullptr });
+					return S_OK;
+				}).Get());
+		return hr;
+	}
+
+	HRESULT setFrameStyleSheet(const std::wstring& frameId, const std::wstring& styles, IWebDiffCallback* callback)
+	{
+		static const wchar_t* method = L"CSS.createStyleSheet";
+		std::wstring params = L"{ \"frameId\": \"" + frameId + L"\" }";
+		ComPtr<IWebDiffCallback> callback2(callback);
+		HRESULT hr = CallDevToolsProtocolMethod(method, params.c_str(),
+			Callback<IWebDiffCallback>([this, styles, callback2](const WebDiffCallbackResult& result) -> HRESULT
+				{
+					HRESULT hr = result.errorCode;
+					if (SUCCEEDED(hr))
+					{
+						WDocument document;
+						document.Parse(result.returnObjectAsJson);
+						std::wstring styleSheetId = document[L"styleSheetId"].GetString();
+						hr = setStyleSheetText(styleSheetId, styles, callback2.Get());
+					}
+					if (FAILED(hr) && callback2)
+						return callback2->Invoke({ hr, nullptr });
+					return S_OK;
+				}).Get());
+		return hr;
+	}
+
+	HRESULT setFrameStyleSheetLoop(
+		std::shared_ptr<std::vector<std::wstring>> frameIdList,
+		std::shared_ptr<const std::wstring> styles,
+		IWebDiffCallback* callback,
+		std::vector<std::wstring>::iterator it)
+	{
+		if (it == frameIdList->end())
+		{
+			if (callback)
+				callback->Invoke({ S_OK, nullptr });
+			return S_OK;
+		}
+		ComPtr<IWebDiffCallback> callback2(callback);
+		HRESULT hr = setFrameStyleSheet(*it, *styles,
+			Callback<IWebDiffCallback>([this, frameIdList, styles, it, callback2](const WebDiffCallbackResult& result) -> HRESULT
+				{
+					HRESULT hr = S_OK; // result.errorCode;
+					if (SUCCEEDED(hr))
+					{
+						std::vector<std::wstring>::iterator it2(it);
+						++it2;
+						if (it2 != frameIdList->end())
+							hr = setFrameStyleSheetLoop(frameIdList, styles, callback2.Get(), it2);
+						else if (callback2)
+							return callback2->Invoke({ hr, nullptr });
+					}
+					if (FAILED(hr) && callback2)
+						return callback2->Invoke({ hr, nullptr });
+					return S_OK;
+				}).Get());
+		return hr;
+	}
+
+	HRESULT SetStyleSheetInAllFrames(const std::wstring& styles, IWebDiffCallback* callback)
+	{
+		static const wchar_t* method = L"Page.getFrameTree";
+		static const wchar_t* params = L"{}";
+		ComPtr<IWebDiffCallback> callback2(callback);
+		auto styles2 = std::make_shared<std::wstring>(styles);
+		HRESULT hr = CallDevToolsProtocolMethod(method, params,
+			Callback<IWebDiffCallback>([this, styles2, callback2](const WebDiffCallbackResult& result) -> HRESULT
+				{
+					HRESULT hr = result.errorCode;
+					if (SUCCEEDED(hr))
+					{
+						WDocument document;
+						document.Parse(result.returnObjectAsJson);
+						std::shared_ptr<std::vector<std::wstring>> frameIdList(new std::vector<std::wstring>());
+						domutils::getFrameIdList(document[L"frameTree"], *frameIdList);
+						hr = setFrameStyleSheetLoop(frameIdList, styles2,
+							callback2.Get(), frameIdList->begin());
+					}
+					if (FAILED(hr) && callback2)
+						return callback2->Invoke({ hr, nullptr });
 					return S_OK;
 				}).Get());
 		return hr;
@@ -1071,7 +1204,7 @@ public:
 		if (!m_hToolTip)
 			return E_FAIL;
 		m_toolTipText = text;
-		m_toolItem.lpszText = (WCHAR *)m_toolTipText.c_str();
+		m_toolItem.lpszText = const_cast<WCHAR *>(m_toolTipText.c_str());
 		SendMessage(m_hToolTip, TTM_SETTOOLINFO, (WPARAM)TRUE, (LPARAM)&m_toolItem);
 		return S_OK;
 	}
@@ -1431,7 +1564,7 @@ private:
 			    (vkmenu && virtualKey == VK_UP) ||
 			    (vkmenu && virtualKey == VK_DOWN))
 			{
-				PostMessage(m_hWnd, WM_KEYDOWN, virtualKey, lParam);
+				PostMessage(GetParent(m_hWnd), WM_KEYDOWN, virtualKey, lParam);
 				handled = true;
 			}
 			else if (virtualKey == VK_F12)
@@ -1541,6 +1674,15 @@ private:
 		return S_OK;
 	}
 
+	HRESULT OnFrameWebMessageReceived(ICoreWebView2Frame* sender, ICoreWebView2WebMessageReceivedEventArgs* args)
+	{
+		wil::unique_cotaskmem_string messageRaw;
+		args->TryGetWebMessageAsString(&messageRaw);
+		m_webmessage = messageRaw.get();
+		m_eventHandler(WebDiffEvent::WebMessageReceived);
+		return S_OK;
+	}
+
 	HRESULT OnWebMessageReceived(ICoreWebView2* sender, ICoreWebView2WebMessageReceivedEventArgs* args)
 	{
 		wil::unique_cotaskmem_string messageRaw;
@@ -1619,22 +1761,26 @@ private:
 			switch (wParam)
 			{
 			case ID_GOBACK:
-				GetActiveWebView()->GoBack();
+				if (GetActiveWebView())
+					GetActiveWebView()->GoBack();
 				break;
 			case ID_GOFORWARD:
-				GetActiveWebView()->GoForward();
+				if (GetActiveWebView())
+					GetActiveWebView()->GoForward();
 				break;
 			case ID_RELOAD:
-				GetActiveWebView()->Reload();
+				if (GetActiveWebView())
+					GetActiveWebView()->Reload();
 				break;
 			case ID_STOP:
-				GetActiveWebView()->Stop();
+				if (GetActiveWebView())
+					GetActiveWebView()->Stop();
 				break;
 			}
 			break;
 		case WM_NOTIFY:
 		{
-			NMHDR* pnmhdr = (NMHDR*)lParam;
+			NMHDR* pnmhdr = reinterpret_cast<NMHDR*>(lParam);
 			if (pnmhdr->code == TCN_SELCHANGE)
 				SetActiveTab(TabCtrl_GetCurSel(m_hTabCtrl));
 			break;
@@ -1774,6 +1920,7 @@ private:
 	}
 
 	const int ID_TOOLTIP_TIMER = 1;
+	const int TOOLTIP_TIMEOUT = 5000;
 	HWND m_hWnd = nullptr;
 	HWND m_hTabCtrl = nullptr;
 	HWND m_hToolbar = nullptr;

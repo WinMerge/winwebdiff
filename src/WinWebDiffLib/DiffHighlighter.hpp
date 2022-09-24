@@ -2,6 +2,7 @@
 
 #include "Diff.hpp"
 #include "Utils.hpp"
+#include "DOMUtils.hpp"
 #include <string>
 #include <vector>
 #include <map>
@@ -57,39 +58,39 @@ struct TextSegment
 	size_t size;
 };
 
-struct TextBlocks
+struct TextSegments
 {
 	void Make(const WValue& nodeTree)
 	{
 		const int nodeType = nodeTree[L"nodeType"].GetInt();
 		const auto* nodeName = nodeTree[L"nodeName"].GetString();
 
-		if (nodeType == 3 /* TEXT_NODE */)
+		if (nodeType == NodeType::TEXT_NODE)
 		{
 			std::wstring text = nodeTree[L"nodeValue"].GetString();
 			TextSegment seg{};
 			seg.nodeId = nodeTree[L"nodeId"].GetInt();
 			seg.nodeType = nodeType;
-			seg.begin = textBlocks.size();
+			seg.begin = allText.size();
 			seg.size = text.size();
-			textBlocks += text;
+			allText += text;
 			segments.insert_or_assign(seg.begin, seg);
 
 		}
-		else if (nodeType == 1 /* ELEMENT_NODE */ && 
-			wcscmp(nodeName, L"INPUT") == 0)
+		else if (nodeType == NodeType::ELEMENT_NODE && 
+			 wcscmp(nodeName, L"INPUT") == 0)
 		{
-			const wchar_t* type = getAttribute(nodeTree, L"type");
-			if (wcscmp(type, L"hidden") != 0)
+			const wchar_t* type = domutils::getAttribute(nodeTree, L"type");
+			if (!type || wcscmp(type, L"hidden") != 0)
 			{
-				const wchar_t* value = getAttribute(nodeTree, L"value");
+				const wchar_t* value = domutils::getAttribute(nodeTree, L"value");
 				std::wstring text = value ? value : L"";
 				TextSegment seg{};
 				seg.nodeId = nodeTree[L"nodeId"].GetInt();
 				seg.nodeType = nodeType;
-				seg.begin = textBlocks.size();
+				seg.begin = allText.size();
 				seg.size = text.size();
-				textBlocks += text;
+				allText += text;
 				segments.insert_or_assign(seg.begin, seg);
 			}
 		}
@@ -115,9 +116,9 @@ struct TextBlocks
 
 	bool isWordBreak(wchar_t ch)
 	{
-		static const wchar_t* BreakChars = L".,:;?[](){}<=>`'!\"#$%&^~\\|@+-*/";
 		if ((ch & 0xff00) == 0)
 		{
+			static const wchar_t* BreakChars = L".,:;?[](){}<=>`'!\"#$%&^~\\|@+-*/";
 			return wcschr(BreakChars, ch) != nullptr;
 		}
 		else
@@ -131,19 +132,17 @@ struct TextBlocks
 	}
 	void Make(const std::wstring& text)
 	{
-		textBlocks = text;
-		int charType = 0;
+		allText = text;
 		int charTypePrev = -1;
 		size_t begin = 0;
 		for (size_t i = 0; i < text.size(); ++i)
 		{
+			int charType = 0;
 			wchar_t ch = text[i];
 			if (iswspace(ch))
 				charType = 1;
 			else if (isWordBreak(ch))
 				charType = 2;
-			else
-				charType = 0;
 			if (charType == 2 || charType != charTypePrev)
 			{
 				if (i > 0)
@@ -165,39 +164,26 @@ struct TextBlocks
 		segments.insert_or_assign(seg.begin, seg);
 	}
 
-	static const wchar_t* getAttribute(const WValue& node, const wchar_t* name)
-	{
-		if (!node.HasMember(L"attributes"))
-			return nullptr;
-		const auto& ary = node[L"attributes"].GetArray();
-		for (unsigned i = 0; i < ary.Size(); i += 2)
-		{
-			if (wcscmp(ary[i].GetString(), name) == 0 && i + 1 < ary.Size())
-				return ary[i + 1].GetString();
-		}
-		return nullptr;
-	}
-
-	std::wstring textBlocks;
+	std::wstring allText;
 	std::map<size_t, TextSegment> segments;
 };
 
 class DataForDiff
 {
 public:
-	DataForDiff(const TextBlocks& textBlocks, const IWebDiffWindow::DiffOptions& diffOptions) :
-		m_textBlocks(textBlocks), m_diffOptions(diffOptions)
+	DataForDiff(const TextSegments& textSegments, const IWebDiffWindow::DiffOptions& diffOptions) :
+		m_textSegments(textSegments), m_diffOptions(diffOptions)
 	{
 	}
 	~DataForDiff()
 	{
 	}
-	unsigned size() const { return static_cast<unsigned>(m_textBlocks.textBlocks.size() * sizeof(wchar_t)); }
-	const char* data() const { return reinterpret_cast<const char*>(m_textBlocks.textBlocks.data()); }
+	unsigned size() const { return static_cast<unsigned>(m_textSegments.allText.size() * sizeof(wchar_t)); }
+	const char* data() const { return reinterpret_cast<const char*>(m_textSegments.allText.data()); }
 	const char* next(const char* scanline) const
 	{
-		auto it = m_textBlocks.segments.find(reinterpret_cast<const wchar_t*>(scanline) - m_textBlocks.textBlocks.data());
-		if (it != m_textBlocks.segments.end())
+		auto it = m_textSegments.segments.find(reinterpret_cast<const wchar_t*>(scanline) - m_textSegments.allText.data());
+		if (it != m_textSegments.segments.end())
 			return scanline + it->second.size * sizeof(wchar_t);
 		return nullptr;
 	}
@@ -214,10 +200,12 @@ public:
 	bool equals(const char* scanline1, unsigned size1,
 		const char* scanline2, unsigned size2) const
 	{
-		if (size1 != size2)
-			return false;
 		if (!m_diffOptions.ignoreCase && m_diffOptions.ignoreWhitespace == 0)
+		{
+			if (size1 != size2)
+				return false;
 			return memcmp(scanline1, scanline2, size1) == 0;
+		}
 		const wchar_t* l1 = reinterpret_cast<const wchar_t*>(scanline1);
 		const wchar_t* l2 = reinterpret_cast<const wchar_t*>(scanline2);
 		const int s1 = size1 / sizeof(wchar_t);
@@ -308,7 +296,7 @@ public:
 	}
 
 private:
-	const TextBlocks& m_textBlocks;
+	const TextSegments& m_textSegments;
 	const IWebDiffWindow::DiffOptions& m_diffOptions;
 };
 
@@ -517,26 +505,44 @@ namespace Comparer
 		return diff3;
 	}
 
-	std::vector<DiffInfo> edscriptToDiffInfo(const std::vector<char>& edscript, const TextBlocks& textBlocks0, const TextBlocks& textBlocks1)
+	bool isAllSpaces(const wchar_t* start, const wchar_t* end)
+	{
+		for (const wchar_t* p = start; p < end; ++p)
+		{
+			if (!iswspace(*p))
+				return false;
+		}
+		return true;
+	}
+
+	std::vector<DiffInfo> edscriptToDiffInfo(const std::vector<char>& edscript, const TextSegments& textSegments0, const TextSegments& textSegments1, bool ignoreAllSpaces)
 	{
 		std::vector<DiffInfo> m_diffInfoList;
 		int i0 = 0, i1 = 0;
-		auto it0 = textBlocks0.segments.begin();
-		auto it1 = textBlocks1.segments.begin();
+		auto it0 = textSegments0.segments.begin();
+		auto it1 = textSegments1.segments.begin();
 		for (auto ed : edscript)
 		{
 			switch (ed)
 			{
 			case '-':
-				m_diffInfoList.emplace_back(i0, i0, i1, i1 - 1);
+			{
+				const wchar_t* start0 = textSegments0.allText.c_str() + it0->second.begin;
+				if (!ignoreAllSpaces || !isAllSpaces(start0, start0 + it0->second.size))
+					m_diffInfoList.emplace_back(i0, i0, i1, i1 - 1);
 				++it0;
 				++i0;
 				break;
+			}
 			case '+':
-				m_diffInfoList.emplace_back(i0, i0 - 1, i1, i1);
+			{
+				const wchar_t* start1 = textSegments1.allText.c_str() + it1->second.begin;
+				if (!ignoreAllSpaces || !isAllSpaces(start1, start1 + it1->second.size))
+					m_diffInfoList.emplace_back(i0, i0 - 1, i1, i1);
 				++it1;
 				++i1;
 				break;
+			}
 			case '!':
 				m_diffInfoList.emplace_back(i0, i0, i1, i1);
 				++it0;
@@ -556,17 +562,17 @@ namespace Comparer
 	}
 
 	void setNodeIdInDiffInfoList(std::vector<DiffInfo>& m_diffInfoList,
-		const std::vector<TextBlocks>& textBlocks)
+		const std::vector<TextSegments>& textSegments)
 	{
 		for (size_t i = 0; i < m_diffInfoList.size(); ++i)
 		{
-			for (size_t pane = 0; pane < textBlocks.size(); ++pane)
+			for (size_t pane = 0; pane < textSegments.size(); ++pane)
 			{
-				auto it = textBlocks[pane].segments.begin();
+				auto it = textSegments[pane].segments.begin();
 				std::advance(it, m_diffInfoList[i].begin[pane]);
 				if (m_diffInfoList[i].end[pane] < m_diffInfoList[i].begin[pane])
 				{
-					if (it != textBlocks[pane].segments.begin())
+					if (it != textSegments[pane].segments.begin())
 					{
 						--it;
 						m_diffInfoList[i].nodePos[pane] = 1;
@@ -580,7 +586,7 @@ namespace Comparer
 				{
 					m_diffInfoList[i].nodePos[pane] = 0;
 				}
-				if (it == textBlocks[pane].segments.end())
+				if (it == textSegments[pane].segments.end())
 				{
 					m_diffInfoList[i].nodeIds[pane] = -1;
 					m_diffInfoList[i].nodeTypes[pane] = -1;
@@ -595,43 +601,43 @@ namespace Comparer
 	}
 
 	std::vector<DiffInfo> compare(const IWebDiffWindow::DiffOptions& diffOptions,
-		std::vector<TextBlocks>& textBlocks)
+		std::vector<TextSegments>& textSegments)
 	{
-		DataForDiff data0(textBlocks[0], diffOptions);
-		DataForDiff data1(textBlocks[1], diffOptions);
-		if (textBlocks.size() < 3)
+		DataForDiff data0(textSegments[0], diffOptions);
+		DataForDiff data1(textSegments[1], diffOptions);
+		if (textSegments.size() < 3)
 		{
 			Diff<DataForDiff> diff(data0, data1);
 			std::vector<char> edscript;
 
 			diff.diff(static_cast<Diff<DataForDiff>::Algorithm>(diffOptions.diffAlgorithm), edscript);
-			return edscriptToDiffInfo(edscript, textBlocks[0], textBlocks[1]);
+			return edscriptToDiffInfo(edscript, textSegments[0], textSegments[1], diffOptions.ignoreWhitespace == 2);
 		}
 
-		DataForDiff data2(textBlocks[2], diffOptions);
+		DataForDiff data2(textSegments[2], diffOptions);
 		Diff<DataForDiff> diff10(data1, data0);
 		Diff<DataForDiff> diff12(data1, data2);
 		Diff<DataForDiff> diff20(data2, data0);
 		std::vector<char> edscript10, edscript12;
 		diff10.diff(static_cast<Diff<DataForDiff>::Algorithm>(diffOptions.diffAlgorithm), edscript10);
 		diff12.diff(static_cast<Diff<DataForDiff>::Algorithm>(diffOptions.diffAlgorithm), edscript12);
-		std::vector<DiffInfo> diffInfoList10 = edscriptToDiffInfo(edscript10, textBlocks[1], textBlocks[0]);
-		std::vector<DiffInfo> diffInfoList12 = edscriptToDiffInfo(edscript12, textBlocks[1], textBlocks[2]);
+		std::vector<DiffInfo> diffInfoList10 = edscriptToDiffInfo(edscript10, textSegments[1], textSegments[0], diffOptions.ignoreWhitespace == 2);
+		std::vector<DiffInfo> diffInfoList12 = edscriptToDiffInfo(edscript12, textSegments[1], textSegments[2], diffOptions.ignoreWhitespace == 2);
 
 		auto compfunc02 = [&](const DiffInfo & wd3) {
-			auto it0 = textBlocks[0].segments.begin();
-			auto it2 = textBlocks[2].segments.begin();
+			auto it0 = textSegments[0].segments.begin();
+			auto it2 = textSegments[2].segments.begin();
 			std::advance(it0, wd3.begin[0]);
-			if (it0 == textBlocks[0].segments.end())
+			if (it0 == textSegments[0].segments.end())
 				return false;
 			std::advance(it2, wd3.begin[2]);
-			if (it2 == textBlocks[2].segments.end())
+			if (it2 == textSegments[2].segments.end())
 				return false;
-			unsigned s0 = static_cast<unsigned>(textBlocks[0].segments[it0->second.begin].size) * sizeof(wchar_t);
-			unsigned s2 = static_cast<unsigned>(textBlocks[2].segments[it2->second.begin].size) * sizeof(wchar_t);
+			unsigned s0 = static_cast<unsigned>(textSegments[0].segments[it0->second.begin].size) * sizeof(wchar_t);
+			unsigned s2 = static_cast<unsigned>(textSegments[2].segments[it2->second.begin].size) * sizeof(wchar_t);
 			return data2.equals(
-				reinterpret_cast<const char *>(textBlocks[0].textBlocks.data() + it0->second.begin), s0,
-				reinterpret_cast<const char *>(textBlocks[2].textBlocks.data() + it2->second.begin), s2
+				reinterpret_cast<const char *>(textSegments[0].allText.data() + it0->second.begin), s0,
+				reinterpret_cast<const char *>(textSegments[2].allText.data() + it2->second.begin), s2
 				);
 		};
 
@@ -641,19 +647,6 @@ namespace Comparer
 
 class Highlighter
 {
-	enum NodeType
-	{
-		ELEMENT_NODE = 1,
-		ATTRIBUTE_NODE = 2,
-		TEXT_NODE = 3,
-		CDATA_SECTION_NODE = 4,
-		PROCESSING_INSTRUCTION_NODE = 7,
-		COMMENT_NODE = 8,
-		DOCUMENT_NODE = 9,
-		DOCUMENT_TYPE_NODE = 10,
-		DOCUMENT_FRAGMENT_NODE = 11,
-	};
-
 public:
 	Highlighter(std::vector<WDocument>& documents,
 		std::vector<DiffInfo>& diffInfoList, 
@@ -676,19 +669,19 @@ public:
 		{
 			const auto& diffInfo = m_diffInfoList[i];
 			WValue* pvalues[3]{};
-			std::vector<TextBlocks> textBlocks(m_documents.size());
+			std::vector<TextSegments> textSegments(m_documents.size());
 			std::vector<DiffInfo> wordDiffInfoList;
 			for (size_t pane = 0; pane < m_documents.size(); ++pane)
 			{
-				std::pair<WValue*, WValue*> pair = findNodeId(m_documents[pane][L"root"], diffInfo.nodeIds[pane]);
+				std::pair<WValue*, WValue*> pair = domutils::findNodeId(m_documents[pane][L"root"], diffInfo.nodeIds[pane]);
 				pvalues[pane] = pair.first;
 				if (diffInfo.nodePos[pane] == 0 && pvalues[pane])
-					textBlocks[pane].Make((*pvalues[pane])[L"nodeValue"].GetString());
+					textSegments[pane].Make((*pvalues[pane])[L"nodeValue"].GetString());
 				else
-					textBlocks[pane].Make(L"");
+					textSegments[pane].Make(L"");
 			}
 			if (m_showWordDifferences)
-				wordDiffInfoList = Comparer::compare(m_diffOptions, textBlocks);
+				wordDiffInfoList = Comparer::compare(m_diffOptions, textSegments);
 			for (size_t pane = 0; pane < m_documents.size(); ++pane)
 			{
 				if (!pvalues[pane])
@@ -705,19 +698,18 @@ public:
 				else
 					className += deleted ? L" wwd-deleted" : L" wwd-changed";
 				auto& allocator = m_documents[pane].GetAllocator();
-				std::wstring orgtext;
 				if (diffInfo.nodePos[pane] == 0)
 				{
-					if (diffInfo.nodeTypes[pane] == 1 /* ELEMENT_NODE */)
+					if (diffInfo.nodeTypes[pane] == NodeType::ELEMENT_NODE)
 					{
 						appendAttributes((*pvalues[pane])[L"attributes"], className, i, allocator);
 						(*pvalues[pane]).AddMember(L"modified", true, allocator);
 					}
-					else if (diffInfo.nodeTypes[pane] == 3 /* TEXT_NODE */)
+					else if (diffInfo.nodeTypes[pane] == NodeType::TEXT_NODE)
 					{
 						WValue spanNode, attributes, children;
 						attributes.SetArray();
-						appendAttributes(attributes, className, i, textBlocks[pane].textBlocks, allocator);
+						appendAttributes(attributes, className, i, textSegments[pane].allText, allocator);
 						spanNode.SetObject();
 						spanNode.AddMember(L"nodeName", L"SPAN", allocator);
 						spanNode.AddMember(L"attributes", attributes, allocator);
@@ -727,7 +719,7 @@ public:
 						children.SetArray();
 						if (m_showWordDifferences && !snp/* && isNeededWordDiffHighlighting(wordDiffInfoList) */)
 						{
-							makeWordDiffNodes(pane, wordDiffInfoList, textBlocks[pane], children, i == m_diffIndex, allocator);
+							makeWordDiffNodes(pane, wordDiffInfoList, textSegments[pane], children, i == m_diffIndex, allocator);
 						}
 						else
 						{
@@ -815,7 +807,7 @@ public:
 				else
 				{
 					std::wstring text;
-					const wchar_t* value = getAttribute(tree, L"data-wwdtext");
+					const wchar_t* value = domutils::getAttribute(tree, L"data-wwdtext");
 					if (value)
 						text = value;
 					tree[L"nodeValue"].SetString(text.c_str(), allocator);
@@ -877,7 +869,7 @@ public:
 					html += modifiedNodesToHTMLs(child, nodes);
 			}
 			std::wstring h = utils::EncodeHTMLEntities(tree[L"nodeValue"].GetString());
-			if (!h.empty() && std::all_of(h.begin(), h.end(), [](wchar_t ch) { return ch == ' ' || ch == '\t'; }))
+			if (!h.empty() && std::all_of(h.begin(), h.end(), [](wchar_t ch) { return iswspace(ch); }))
 			{
 				h.pop_back();
 				h += L"&nbsp;";
@@ -973,7 +965,7 @@ public:
 			if (isDiffNode(tree))
 			{
 				const int nodeId = tree[L"nodeId"].GetInt();
-				const wchar_t* data = getAttribute(tree, L"data-wwdid");
+				const wchar_t* data = domutils::getAttribute(tree, L"data-wwdid");
 				const int diffIndex = data ? _wtoi(data) : -1;
 				nodes.insert_or_assign(diffIndex, nodeId);
 			}
@@ -1117,93 +1109,14 @@ private:
 		return styleValue;
 	}
 
-	static std::pair<WValue*, WValue*> findNodeId(WValue& nodeTree, int nodeId)
-	{
-		if (nodeTree[L"nodeId"].GetInt() == nodeId)
-		{
-			return { &nodeTree, nullptr };
-		}
-		if (nodeTree.HasMember(L"children") && nodeTree[L"children"].IsArray())
-		{
-			for (auto& child : nodeTree[L"children"].GetArray())
-			{
-				auto [pvalue, pparent] = findNodeId(child, nodeId);
-				if (pvalue)
-					return { pvalue, pparent ? pparent : &nodeTree };
-			}
-		}
-		if (nodeTree.HasMember(L"contentDocument"))
-		{
-			auto [pvalue, pparent] = findNodeId(nodeTree[L"contentDocument"], nodeId);
-			return { pvalue, pparent ? pparent : &nodeTree[L"contentDocument"] };
-		}
-		return { nullptr, nullptr };
-	}
-
-	static bool containsClassName(const WValue& value, const wchar_t* name)
-	{
-		if (value[L"nodeType"].GetInt() != NodeType::ELEMENT_NODE)
-			return false;
-		if (!value.HasMember(L"attributes"))
-			return false;
-		const auto& ary = value[L"attributes"].GetArray();
-		for (unsigned int i = 0; i + 1 < ary.Size(); i += 2)
-		{
-			if (wcscmp(ary[i].GetString(), L"class") == 0 && 
-			    wcsstr(ary[i + 1].GetString(), name) != nullptr)
-				return true;
-		}
-		return false;
-	}
-
 	static bool isDiffNode(const WValue& value)
 	{
-		return containsClassName(value, L"wwd-diff");
+		return domutils::containsClassName(value, L"wwd-diff");
 	}
 
 	static bool isWordDiffNode(const WValue& value)
 	{
-		return containsClassName(value, L"wwd-wdiff");
-	}
-
-	static const wchar_t* getAttribute(const WValue& node, const wchar_t* name)
-	{
-		if (!node.HasMember(L"attributes"))
-			return nullptr;
-		const auto& ary = node[L"attributes"].GetArray();
-		for (unsigned i = 0; i < ary.Size(); i += 2)
-		{
-			if (wcscmp(ary[i].GetString(), name) == 0 && i + 1 < ary.Size())
-				return ary[i + 1].GetString();
-		}
-		return nullptr;
-	}
-
-	static void setAttribute(WValue& node, const wchar_t* name, const std::wstring& value, WDocument::AllocatorType& allocator)
-	{
-		if (!node.HasMember(L"attributes"))
-			return;
-		const auto& ary = node[L"attributes"].GetArray();
-		for (unsigned i = 0; i < ary.Size(); i += 2)
-		{
-			if (wcscmp(ary[i].GetString(), name) == 0 && i + 1 < ary.Size())
-			{
-				ary[i + 1].SetString(value.c_str(), static_cast<unsigned>(value.length()), allocator);
-				break;
-			}
-		}
-	}
-
-	static void makeTextNode(WValue& textNode, const std::wstring& text, WDocument::AllocatorType& allocator)
-	{
-		WValue children;
-		WValue textValue(text.c_str(), static_cast<unsigned>(text.size()), allocator);
-		children.SetArray();
-		textNode.SetObject();
-		textNode.AddMember(L"nodeId", -1, allocator);
-		textNode.AddMember(L"nodeType", 3, allocator);
-		textNode.AddMember(L"nodeValue", textValue, allocator);
-		textNode.AddMember(L"children", children, allocator);
+		return domutils::containsClassName(value, L"wwd-wdiff");
 	}
 
 	bool isNeededWordDiffHighlighting(const std::vector<DiffInfo>& wordDiffInfoList)
@@ -1219,42 +1132,41 @@ private:
 	}
 
 	void makeWordDiffNodes(size_t pane, const std::vector<DiffInfo>& wordDiffInfoList,
-		const TextBlocks& textBlocks, WValue& children, bool selected, WDocument::AllocatorType& allocator)
+		const TextSegments& textSegments, WValue& children, bool selected, WDocument::AllocatorType& allocator)
 	{
 		size_t begin = 0;
 		for (const auto& diffInfo: wordDiffInfoList)
 		{
-			auto it = textBlocks.segments.begin();
+			auto it = textSegments.segments.begin();
 			std::advance(it, diffInfo.begin[pane]);
-			if (it != textBlocks.segments.end())
+			if (it != textSegments.segments.end())
 			{
 				size_t begin2 = it->second.begin;
 				size_t end2 = 0;
 				if (diffInfo.end[pane] != -1)
 				{
-					it = textBlocks.segments.begin();
+					it = textSegments.segments.begin();
 					std::advance(it, diffInfo.end[pane]);
 					end2 = it->second.begin + it->second.size;
 				}
-				std::wstring text = textBlocks.textBlocks.substr(begin, begin2 - begin);
-				std::wstring textDiff = textBlocks.textBlocks.substr(begin2, end2 - begin2);
+				std::wstring text = textSegments.allText.substr(begin, begin2 - begin);
+				std::wstring textDiff = textSegments.allText.substr(begin2, end2 - begin2);
 				begin = end2;
 
 				if (!text.empty())
 				{
 					WValue textNode;
-					makeTextNode(textNode, text, allocator);
+					domutils::makeTextNode(textNode, text, allocator);
 					children.PushBack(textNode, allocator);
 				}
 
 				if (!textDiff.empty())
 				{
-					std::wstring className = L"wwd-wdiff ";
-					className += L" wwd-word";
+					std::wstring className = L"wwd-wdiff wwd-word";
 					WValue spanNode, diffTextNode, attributes, spanChildren;
 					WValue textDiffValue(textDiff.c_str(), static_cast<unsigned>(textDiff.size()), allocator);
 					WValue classNameValue(className.c_str(), static_cast<unsigned>(className.size()), allocator);
-					makeTextNode(diffTextNode, textDiff, allocator);
+					domutils::makeTextNode(diffTextNode, textDiff, allocator);
 					spanChildren.SetArray();
 					spanChildren.PushBack(diffTextNode, allocator);
 					attributes.SetArray();
@@ -1271,11 +1183,11 @@ private:
 				}
 			}
 		}
-		std::wstring text = textBlocks.textBlocks.substr(begin);
+		std::wstring text = textSegments.allText.substr(begin);
 		if (!text.empty())
 		{
 			WValue textNode;
-			makeTextNode(textNode, text, allocator);
+			domutils::makeTextNode(textNode, text, allocator);
 			children.PushBack(textNode, allocator);
 		}
 	}

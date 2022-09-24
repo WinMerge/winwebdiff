@@ -419,12 +419,12 @@ public:
 		Recompare(nullptr);
 	}
 
-	const DiffOptions& GetDiffOptions() const
+	const DiffOptions& GetDiffOptions() const override
 	{
 		return m_diffOptions;
 	}
 
-	void SetDiffOptions(const DiffOptions& diffOptions)
+	void SetDiffOptions(const DiffOptions& diffOptions) override
 	{
 		m_diffOptions = diffOptions;
 		Recompare(nullptr);
@@ -717,7 +717,7 @@ LR"(
 					HRESULT hr = result.errorCode;
 					if (SUCCEEDED(hr))
 					{
-						std::vector<TextBlocks> textBlocks(m_nPanes);
+						std::vector<TextSegments> textSegments(m_nPanes);
 						std::shared_ptr<std::vector<WDocument>> documents(new std::vector<WDocument>(m_nPanes));
 						for (int pane = 0; pane < m_nPanes; ++pane)
 						{
@@ -730,10 +730,10 @@ LR"(
 								buffer.GetString());
 #endif
 							Highlighter::unhighlightNodes((*documents)[pane][L"root"], (*documents)[pane].GetAllocator());
-							textBlocks[pane].Make((*documents)[pane][L"root"]);
+							textSegments[pane].Make((*documents)[pane][L"root"]);
 						}
-						m_diffInfos = Comparer::compare(m_diffOptions, textBlocks);
-						Comparer::setNodeIdInDiffInfoList(m_diffInfos, textBlocks);
+						m_diffInfos = Comparer::compare(m_diffOptions, textSegments);
+						Comparer::setNodeIdInDiffInfoList(m_diffInfos, textSegments);
 						if (m_currentDiffIndex != -1 && m_currentDiffIndex >= m_diffInfos.size())
 							m_currentDiffIndex = static_cast<int>(m_diffInfos.size() - 1);
 						if (m_bShowDifferences)
@@ -860,7 +860,7 @@ LR"(
 	HRESULT setStyleSheetLoop(const std::wstring& styles, IWebDiffCallback* callback, int pane = 0)
 	{
 		ComPtr<IWebDiffCallback> callback2(callback);
-		HRESULT hr = setStyleSheet(pane, styles,
+		HRESULT hr = m_webWindow[pane].SetStyleSheetInAllFrames(styles,
 			Callback<IWebDiffCallback>([this, pane, styles, callback2](const WebDiffCallbackResult& result) -> HRESULT
 				{
 					HRESULT hr = result.errorCode;
@@ -991,115 +991,6 @@ LR"(
 					}
 					if (FAILED(hr) && callback2)
 						return callback2->Invoke(result);
-					return S_OK;
-				}).Get());
-		return hr;
-	}
-
-	HRESULT setStyleSheetText(int pane, const std::wstring& styleSheetId, const std::wstring& styles, IWebDiffCallback* callback)
-	{
-		static const wchar_t* method = L"CSS.setStyleSheetText";
-		std::wstring params = L"{ \"styleSheetId\": \"" + styleSheetId + L"\", "
-			L"\"text\": " + utils::Quote(styles) + L" }";
-		ComPtr<IWebDiffCallback> callback2(callback);
-		HRESULT hr = m_webWindow[pane].CallDevToolsProtocolMethod(method, params.c_str(),
-			Callback<IWebDiffCallback>([this,  callback2](const WebDiffCallbackResult& result) -> HRESULT
-				{
-					HRESULT hr = result.errorCode;
-					if (callback2)
-						return callback2->Invoke({ hr, nullptr });
-					return S_OK;
-				}).Get());
-		return hr;
-	}
-
-	HRESULT setFrameStyleSheet(int pane, const std::wstring& frameId, const std::wstring& styles, IWebDiffCallback* callback)
-	{
-		static const wchar_t* method = L"CSS.createStyleSheet";
-		std::wstring params = L"{ \"frameId\": \"" + frameId + L"\" }";
-		ComPtr<IWebDiffCallback> callback2(callback);
-		HRESULT hr = m_webWindow[pane].CallDevToolsProtocolMethod(method, params.c_str(),
-			Callback<IWebDiffCallback>([this, pane, styles, callback2](const WebDiffCallbackResult& result) -> HRESULT
-				{
-					HRESULT hr = result.errorCode;
-					if (SUCCEEDED(hr))
-					{
-						WDocument document;
-						document.Parse(result.returnObjectAsJson);
-						std::wstring styleSheetId = document[L"styleSheetId"].GetString();
-						hr = setStyleSheetText(pane, styleSheetId, styles, callback2.Get());
-					}
-					if (FAILED(hr) && callback2)
-						return callback2->Invoke({ hr, nullptr });
-					return S_OK;
-				}).Get());
-		return hr;
-	}
-
-	void getFrameIdList(WValue& tree, std::vector<std::wstring>& frameIdList)
-	{
-		frameIdList.push_back(tree[L"frame"][L"id"].GetString());
-		if (tree.HasMember(L"childFrames"))
-		{
-			for (auto& frame : tree[L"childFrames"].GetArray())
-				getFrameIdList(frame, frameIdList);
-		}
-	}
-
-	HRESULT setFrameStyleSheetLoop(int pane,
-		std::shared_ptr<std::vector<std::wstring>> frameIdList,
-		std::shared_ptr<const std::wstring> styles,
-		IWebDiffCallback* callback,
-		std::vector<std::wstring>::iterator it)
-	{
-		if (it == frameIdList->end())
-		{
-			if (callback)
-				callback->Invoke({ S_OK, nullptr });
-			return S_OK;
-		}
-		ComPtr<IWebDiffCallback> callback2(callback);
-		HRESULT hr = setFrameStyleSheet(pane, *it, *styles,
-			Callback<IWebDiffCallback>([this, pane, frameIdList, styles, it, callback2](const WebDiffCallbackResult& result) -> HRESULT
-				{
-					HRESULT hr = S_OK; // result.errorCode;
-					if (SUCCEEDED(hr))
-					{
-						std::vector<std::wstring>::iterator it2(it);
-						++it2;
-						if (it2 != frameIdList->end())
-							hr = setFrameStyleSheetLoop(pane, frameIdList, styles, callback2.Get(), it2);
-						else if (callback2)
-							return callback2->Invoke({ hr, nullptr });
-					}
-					if (FAILED(hr) && callback2)
-						return callback2->Invoke({ hr, nullptr });
-					return S_OK;
-				}).Get());
-		return hr;
-	}
-
-	HRESULT setStyleSheet(int pane, const std::wstring& styles, IWebDiffCallback* callback)
-	{
-		static const wchar_t* method = L"Page.getFrameTree";
-		static const wchar_t* params = L"{}";
-		ComPtr<IWebDiffCallback> callback2(callback);
-		HRESULT hr = m_webWindow[pane].CallDevToolsProtocolMethod(method, params,
-			Callback<IWebDiffCallback>([this, pane, styles, callback2](const WebDiffCallbackResult& result) -> HRESULT
-				{
-					HRESULT hr = result.errorCode;
-					if (SUCCEEDED(hr))
-					{
-						WDocument document;
-						document.Parse(result.returnObjectAsJson);
-						std::shared_ptr<std::vector<std::wstring>> frameIdList(new std::vector<std::wstring>());
-						getFrameIdList(document[L"frameTree"], *frameIdList);
-						hr = setFrameStyleSheetLoop(pane, frameIdList,
-							std::shared_ptr<std::wstring>(new std::wstring(styles)),
-							callback2.Get(), frameIdList->begin());
-					}
-					if (FAILED(hr) && callback2)
-						return callback2->Invoke({ hr, nullptr });
 					return S_OK;
 				}).Get());
 		return hr;
