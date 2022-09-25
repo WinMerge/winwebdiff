@@ -1,5 +1,8 @@
 #pragma once
 
+#if defined(_M_ARM64) && !defined(RAPIDJSON_ENDIAN)
+#define  RAPIDJSON_ENDIAN RAPIDJSON_LITTLEENDIAN
+#endif
 #include <rapidjson/document.h>
 #include <rapidjson/prettywriter.h>
 #include <rapidjson/stringbuffer.h>

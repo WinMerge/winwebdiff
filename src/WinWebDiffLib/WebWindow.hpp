@@ -2,18 +2,12 @@
 
 #undef max
 #undef min
-#ifdef _M_ARM64
-#define  RAPIDJSON_ENDIAN RAPIDJSON_LITTLEENDIAN
-#endif
 #include <string>
 #include <vector>
 #include <filesystem>
 #include <memory>
 #include <cassert>
 #include <functional>
-#include <rapidjson/document.h>
-#include <rapidjson/prettywriter.h>
-#include <rapidjson/stringbuffer.h>
 #include <WebView2.h>
 #include <WebView2Experimental.h>
 #include <WebView2EnvironmentOptions.h>
