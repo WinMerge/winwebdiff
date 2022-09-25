@@ -682,12 +682,16 @@ private:
 		ComPtr<IWebDiffCallback> callback2(callback);
 		const wchar_t* script =
 LR"(
+(function() {
   const elms = document.querySelectorAll('.wwd-diff');
-  elms.forEach(function(el) {
-    el.addEventListener('dblclick', function() {
-      window.chrome.webview.postMessage('wwdid=' + el.dataset['wwdid']);
+  if (elms) {
+    elms.forEach(function(el) {
+      el.addEventListener('dblclick', function() {
+        window.chrome.webview.postMessage('wwdid=' + el.dataset['wwdid']);
+      });
     });
-  });
+  }
+})();
 )";
 		HRESULT hr = m_webWindow[pane].ExecuteScriptInAllFrames(script,
 			Callback<IWebDiffCallback>([this, pane, callback2](const WebDiffCallbackResult& result) -> HRESULT
