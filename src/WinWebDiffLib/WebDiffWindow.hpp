@@ -2,9 +2,8 @@
 
 #include "WinWebDiffLib.h"
 #include "WebWindow.hpp"
-#include <Windows.h>
+#include "DiffHighlighter.hpp"
 #include <shellapi.h>
-#include <vector>
 #include <wil/win32_helpers.h>
 
 class CWebDiffWindow : public IWebDiffWindow
@@ -86,18 +85,10 @@ public:
 				std::wstring userDataFolder = GetUserDataFolderPath(i);
 				ComPtr<IWebDiffCallback> callback2(callback);
 				hr = m_webWindow[i].Create(m_hInstance, m_hWnd, urls[i], userDataFolder.c_str(),
-						m_size, m_fitToWindow, m_zoom, m_userAgent,
-						Callback<IWebDiffCallback>([this, counter, callback2](const WebDiffCallbackResult& result) -> HRESULT
+						m_size, m_fitToWindow, m_zoom, m_userAgent, nullptr,
+						[this, i, counter, callback2](WebDiffEvent::EVENT_TYPE event)
 							{
-								*counter = *counter - 1;
-								if (*counter == 0)
-									Recompare(callback2.Get());
-								return S_OK;
-							}).Get()
-						,
-						[this, i](WebDiffEvent::EVENT_TYPE event)
-							{
-								WebDiffEvent ev;
+								WebDiffEvent ev{};
 								ev.type = event;
 								ev.pane = i;
 								if (event == WebDiffEvent::SourceChanged)
@@ -128,6 +119,17 @@ public:
 										if (pane != ev.pane)
 											m_webWindow[pane].SetVScrollPos(m_webWindow[ev.pane].GetVScrollPos());
 									}
+								}
+								else if (event == WebDiffEvent::NavigationCompleted)
+								{
+									*counter = *counter - 1;
+									if (*counter == 0)
+										Recompare(callback2.Get());
+								}
+								else if (event == WebDiffEvent::WebMessageReceived)
+								{
+									const int diffIndex = _wtoi(m_webWindow[i].GetWebMessage().c_str() + sizeof(L"wwdid=") / sizeof(wchar_t) - 1);
+									SelectDiff(diffIndex);
 								}
 								for (const auto& listener : m_listeners)
 									listener->Invoke(ev);
@@ -177,111 +179,65 @@ public:
 
 	HRESULT Recompare(IWebDiffCallback* callback) override
 	{
-		static const wchar_t *script = L"document.documentElement.outerHTML";
-		ComPtr<IWebDiffCallback> callback2(callback);
-		HRESULT hr = m_webWindow[0].ExecuteScript(script,
-			Callback<IWebDiffCallback>([this, callback2](const WebDiffCallbackResult& result) -> HRESULT
-				{
-					HRESULT hr = result.errorCode;
-					if (SUCCEEDED(hr))
-					{
-						std::wstring json0 = result.returnObjectAsJson;
-						hr = m_webWindow[1].ExecuteScript(script,
-							Callback<IWebDiffCallback>([this, callback2, json0](const WebDiffCallbackResult& result) -> HRESULT
-								{
-									HRESULT hr = result.errorCode;
-									if (m_nPanes < 3)
-									{
-										m_diffCount = (json0 == result.returnObjectAsJson) ? 0 : 1;
-										if (callback2)
-											callback2->Invoke(result);
-										return S_OK;
-									}
-									if (SUCCEEDED(hr))
-									{
-										std::wstring json1 = result.returnObjectAsJson;
-										hr = m_webWindow[2].ExecuteScript(script,
-											Callback<IWebDiffCallback>([this, callback2, json0, json1](const WebDiffCallbackResult& result) -> HRESULT
-												{
-													m_diffCount = (json0 == json1 && json1 == result.returnObjectAsJson) ? 0 : 1;
-													if (callback2)
-														callback2->Invoke(result);
-													return S_OK;
-												}).Get());
-									}
-									if (FAILED(hr))
-									{
-										if (callback2)
-											callback2->Invoke({ hr, nullptr });
-									}
-									return S_OK;
-								}).Get());
-					}
-					if (FAILED(hr))
-					{
-						if (callback2)
-							callback2->Invoke({ hr, nullptr });
-					}
-					return S_OK;
-				}).Get());
-		return hr;
+		return compare(callback);
 	}
 
 	HRESULT SaveFile(int pane, FormatType kind, const wchar_t* filename, IWebDiffCallback* callback) override
 	{
 		if (pane < 0 || pane >= m_nPanes)
 			return false;
-		return m_webWindow[pane].SaveFile(filename, kind, callback);
+		ComPtr<IWebDiffCallback> callback2(callback);
+		std::wstring sfilename(filename);
+		return unhighlightDifferencesLoop(
+			Callback<IWebDiffCallback>([this, kind, pane, sfilename, callback2](const WebDiffCallbackResult& result) -> HRESULT
+				{
+					HRESULT hr = result.errorCode;
+					if (SUCCEEDED(hr))
+					{
+						hr = m_webWindow[pane].SaveFile(sfilename, kind,
+							Callback<IWebDiffCallback>([this, callback2](const WebDiffCallbackResult& result) -> HRESULT
+								{
+									HRESULT hr = result.errorCode;
+									if (SUCCEEDED(hr))
+										hr = compare(callback2.Get());
+									if (FAILED(hr) && callback2)
+										return callback2->Invoke({ hr, nullptr });
+									return S_OK;
+								}).Get());
+					}
+					if (FAILED(hr) && callback2)
+						return callback2->Invoke({ hr, nullptr });
+					return S_OK;
+				}).Get());
 	}
 
 	HRESULT SaveFiles(FormatType kind, const wchar_t* filenames[], IWebDiffCallback* callback) override
 	{
-		std::vector<std::wstring> sfilenames;
+		auto sfilenames = std::make_shared<std::vector<std::wstring>>();
 		for (int pane = 0; pane < m_nPanes; ++pane)
-			sfilenames.push_back(filenames[pane]);
+			sfilenames->push_back(filenames[pane]);
 		ComPtr<IWebDiffCallback> callback2(callback);
-		HRESULT hr = SaveFile(0, kind, sfilenames[0].c_str(),
+		return unhighlightDifferencesLoop(
 			Callback<IWebDiffCallback>([this, kind, sfilenames, callback2](const WebDiffCallbackResult& result) -> HRESULT
 				{
 					HRESULT hr = result.errorCode;
 					if (SUCCEEDED(hr))
 					{
-						hr = SaveFile(1, kind, sfilenames[1].c_str(),
-							Callback<IWebDiffCallback>([this, kind, sfilenames, callback2](const WebDiffCallbackResult& result) -> HRESULT
+						hr = saveFilesLoop(kind, sfilenames,
+							Callback<IWebDiffCallback>([this, sfilenames, callback2](const WebDiffCallbackResult& result) -> HRESULT
 								{
 									HRESULT hr = result.errorCode;
-									if (m_nPanes < 3)
-									{
-										if (callback2)
-											callback2->Invoke(result);
-										return S_OK;
-									}
 									if (SUCCEEDED(hr))
-									{
-										hr = SaveFile(2, kind, sfilenames[2].c_str(),
-											Callback<IWebDiffCallback>([this, sfilenames, callback2](const WebDiffCallbackResult& result) -> HRESULT
-												{
-													if (callback2)
-														callback2->Invoke(result);
-													return S_OK;
-												}).Get());
-									}
-									if (FAILED(hr))
-									{
-										if (callback2)
-											callback2->Invoke({ hr, nullptr });
-									}
+										hr = compare(callback2.Get());
+									if (FAILED(hr) && callback2)
+										return callback2->Invoke({ hr, nullptr });
 									return S_OK;
 								}).Get());
 					}
-					if (FAILED(hr))
-					{
-						if (callback2)
-							callback2->Invoke({ hr, nullptr });
-					}
+					if (FAILED(hr) && callback2)
+						return callback2->Invoke({ hr, nullptr });
 					return S_OK;
 				}).Get());
-		return hr;
 	}
 
 	HRESULT ClearBrowsingData(int pane, BrowsingDataType datakinds) override
@@ -375,31 +331,14 @@ public:
 			m_webWindow[i].SetWindowRect(rects[i]);
 	}
 
-	COLORREF GetDiffColor() const override
+	void GetDiffColorSettings(IWebDiffWindow::ColorSettings& settings) const override
 	{
-		return RGB(0, 0, 0);
+		settings = m_colorSettings;
 	}
 
-	void SetDiffColor(COLORREF clrDiffColor) override
+	void SetDiffColorSettings(const IWebDiffWindow::ColorSettings& settings) override
 	{
-	}
-
-	COLORREF GetSelDiffColor() const override
-	{
-		return RGB(0, 0, 0);
-	}
-
-	void SetSelDiffColor(COLORREF clrSelDiffColor) override
-	{
-	}
-
-	double GetDiffColorAlpha() const override
-	{
-		return 0.8;
-	}
-
-	void SetDiffColorAlpha(double diffColorAlpha) override
-	{
+		m_colorSettings = settings;
 	}
 
 	double GetZoom() const override
@@ -456,91 +395,203 @@ public:
 
 	bool GetShowDifferences() const override
 	{
-		return true;
+		return m_bShowDifferences;
 	}
 
 	void SetShowDifferences(bool visible) override
 	{
+		if (visible == m_bShowDifferences)
+			return;
+		m_bShowDifferences = visible;
+		Recompare(nullptr);
+	}
+
+	bool GetShowWordDifferences() const override
+	{
+		return m_bShowWordDifferences;
+	}
+
+	void SetShowWordDifferences(bool visible) override
+	{
+		if (visible == m_bShowWordDifferences)
+			return;
+		m_bShowWordDifferences = visible;
+		Recompare(nullptr);
+	}
+
+	const DiffOptions& GetDiffOptions() const override
+	{
+		return m_diffOptions;
+	}
+
+	void SetDiffOptions(const DiffOptions& diffOptions) override
+	{
+		m_diffOptions = diffOptions;
+		Recompare(nullptr);
 	}
 
 	int  GetDiffCount() const override
 	{
-		return m_diffCount;
+		return static_cast<int>(m_diffInfos.size());
 	}
 
 	int  GetConflictCount() const override
 	{
-		return 0;
+		int conflictCount = 0;
+		for (size_t i = 0; i < m_diffInfos.size(); ++i)
+			if (m_diffInfos[i].op == OP_DIFF)
+				++conflictCount;
+		return conflictCount;
 	}
 
 	int  GetCurrentDiffIndex() const override
 	{
-		return 0;
+		return m_currentDiffIndex;
 	}
 
 	bool FirstDiff() override
 	{
-		return true;
+		int oldDiffIndex = m_currentDiffIndex;
+		if (m_diffInfos.size() == 0)
+			m_currentDiffIndex = -1;
+		else
+			m_currentDiffIndex = 0;
+		if (oldDiffIndex == m_currentDiffIndex)
+			return false;
+		return SUCCEEDED(selectDiff(m_currentDiffIndex, nullptr));
 	}
 
 	bool LastDiff() override
 	{
-		return true;
+		int oldDiffIndex = m_currentDiffIndex;
+		m_currentDiffIndex = static_cast<int>(m_diffInfos.size()) - 1;
+		if (oldDiffIndex == m_currentDiffIndex)
+			return false;
+		return SUCCEEDED(selectDiff(m_currentDiffIndex, nullptr));
 	}
 
 	bool NextDiff() override
 	{
-		return true;
+		int oldDiffIndex = m_currentDiffIndex;
+		++m_currentDiffIndex;
+		if (m_currentDiffIndex >= m_diffInfos.size())
+			m_currentDiffIndex = static_cast<int>(m_diffInfos.size()) - 1;
+		if (oldDiffIndex == m_currentDiffIndex)
+			return false;
+		return SUCCEEDED(selectDiff(m_currentDiffIndex, nullptr));
 	}
 	
 	bool PrevDiff() override
 	{
-		return true;
+		int oldDiffIndex = m_currentDiffIndex;
+		if (m_diffInfos.size() == 0)
+			m_currentDiffIndex = -1;
+		else
+		{
+			--m_currentDiffIndex;
+			if (m_currentDiffIndex < 0)
+				m_currentDiffIndex = 0;
+		}
+		if (oldDiffIndex == m_currentDiffIndex)
+			return false;
+		return SUCCEEDED(selectDiff(m_currentDiffIndex, nullptr));
 	}
 
 	bool FirstConflict() override
 	{
-		return true;
+		int oldDiffIndex = m_currentDiffIndex;
+		for (size_t i = 0; i < m_diffInfos.size(); ++i)
+			if (m_diffInfos[i].op == OP_DIFF)
+				m_currentDiffIndex = static_cast<int>(i);
+		if (oldDiffIndex == m_currentDiffIndex)
+			return false;
+		return SUCCEEDED(selectDiff(m_currentDiffIndex, nullptr));
 	}
 
 	bool LastConflict() override
 	{
-		return true;
+		int oldDiffIndex = m_currentDiffIndex;
+		for (int i = static_cast<int>(m_diffInfos.size() - 1); i >= 0; --i)
+		{
+			if (m_diffInfos[i].op == OP_DIFF)
+			{
+				m_currentDiffIndex = i;
+				break;
+			}
+		}
+		if (oldDiffIndex == m_currentDiffIndex)
+			return false;
+		return SUCCEEDED(selectDiff(m_currentDiffIndex, nullptr));
 	}
 
 	bool NextConflict() override
 	{
-		return true;
+		int oldDiffIndex = m_currentDiffIndex;
+		for (size_t i = m_currentDiffIndex + 1; i < m_diffInfos.size(); ++i)
+		{
+			if (m_diffInfos[i].op == OP_DIFF)
+			{
+				m_currentDiffIndex = static_cast<int>(i);
+				break;
+			}
+		}
+		if (oldDiffIndex == m_currentDiffIndex)
+			return false;
+		return SUCCEEDED(selectDiff(m_currentDiffIndex, nullptr));
 	}
 
 	bool PrevConflict()  override
 	{
-		return true;
+		int oldDiffIndex = m_currentDiffIndex;
+		for (int i = m_currentDiffIndex - 1; i >= 0; --i)
+		{
+			if (m_diffInfos[i].op == OP_DIFF)
+			{
+				m_currentDiffIndex = i;
+				break;
+			}
+		}
+		if (oldDiffIndex == m_currentDiffIndex)
+			return false;
+		return SUCCEEDED(selectDiff(m_currentDiffIndex, nullptr));
 	}
 
 	bool SelectDiff(int diffIndex) override
 	{
-		return true;
+		if (diffIndex < 0 || diffIndex >= m_diffInfos.size())
+			return false;
+		m_currentDiffIndex = diffIndex;
+		return SUCCEEDED(selectDiff(diffIndex, nullptr));
 	}
 
 	int  GetNextDiffIndex() const override
 	{
-		return 0;
+		if (m_diffInfos.size() == 0 || m_currentDiffIndex >= m_diffInfos.size() - 1)
+			return -1;
+		return m_currentDiffIndex + 1;
 	}
 
 	int  GetPrevDiffIndex() const override
 	{
-		return 0;
+		if (m_diffInfos.size() == 0 || m_currentDiffIndex <= 0)
+			return -1;
+		return m_currentDiffIndex - 1;
 	}
 
 	int  GetNextConflictIndex() const override
 	{
-		return 0;
+		for (size_t i = m_currentDiffIndex + 1; i < m_diffInfos.size(); ++i)
+			if (m_diffInfos[i].op == OP_DIFF)
+				return static_cast<int>(i);
+		return -1;
 	}
 
 	int  GetPrevConflictIndex() const override
 	{
-		return 0;
+		for (int i = static_cast<int>(m_currentDiffIndex - 1); i >= 0; --i)
+			if (m_diffInfos[i].op == OP_DIFF)
+				return i;
+		return -1;
 	}
 
 	HWND GetHWND() const override
@@ -602,6 +653,372 @@ public:
 
 private:
 
+	HRESULT getDocumentsLoop(std::shared_ptr<std::vector<std::wstring>> jsons, IWebDiffCallback* callback, int pane = 0)
+	{
+		static const wchar_t* method = L"DOM.getDocument";
+		static const wchar_t* params = L"{ \"depth\": -1, \"pierce\": true }";
+		ComPtr<IWebDiffCallback> callback2(callback);
+		HRESULT hr = m_webWindow[pane].CallDevToolsProtocolMethod(method, params,
+			Callback<IWebDiffCallback>([this, pane, jsons, callback2](const WebDiffCallbackResult& result) -> HRESULT
+				{
+					HRESULT hr = result.errorCode;
+					if (SUCCEEDED(hr))
+					{
+						jsons->push_back(result.returnObjectAsJson);
+						if (pane + 1 < m_nPanes)
+							hr = getDocumentsLoop(jsons, callback2.Get(), pane + 1);
+						else if (callback2)
+							return callback2->Invoke({ hr, nullptr });
+					}
+					if (FAILED(hr) && callback2)
+						return callback2->Invoke({ hr, nullptr });
+					return S_OK;
+				}).Get());
+		return hr;
+	}
+
+	HRESULT addDblClickEventListenerLoop(IWebDiffCallback* callback, int pane = 0)
+	{
+		ComPtr<IWebDiffCallback> callback2(callback);
+		const wchar_t* script =
+LR"(
+(function() {
+  const elms = document.querySelectorAll('.wwd-diff');
+  if (elms) {
+    elms.forEach(function(el) {
+      el.addEventListener('dblclick', function() {
+        window.chrome.webview.postMessage('wwdid=' + el.dataset['wwdid']);
+      });
+    });
+  }
+})();
+)";
+		HRESULT hr = m_webWindow[pane].ExecuteScriptInAllFrames(script,
+			Callback<IWebDiffCallback>([this, pane, callback2](const WebDiffCallbackResult& result) -> HRESULT
+				{
+					HRESULT hr = S_OK; // result.errorCode;
+					if (SUCCEEDED(hr))
+					{
+						if (pane + 1 < m_nPanes)
+							hr = addDblClickEventListenerLoop(callback2.Get(), pane + 1);
+						else if (callback2)
+							return callback2->Invoke({ hr, nullptr });
+					}
+					if (FAILED(hr) && callback2)
+						return callback2->Invoke({ hr, nullptr });
+					return S_OK;
+				}).Get());
+		return hr;
+	}
+
+	HRESULT compare(IWebDiffCallback* callback)
+	{
+		ComPtr<IWebDiffCallback> callback2(callback);
+		std::shared_ptr<std::vector<std::wstring>> jsons(new std::vector<std::wstring>());
+		HRESULT hr = getDocumentsLoop(jsons,
+			Callback<IWebDiffCallback>([this, jsons, callback2](const WebDiffCallbackResult& result) -> HRESULT
+				{
+					HRESULT hr = result.errorCode;
+					if (SUCCEEDED(hr))
+					{
+						std::vector<TextSegments> textSegments(m_nPanes);
+						std::shared_ptr<std::vector<WDocument>> documents(new std::vector<WDocument>(m_nPanes));
+						for (int pane = 0; pane < m_nPanes; ++pane)
+						{
+							(*documents)[pane].Parse((*jsons)[pane].c_str());
+#ifdef _DEBUG
+							WStringBuffer buffer;
+							WPrettyWriter writer(buffer);
+							(*documents)[pane].Accept(writer);
+							WriteToTextFile((L"c:\\tmp\\file" + std::to_wstring(pane) + L".json"),
+								buffer.GetString());
+#endif
+							Highlighter::unhighlightNodes((*documents)[pane][L"root"], (*documents)[pane].GetAllocator());
+							textSegments[pane].Make((*documents)[pane][L"root"]);
+						}
+						m_diffInfos = Comparer::compare(m_diffOptions, textSegments);
+						Comparer::setNodeIdInDiffInfoList(m_diffInfos, textSegments);
+						if (m_currentDiffIndex != -1 && m_currentDiffIndex >= m_diffInfos.size())
+							m_currentDiffIndex = static_cast<int>(m_diffInfos.size() - 1);
+						if (m_bShowDifferences)
+						{
+							Highlighter highlighter(*documents.get(), m_diffInfos, m_colorSettings, m_diffOptions, m_bShowWordDifferences, m_currentDiffIndex);
+							highlighter.highlightNodes();
+#ifdef _DEBUG
+							for (int pane = 0; pane < m_nPanes; ++pane)
+							{
+								WStringBuffer buffer;
+								WPrettyWriter writer(buffer);
+								(*documents)[pane].Accept(writer);
+								WriteToTextFile((L"c:\\tmp\\file" + std::to_wstring(pane) + L"_1.json"),
+									buffer.GetString());
+							}
+#endif
+						}
+						hr = highlightDocuments(documents,
+							Callback<IWebDiffCallback>([this, callback2](const WebDiffCallbackResult& result) -> HRESULT
+								{
+									HRESULT hr = result.errorCode;
+									if (SUCCEEDED(hr))
+									{
+										hr = setStyleSheetLoop(Highlighter::getStyleSheetText(m_currentDiffIndex, m_colorSettings).c_str(),
+											Callback<IWebDiffCallback>([this, callback2](const WebDiffCallbackResult& result) -> HRESULT
+												{
+													HRESULT hr = result.errorCode;
+													if (SUCCEEDED(hr))
+														hr = addDblClickEventListenerLoop(callback2.Get());
+													if (FAILED(hr) && callback2)
+														return callback2->Invoke({ hr, nullptr });
+													return S_OK;
+												}).Get());
+									}
+									if (FAILED(hr) && callback2)
+										return callback2->Invoke({ hr, nullptr });
+									return S_OK;
+								}).Get());
+					}
+					if (FAILED(hr) && callback2)
+						return callback2->Invoke({ hr, nullptr });
+					return S_OK;
+				}).Get());
+		return hr;
+	}
+
+	HRESULT saveFilesLoop(FormatType kind, std::shared_ptr<std::vector<std::wstring>> filenames, IWebDiffCallback* callback, int pane = 0)
+	{
+		ComPtr<IWebDiffCallback> callback2(callback);
+		HRESULT hr = m_webWindow[pane].SaveFile((*filenames)[pane].c_str(), kind,
+			Callback<IWebDiffCallback>([this, kind, filenames, callback2, pane](const WebDiffCallbackResult& result) -> HRESULT
+				{
+					HRESULT hr = result.errorCode;
+					if (SUCCEEDED(hr))
+					{
+						if (pane + 1 < m_nPanes)
+							hr = saveFilesLoop(kind, filenames, callback2.Get(), pane + 1);
+						else if (callback2)
+							return callback2->Invoke({ hr, nullptr });
+					}
+					if (FAILED(hr) && callback2)
+						return callback2->Invoke({ hr, nullptr });
+					return S_OK;
+				}).Get());
+		return hr;
+	}
+
+	HRESULT applyHTMLLoop(
+		int pane,
+		std::shared_ptr<const std::list<ModifiedNode>> nodes,
+		IWebDiffCallback* callback,
+		std::list<ModifiedNode>::reverse_iterator it)
+	{
+		if (it == nodes->rend())
+		{
+			if (callback)
+				callback->Invoke({ S_OK, nullptr });
+			return S_OK;
+		}
+		ComPtr<IWebDiffCallback> callback2(callback);
+		HRESULT hr = m_webWindow[pane].SetOuterHTML(it->nodeId, it->outerHTML,
+			Callback<IWebDiffCallback>([this, pane, nodes, it, callback2](const WebDiffCallbackResult& result) -> HRESULT
+				{
+					HRESULT hr = S_OK; // result.errorCode;
+					if (SUCCEEDED(hr))
+					{
+						std::list<ModifiedNode>::reverse_iterator it2(it);
+						++it2;
+						if (it2 != nodes->rend())
+							hr = applyHTMLLoop(pane, nodes, callback2.Get(), it2);
+						else if (callback2)
+							return callback2->Invoke({ hr, nullptr });
+					}
+					if (FAILED(hr) && callback2)
+						return callback2->Invoke({ hr, nullptr });
+					return S_OK;
+				}).Get());
+		return hr;
+	}
+
+	HRESULT applyDOMLoop(std::shared_ptr<std::vector<WDocument>> documents, IWebDiffCallback* callback, int pane = 0)
+	{
+		ComPtr<IWebDiffCallback> callback2(callback);
+		auto nodes = std::make_shared<std::list<ModifiedNode>>();
+		Highlighter::modifiedNodesToHTMLs((*documents)[pane][L"root"], *nodes);
+		HRESULT hr = applyHTMLLoop(pane, nodes,
+			Callback<IWebDiffCallback>([this, documents, callback2, pane](const WebDiffCallbackResult& result) -> HRESULT
+				{
+					HRESULT hr = result.errorCode;
+					if (SUCCEEDED(hr))
+					{
+						if (pane + 1 < m_nPanes)
+							hr = applyDOMLoop(documents, callback2.Get(), pane + 1);
+						else if (callback2)
+							return callback2->Invoke({ hr, nullptr });
+					}
+					if (FAILED(hr) && callback2)
+						return callback2->Invoke({ hr, nullptr });
+					return hr;
+				}).Get(), nodes->rbegin());
+		return hr;
+	}
+
+	HRESULT setStyleSheetLoop(const std::wstring& styles, IWebDiffCallback* callback, int pane = 0)
+	{
+		ComPtr<IWebDiffCallback> callback2(callback);
+		HRESULT hr = m_webWindow[pane].SetStyleSheetInAllFrames(styles,
+			Callback<IWebDiffCallback>([this, pane, styles, callback2](const WebDiffCallbackResult& result) -> HRESULT
+				{
+					HRESULT hr = result.errorCode;
+					if (SUCCEEDED(hr))
+					{
+						if (pane + 1 < m_nPanes)
+							hr = setStyleSheetLoop(styles, callback2.Get(), pane + 1);
+						else if (callback2)
+							return callback2->Invoke({ hr, nullptr });
+					}
+					if (FAILED(hr) && callback2)
+						return callback2->Invoke({ hr, nullptr });
+					return S_OK;
+				}).Get());
+		return hr;
+	}
+
+	HRESULT highlightDocuments(std::shared_ptr<std::vector<WDocument>> documents, IWebDiffCallback* callback)
+	{
+		ComPtr<IWebDiffCallback> callback2(callback);
+		HRESULT hr = applyDOMLoop(documents,
+			Callback<IWebDiffCallback>([this, documents, callback2](const WebDiffCallbackResult& result) -> HRESULT
+				{
+					HRESULT hr = result.errorCode;
+					if (SUCCEEDED(hr))
+						hr = makeDiffNodeIdArrayLoop(callback2.Get());
+					if (FAILED(hr) && callback2)
+						return callback2->Invoke({ hr, nullptr });
+					return S_OK;
+				}).Get());
+		return hr;
+	}
+
+	HRESULT unhighlightDifferencesLoop(IWebDiffCallback* callback, int pane = 0)
+	{
+		static const wchar_t* method = L"DOM.getDocument";
+		static const wchar_t* params = L"{ \"depth\": -1, \"pierce\": true }";
+		ComPtr<IWebDiffCallback> callback2(callback);
+		HRESULT hr = m_webWindow[pane].CallDevToolsProtocolMethod(method, params,
+			Callback<IWebDiffCallback>([this, pane, callback2](const WebDiffCallbackResult& result) -> HRESULT
+				{
+					HRESULT hr = result.errorCode;
+					if (SUCCEEDED(hr))
+					{
+						WDocument doc;
+						doc.Parse(result.returnObjectAsJson);
+						Highlighter::unhighlightNodes(doc[L"root"], doc.GetAllocator());
+						auto nodes = std::make_shared<std::list<ModifiedNode>>();
+						Highlighter::modifiedNodesToHTMLs(doc[L"root"], *nodes);
+						hr = applyHTMLLoop(pane, nodes,
+							Callback<IWebDiffCallback>([this, pane, callback2](const WebDiffCallbackResult& result) -> HRESULT
+								{
+									HRESULT hr = result.errorCode;
+									if (SUCCEEDED(hr))
+									{
+										if (pane + 1 < m_nPanes)
+											hr = unhighlightDifferencesLoop(callback2.Get(), pane + 1);
+										else if (callback2)
+											return callback2->Invoke({ hr, nullptr });
+									}
+									if (FAILED(hr) && callback2)
+										return callback2->Invoke({ hr, nullptr });
+									return S_OK;
+								}).Get(), nodes->rbegin());
+					}
+					if (FAILED(hr) && callback2)
+						return callback2->Invoke({ hr, nullptr });
+					return S_OK;
+				}).Get());
+		return hr;
+	}
+
+	HRESULT makeDiffNodeIdArrayLoop(IWebDiffCallback* callback, int pane = 0)
+	{
+		static const wchar_t* method = L"DOM.getDocument";
+		static const wchar_t* params = L"{ \"depth\": -1, \"pierce\": true }";
+		ComPtr<IWebDiffCallback> callback2(callback);
+		HRESULT hr = m_webWindow[pane].CallDevToolsProtocolMethod(method, params,
+			Callback<IWebDiffCallback>([this, pane, callback2](const WebDiffCallbackResult& result) -> HRESULT
+				{
+					HRESULT hr = result.errorCode;
+					if (SUCCEEDED(hr))
+					{
+						WDocument doc;
+						doc.Parse(result.returnObjectAsJson);
+#ifdef _DEBUG
+						WStringBuffer buffer;
+						WPrettyWriter writer(buffer);
+						doc.Accept(writer);
+						WriteToTextFile((L"c:\\tmp\\file" + std::to_wstring(pane) + L"_2.json"),
+							buffer.GetString());
+#endif
+
+						std::map<int, int> nodes;
+						Highlighter::getDiffNodes(doc[L"root"], nodes);
+						for (unsigned i = 0; i < m_diffInfos.size(); ++i)
+						{
+							if (m_diffInfos[i].nodeIds[pane] != -1)
+								m_diffInfos[i].nodeIds[pane] = nodes[i];
+						}
+						if (pane < m_nPanes - 1)
+							hr = makeDiffNodeIdArrayLoop(callback2.Get(), pane + 1);
+						else if (callback2)
+							return callback2->Invoke({ hr, nullptr });
+					}
+					if (FAILED(hr) && callback2)
+						return callback2->Invoke({ hr, nullptr });
+					return S_OK;
+				}).Get());
+		return hr;
+	}
+
+	HRESULT scrollIntoViewIfNeededLoop(int diffIndex, IWebDiffCallback* callback, int pane = 0)
+	{
+		ComPtr<IWebDiffCallback> callback2(callback);
+		std::wstring args = L"{ \"nodeId\": " + std::to_wstring(m_diffInfos[diffIndex].nodeIds[pane]) + L" }";
+		HRESULT hr = m_webWindow[pane].CallDevToolsProtocolMethod(L"DOM.scrollIntoViewIfNeeded", args.c_str(),
+			Callback<IWebDiffCallback>([this, diffIndex, pane, callback2](const WebDiffCallbackResult& result) -> HRESULT
+				{
+					HRESULT hr = S_OK; // result.errorCode;
+					m_webWindow[pane].ShowToolTip(FAILED(result.errorCode), 5000);
+					if (SUCCEEDED(hr))
+					{
+						if (pane + 1 < m_nPanes)
+							hr = scrollIntoViewIfNeededLoop(diffIndex, callback2.Get(), pane + 1);
+						else if (callback2)
+							return callback2->Invoke({ hr, nullptr });
+					}
+					if (FAILED(hr) && callback2)
+						return callback2->Invoke(result);
+					return S_OK;
+				}).Get());
+		return hr;
+	}
+
+	HRESULT selectDiff(int diffIndex, IWebDiffCallback* callback)
+	{
+		if (diffIndex < 0 || diffIndex >= m_diffInfos.size())
+			return false;
+		ComPtr<IWebDiffCallback> callback2(callback);
+		std::shared_ptr<std::vector<std::wstring>> jsons(new std::vector<std::wstring>());
+		HRESULT hr = setStyleSheetLoop(Highlighter::getStyleSheetText(diffIndex, m_colorSettings).c_str(),
+			Callback<IWebDiffCallback>([this, diffIndex, callback2](const WebDiffCallbackResult& result) -> HRESULT
+				{
+					HRESULT hr = result.errorCode;
+					if (SUCCEEDED(hr))
+						hr = scrollIntoViewIfNeededLoop(diffIndex, callback2.Get());
+					if (FAILED(hr) && callback2)
+						return callback2->Invoke({ hr, nullptr });
+					return S_OK;
+				}).Get());
+		return hr;
+	}
+
 	std::wstring getFromClipboard() const
 	{
 		std::wstring text;
@@ -620,23 +1037,6 @@ private:
 			CloseClipboard();
 		}
 		return text;
-	}
-
-	std::wstring escape(const std::wstring& text) const
-	{
-		std::wstring result;
-		for (auto c : text)
-		{
-			switch (c)
-			{
-			case '\r': break;
-			case '\n': result += L"\\n"; break;
-			case '\"': result += L"\\\""; break;
-			case '\\': result += L"\\\\"; break;
-			default: result += c;
-			}
-		}
-		return result;
 	}
 
 	bool execCommand(const wchar_t *command)
@@ -669,8 +1069,8 @@ private:
 			script = L"document.execCommand(\"" + cmd + L"\")";
 		else
 		{
-			std::wstring text = escape(getFromClipboard());
-			script = L"document.execCommand(\"insertText\", false, \"" + text + L"\")";
+			std::wstring text = utils::Quote(getFromClipboard());
+			script = L"document.execCommand(\"insertText\", false, " + text + L")";
 		}
 		return SUCCEEDED(m_webWindow[pane].ExecuteScript(script.c_str(), nullptr));
 	}
@@ -898,6 +1298,15 @@ private:
 		return RegisterClassExW(&wcex);
 	}
 
+	static HRESULT WriteToTextFile(const std::wstring& path, const std::wstring& data)
+	{
+		wil::unique_file fp;
+		_wfopen_s(&fp, path.c_str(), L"wt,ccs=UTF-8");
+		if (fp)
+			fwprintf(fp.get(), L"%s", data.c_str());
+		return fp != nullptr ? S_OK : (GetLastError() == 0 ? E_FAIL : HRESULT_FROM_WIN32(GetLastError()));
+	}
+
 	int m_nPanes = 0;
 	HWND m_hWnd = nullptr;
 	HINSTANCE m_hInstance = nullptr;
@@ -914,5 +1323,20 @@ private:
 	UserdataFolderType m_userDataFolderType = UserdataFolderType::APPDATA;
 	bool m_bUserDataFolderPerPane = true;
 	std::vector<ComPtr<IWebDiffEventHandler>> m_listeners;
-	int m_diffCount = 0;
+	int m_currentDiffIndex = -1;
+	std::vector<DiffInfo> m_diffInfos;
+	DiffOptions m_diffOptions{};
+	bool m_bShowDifferences = true;
+	bool m_bShowWordDifferences = true;
+	IWebDiffWindow::ColorSettings m_colorSettings = {
+		RGB(239, 203,   5), RGB(192, 192, 192), RGB(0, 0, 0),
+		RGB(239, 119, 116), RGB(240, 192, 192), RGB(0, 0, 0),
+		RGB(251, 242, 191), RGB(233, 233, 233), RGB(0, 0, 0),
+		RGB(228, 155,  82), RGB(192, 192, 192), RGB(0, 0, 0),
+		RGB(248, 112,  78), RGB(252, 181, 163), RGB(0, 0, 0),
+		RGB(251, 250, 223), RGB(233, 233, 233), RGB(0, 0, 0),
+		RGB(239, 183, 180), RGB(240, 224, 224), RGB(0, 0, 0),
+		RGB(241, 226, 173), RGB(255, 170, 130), RGB(0, 0, 0),
+		RGB(255, 160, 160), RGB(200, 129, 108), RGB(0, 0, 0),
+	};
 };
