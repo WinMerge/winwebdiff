@@ -1,0 +1,27 @@
+name: CI
+
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+
+jobs:
+  build:
+    if: "!contains(github.event.head_commit.message, 'skip ci')"
+    
+    runs-on: windows-latest
+
+    steps:  
+    - uses: actions/checkout@v2
+
+    - name: Build
+      run: |
+        .\BuildBin.vs2022.cmd
+        .\BuildArc.cmd
+
+    - name: Upload zip
+      uses: actions/upload-artifact@v2-preview
+      with:
+        name: winwebdiff.zip
+        path: Dist/winwebdiff-*.zip
