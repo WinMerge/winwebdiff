@@ -23,5 +23,5 @@ jobs:
     - name: Upload zip
       uses: actions/upload-artifact@v2-preview
       with:
-        name: winwebdiff.zip
+        name: winwebdiff
         path: Dist/winwebdiff-*.zip
