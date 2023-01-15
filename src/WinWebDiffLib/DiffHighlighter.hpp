@@ -130,7 +130,7 @@ struct TextSegments
 			return true;
 		}
 	}
-	void Make(const std::wstring& text)
+	void Make(const std::wstring& text, bool ignoreNumbers)
 	{
 		allText = text;
 		int charTypePrev = -1;
@@ -143,6 +143,8 @@ struct TextSegments
 				charType = 1;
 			else if (isWordBreak(ch))
 				charType = 2;
+			else if (ignoreNumbers && iswdigit(ch))
+				charType = 3;
 			if (charType == 2 || charType != charTypePrev)
 			{
 				if (i > 0)
@@ -200,7 +202,7 @@ public:
 	bool equals(const char* scanline1, unsigned size1,
 		const char* scanline2, unsigned size2) const
 	{
-		if (!m_diffOptions.ignoreCase && m_diffOptions.ignoreWhitespace == 0)
+		if (!m_diffOptions.ignoreCase && m_diffOptions.ignoreWhitespace == 0 && !m_diffOptions.ignoreNumbers)
 		{
 			if (size1 != size2)
 				return false;
@@ -223,6 +225,13 @@ public:
 					i1++;
 				while (i2 < s2 && iswspace(l2[i2]))
 					i2++;
+				if (m_diffOptions.ignoreNumbers)
+				{
+					while (i1 < s1 && iswdigit(l1[i1]))
+						i1++;
+					while (i2 < s2 && iswdigit(l2[i2]))
+						i2++;
+				}
 			}
 		}
 		else if (m_diffOptions.ignoreWhitespace == 1)
@@ -238,6 +247,15 @@ public:
 						i2++;
 					continue;
 				}
+				if (m_diffOptions.ignoreNumbers)
+				{
+					while (i1 < s1 && iswdigit(l1[i1]))
+						i1++;
+					while (i2 < s2 && iswdigit(l2[i2]))
+						i2++;
+					if (i1 >= s1 || i2 >= s2)
+						continue;
+				}
 				if (!match_a_wchar(l1[i1++], l2[i2++]))
 					return false;
 			}
@@ -246,6 +264,15 @@ public:
 		{
 			while (i1 < s1 && i2 < s2)
 			{
+				if (m_diffOptions.ignoreNumbers)
+				{
+					while (i1 < s1 && iswdigit(l1[i1]))
+						i1++;
+					while (i2 < s2 && iswdigit(l2[i2]))
+						i2++;
+					if (i1 >= s1 || i2 >= s2)
+						continue;
+				}
 				if (!match_a_wchar(l1[i1++], l2[i2++]))
 					return false;
 			}
@@ -265,7 +292,7 @@ public:
 		const wchar_t* begin = reinterpret_cast<const wchar_t*>(scanline);
 		const wchar_t* end = reinterpret_cast<const wchar_t*>(this->next(scanline));
 
-		if (!m_diffOptions.ignoreCase && m_diffOptions.ignoreWhitespace == 0)
+		if (!m_diffOptions.ignoreCase && m_diffOptions.ignoreWhitespace == 0 && !m_diffOptions.ignoreNumbers)
 		{
 			for (const auto* ptr = begin; ptr < end; ptr++)
 			{
@@ -289,6 +316,8 @@ public:
 				}
 				continue;
 			}
+			if (m_diffOptions.ignoreNumbers && iswdigit(*ptr))
+				continue;
 			ha += (ha << 5);
 			ha ^= hash_a_wchar(*ptr);
 		}
@@ -676,9 +705,9 @@ public:
 				std::pair<WValue*, WValue*> pair = domutils::findNodeId(m_documents[pane][L"root"], diffInfo.nodeIds[pane]);
 				pvalues[pane] = pair.first;
 				if (diffInfo.nodePos[pane] == 0 && pvalues[pane])
-					textSegments[pane].Make((*pvalues[pane])[L"nodeValue"].GetString());
+					textSegments[pane].Make((*pvalues[pane])[L"nodeValue"].GetString(), m_diffOptions.ignoreNumbers);
 				else
-					textSegments[pane].Make(L"");
+					textSegments[pane].Make(L"", m_diffOptions.ignoreNumbers);
 			}
 			if (m_showWordDifferences)
 				wordDiffInfoList = Comparer::compare(m_diffOptions, textSegments);

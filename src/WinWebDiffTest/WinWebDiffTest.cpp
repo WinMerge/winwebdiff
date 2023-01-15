@@ -278,8 +278,8 @@ const wchar_t* json2 = LR"(
 		TEST_METHOD(TestMethod3)
 		{
 			std::vector<TextSegments> textSegments(2);
-            textSegments[0].Make(L"abc");
-            textSegments[1].Make(L"abc ");
+            textSegments[0].Make(L"abc", false);
+            textSegments[1].Make(L"abc ", false);
 
             IWebDiffWindow::DiffOptions diffOptions1{};
 			std::vector<DiffInfo> diffInfos1 = Comparer::compare(diffOptions1, textSegments);
@@ -289,7 +289,29 @@ const wchar_t* json2 = LR"(
             diffOptions2.ignoreWhitespace = 2;
 			std::vector<DiffInfo> diffInfos2 = Comparer::compare(diffOptions2, textSegments);
             Assert::AreEqual((size_t)0, diffInfos2.size());
+		}
 
+		TEST_METHOD(TestMethod4)
+		{
+			std::vector<TextSegments> textSegments(2);
+            textSegments[0].Make(L"123AB", true);
+            textSegments[1].Make(L"456AB ", true);
+
+            IWebDiffWindow::DiffOptions diffOptions1{};
+			std::vector<DiffInfo> diffInfos1 = Comparer::compare(diffOptions1, textSegments);
+            Assert::AreEqual((size_t)2, diffInfos1.size());
+
+            IWebDiffWindow::DiffOptions diffOptions2{};
+            diffOptions2.ignoreWhitespace = 1;
+            diffOptions2.ignoreNumbers = true;
+			std::vector<DiffInfo> diffInfos2 = Comparer::compare(diffOptions2, textSegments);
+            Assert::AreEqual((size_t)1, diffInfos2.size());
+
+            IWebDiffWindow::DiffOptions diffOptions3{};
+            diffOptions3.ignoreWhitespace = 2;
+            diffOptions3.ignoreNumbers = true;
+			std::vector<DiffInfo> diffInfos3 = Comparer::compare(diffOptions3, textSegments);
+            Assert::AreEqual((size_t)0, diffInfos3.size());
 		}
 	};
 }
