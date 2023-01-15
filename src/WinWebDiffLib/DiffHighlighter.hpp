@@ -991,14 +991,16 @@ public:
 		styles += L" .wwd-deleted { " + getDiffStyleValue(colorSettings.clrDiffText, colorSettings.clrDiffDeleted) + L" }\n";
 		styles += L" .wwd-snpchanged { " + getDiffStyleValue(colorSettings.clrSNPText, colorSettings.clrSNP) + L" }\n";
 		styles += L" .wwd-snpdeleted { " + getDiffStyleValue(colorSettings.clrSNPText, colorSettings.clrSNPDeleted) + L" }\n";
-		styles += L" .wwd-word { " + getDiffStyleValue(colorSettings.clrWordDiffText, colorSettings.clrWordDiff) + L" }\n";
+		styles += L" .wwd-wordchanged { " + getDiffStyleValue(colorSettings.clrWordDiffText, colorSettings.clrWordDiff) + L" }\n";
+		styles += L" .wwd-worddeleted { " + getDiffStyleValue(colorSettings.clrWordDiffText, colorSettings.clrWordDiffDeleted) + L" }\n";
 
 		std::wstring datawwdid = L"[data-wwdid=\"" + std::to_wstring(diffIndex) + L"\"]";
 		styles += L" .wwd-changed" + datawwdid + L" { " + getDiffStyleValue(colorSettings.clrSelDiffText, colorSettings.clrSelDiff) + L" }\n";
 		styles += L" .wwd-deleted" + datawwdid + L" { " + getDiffStyleValue(colorSettings.clrSelDiffText, colorSettings.clrSelDiffDeleted) + L" }\n";
 		styles += L" .wwd-snpchanged" + datawwdid + L" { " + getDiffStyleValue(colorSettings.clrSelSNPText, colorSettings.clrSelSNP) + L" }\n";
 		styles += L" .wwd-snpdeleted" + datawwdid + L" { " + getDiffStyleValue(colorSettings.clrSelSNPText, colorSettings.clrSelSNPDeleted) + L" }\n";
-		styles += L" .wwd-diff" + datawwdid + L" .wwd-word { " + getDiffStyleValue(colorSettings.clrSelWordDiffText, colorSettings.clrSelWordDiff) + L" }\n";
+		styles += L" .wwd-diff" + datawwdid + L" .wwd-wordchanged { " + getDiffStyleValue(colorSettings.clrSelWordDiffText, colorSettings.clrSelWordDiff) + L" }\n";
+		styles += L" .wwd-diff" + datawwdid + L" .wwd-worddeleted { " + getDiffStyleValue(colorSettings.clrSelWordDiffText, colorSettings.clrSelWordDiffDeleted) + L" }\n";
 		return styles;
 	}
 
@@ -1137,6 +1139,10 @@ private:
 		size_t begin = 0;
 		for (const auto& diffInfo: wordDiffInfoList)
 		{
+			bool deleted = false;
+			for (size_t pane = 0; pane < m_documents.size(); ++pane)
+				if (diffInfo.end[pane] < diffInfo.begin[pane])
+					deleted = true;
 			auto it = textSegments.segments.begin();
 			std::advance(it, diffInfo.begin[pane]);
 			if (it != textSegments.segments.end())
@@ -1162,7 +1168,7 @@ private:
 
 				if (!textDiff.empty())
 				{
-					std::wstring className = L"wwd-wdiff wwd-word";
+					std::wstring className = deleted ? L"wwd-wdiff wwd-worddeleted" : L"wwd-wdiff wwd-wordchanged";
 					WValue spanNode, diffTextNode, attributes, spanChildren;
 					WValue textDiffValue(textDiff.c_str(), static_cast<unsigned>(textDiff.size()), allocator);
 					WValue classNameValue(className.c_str(), static_cast<unsigned>(className.size()), allocator);
