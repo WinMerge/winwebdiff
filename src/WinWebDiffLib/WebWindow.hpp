@@ -9,7 +9,6 @@
 #include <cassert>
 #include <functional>
 #include <WebView2.h>
-#include <WebView2Experimental.h>
 #include <WebView2EnvironmentOptions.h>
 #include <CommCtrl.h>
 #include <Shlwapi.h>
@@ -1182,15 +1181,15 @@ public:
 	{
 		if (!GetActiveWebView())
 			return E_FAIL;
-		auto webView2Experimental8 = GetActiveTab()->m_webview.try_query<ICoreWebView2Experimental8>();
-		if (!webView2Experimental8)
+		auto webView2_13 = GetActiveTab()->m_webview.try_query<ICoreWebView2_13>();
+		if (!webView2_13)
 			return E_FAIL;
-		wil::com_ptr<ICoreWebView2ExperimentalProfile> webView2Profile;
-		webView2Experimental8->get_Profile(&webView2Profile);
+		wil::com_ptr<ICoreWebView2Profile> webView2Profile;
+		webView2_13->get_Profile(&webView2Profile);
 		if (!webView2Profile)
 			return E_FAIL;
-		auto webView2ExperimentalProfile4 = webView2Profile.try_query<ICoreWebView2ExperimentalProfile4>();
-		return webView2ExperimentalProfile4->ClearBrowsingData(static_cast<COREWEBVIEW2_BROWSING_DATA_KINDS>(dataKinds), nullptr);
+		auto webView2Profile2 = webView2Profile.try_query<ICoreWebView2Profile2>();
+		return webView2Profile2->ClearBrowsingData(static_cast<COREWEBVIEW2_BROWSING_DATA_KINDS>(dataKinds), nullptr);
 	}
 
 	HRESULT SetToolTipText(const std::wstring& text)
