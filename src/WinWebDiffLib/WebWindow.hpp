@@ -281,6 +281,7 @@ public:
 			WS_POPUP | TTS_NOPREFIX | TTS_ALWAYSTIP,
 			CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT,
 			m_hWebViewParent, nullptr, hInstance, nullptr);
+		bool bWin10orGreater = IsWin10OrGreater();
 		HDC hDC = GetDC(m_hWnd);
 		LOGFONT lfToolbar{};
 		lfToolbar.lfHeight = MulDiv(-14, GetDeviceCaps(hDC, LOGPIXELSX), 72);
@@ -289,7 +290,7 @@ public:
 		lfToolbar.lfOutPrecision = OUT_TT_ONLY_PRECIS;
 		lfToolbar.lfQuality = PROOF_QUALITY;
 		lfToolbar.lfPitchAndFamily = VARIABLE_PITCH | FF_DECORATIVE;
-		wcscpy_s(lfToolbar.lfFaceName, L"Segoe MDL2 Assets");
+		wcscpy_s(lfToolbar.lfFaceName, bWin10orGreater ? L"Segoe MDL2 Assets" : L"Segoe UI Symbol");
 		NONCLIENTMETRICS info{ sizeof(info) };
 		SystemParametersInfo(SPI_GETNONCLIENTMETRICS, sizeof(info), &info, 0);
 		LOGFONT lfEdit = info.lfCaptionFont;
@@ -298,10 +299,10 @@ public:
 		m_hEditFont = CreateFontIndirect(&lfEdit);
 		SendMessage(m_hToolbar, TB_BUTTONSTRUCTSIZE, sizeof(TBBUTTON), 0);
 		TBBUTTON tbb[] = {
-			{I_IMAGENONE, ID_GOBACK,    TBSTATE_ENABLED, BTNS_BUTTON | BTNS_AUTOSIZE, {}, 0, (INT_PTR)L"\uE0A6"},
-			{I_IMAGENONE, ID_GOFORWARD, TBSTATE_ENABLED, BTNS_BUTTON | BTNS_AUTOSIZE, {}, 0, (INT_PTR)L"\uE0AB"},
-			{I_IMAGENONE, ID_RELOAD,    TBSTATE_ENABLED, BTNS_BUTTON | BTNS_AUTOSIZE, {}, 0, (INT_PTR)L"\uE149"},
-			{I_IMAGENONE, ID_STOP,      TBSTATE_ENABLED, BTNS_BUTTON | BTNS_AUTOSIZE, {}, 0, (INT_PTR)L"\uE106"},
+			{I_IMAGENONE, ID_GOBACK,    TBSTATE_ENABLED, BTNS_BUTTON | BTNS_AUTOSIZE, {}, 0, (INT_PTR)(bWin10orGreater ? L"\uE0A6" : L"\u25C0")},
+			{I_IMAGENONE, ID_GOFORWARD, TBSTATE_ENABLED, BTNS_BUTTON | BTNS_AUTOSIZE, {}, 0, (INT_PTR)(bWin10orGreater ? L"\uE0AB" : L"\u25B6")},
+			{I_IMAGENONE, ID_RELOAD,    TBSTATE_ENABLED, BTNS_BUTTON | BTNS_AUTOSIZE, {}, 0, (INT_PTR)(bWin10orGreater ? L"\uE149" : L"\u21BB")},
+			{I_IMAGENONE, ID_STOP,      TBSTATE_ENABLED, BTNS_BUTTON | BTNS_AUTOSIZE, {}, 0, (INT_PTR)(bWin10orGreater ? L"\uE106" : L"\u2715")},
 		};
 		m_hEdit = CreateWindowEx(0, TEXT("EDIT"), TEXT(""),
 			WS_CHILD | WS_VISIBLE | WS_BORDER | ES_AUTOHSCROLL,
@@ -572,7 +573,7 @@ public:
 
 							WDocument document;
 							document.Parse(result.returnObjectAsJson);
-							UINT dpi = GetDpiForWindow(m_hWnd);
+							UINT dpi = MyGetDpiForWindow(m_hWnd);
 							int width = document[L"cssContentSize"][L"width"].GetInt()
 								* dpi / 96;
 							int height = document[L"cssContentSize"][L"height"].GetInt()
@@ -1912,6 +1913,18 @@ private:
 		return lResult;
 	}
 
+	static UINT MyGetDpiForWindow(HWND hWnd)
+	{
+		if (GetDpiForWindowFunc)
+			return GetDpiForWindowFunc(hWnd);
+		return GetDeviceCaps(GetDC(nullptr), LOGPIXELSX);
+	}
+
+	bool IsWin10OrGreater()
+	{
+		return GetDpiForWindowFunc != nullptr;
+	}
+
 	const int ID_TOOLTIP_TIMER = 1;
 	const int TOOLTIP_TIMEOUT = 5000;
 	HWND m_hWnd = nullptr;
@@ -1937,5 +1950,10 @@ private:
 	std::wstring m_toolTipText = L"test";
 	bool m_showToolTip = false;
 	std::wstring m_webmessage;
+	inline static const auto GetDpiForWindowFunc = []() {
+		HMODULE hUser32 = GetModuleHandle(L"user32.dll");
+		return reinterpret_cast<decltype(&::GetDpiForWindow)>(
+			::GetProcAddress(hUser32, "GetDpiForWindow"));
+	}();
 };
 
