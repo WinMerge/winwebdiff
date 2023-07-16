@@ -75,16 +75,30 @@ struct TextSegments
 			seg.size = text.size();
 			allText += text;
 			segments.insert_or_assign(seg.begin, seg);
-
 		}
-		else if (nodeType == NodeType::ELEMENT_NODE && 
-			 wcscmp(nodeName, L"INPUT") == 0)
+		else if (nodeType == NodeType::ELEMENT_NODE)
 		{
-			const wchar_t* type = domutils::getAttribute(nodeTree, L"type");
-			if (!type || wcscmp(type, L"hidden") != 0)
+			if (wcscmp(nodeName, L"INPUT") == 0)
 			{
-				const wchar_t* value = domutils::getAttribute(nodeTree, L"value");
-				std::wstring text = value ? value : L"";
+				const wchar_t* type = domutils::getAttribute(nodeTree, L"type");
+				if (!type || wcscmp(type, L"hidden") != 0)
+				{
+					const wchar_t* value = domutils::getAttribute(nodeTree, L"value");
+					std::wstring text = value ? value : L"";
+					TextSegment seg{};
+					seg.nodeId = nodeTree[L"nodeId"].GetInt();
+					seg.nodeType = nodeType;
+					seg.begin = allText.size();
+					seg.size = text.size();
+					allText += text;
+					segments.insert_or_assign(seg.begin, seg);
+				}
+			}
+			else if (wcscmp(nodeName, L"TEXTAREA") == 0)
+			{
+				std::wstring text;
+				for (const auto& child : nodeTree[L"children"].GetArray())
+					text += child[L"nodeValue"].GetString();
 				TextSegment seg{};
 				seg.nodeId = nodeTree[L"nodeId"].GetInt();
 				seg.nodeType = nodeType;
@@ -100,7 +114,8 @@ struct TextSegments
 			    wcscmp(nodeName, L"NOSCRIPT") != 0 &&
 			    wcscmp(nodeName, L"NOFRAMES") != 0 &&
 			    wcscmp(nodeName, L"STYLE") != 0 &&
-			    wcscmp(nodeName, L"TITLE") != 0)
+			    wcscmp(nodeName, L"TITLE") != 0 &&
+			    wcscmp(nodeName, L"TEXTAREA") != 0)
 			{
 				for (const auto& child : nodeTree[L"children"].GetArray())
 				{
