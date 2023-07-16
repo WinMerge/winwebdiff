@@ -4,10 +4,14 @@
 #include <combaseapi.h>
 #include <shellapi.h>
 #include <CommCtrl.h>
+#include <commdlg.h>
+#include <Shlwapi.h>
 #include <string>
 #include <vector>
 #include <list>
 #include <filesystem>
+#include <iostream>
+#include <fstream>
 #include <wrl.h>
 
 #pragma comment(lib, "comctl32.lib")
@@ -265,6 +269,97 @@ bool CompareFiles(const std::vector<std::wstring>& filenames, const std::wstring
 	return true;
 }
 
+std::string ToUTF8(const wchar_t* text)
+{
+	int size = WideCharToMultiByte(CP_UTF8, 0, text, -1, nullptr, 0, NULL, NULL);
+	std::string utf8(size, 0);
+	WideCharToMultiByte(CP_UTF8, 0, text, -1, utf8.data(), static_cast<int>(utf8.size()), NULL, NULL);
+	utf8.resize(strlen(utf8.c_str()));
+	return utf8;
+}
+
+void AppMsgBox(const std::wstring& text, int types)
+{
+	PostMessage(m_hWnd, WM_USER + 100, reinterpret_cast<WPARAM>(new std::wstring(text)), types);
+}
+
+bool GenerateHTMLReport(const wchar_t* filename)
+{
+	const int BUFFER_SIZE = 4096;
+	wchar_t tmp[BUFFER_SIZE];
+	wchar_t rptdir_full[BUFFER_SIZE];
+	std::wstring rptdir;
+	std::wstring rptfilepath[3];
+	std::wstring difffilename[3];
+	std::vector<std::string> rptfilepath_utf8, difffilename_utf8;
+	wcscpy_s(rptdir_full, filename);
+	PathRemoveExtensionW(rptdir_full);
+	PathAddExtensionW(rptdir_full, L".files");
+	rptdir = PathFindFileName(rptdir_full);
+	CreateDirectoryW(rptdir_full, nullptr);
+	const wchar_t* pfilenames[3]{};
+	std::vector<std::wstring> filenames;
+	for (int i = 0; i < m_pWebDiffWindow->GetPaneCount(); ++i)
+	{
+		rptfilepath[i] = m_pWebDiffWindow->GetCurrentUrl(i);
+		rptfilepath_utf8.push_back(ToUTF8(rptfilepath[i].c_str()));
+		wsprintfW(tmp, L"%d.pdf", i + 1);
+		difffilename[i] = rptdir + L"/" + tmp;
+		difffilename_utf8.push_back(ToUTF8(difffilename[i].c_str()));
+		filenames.push_back(std::wstring(rptdir_full) + L"/" + tmp);
+		pfilenames[i] = filenames[i].c_str();
+	}
+	std::ofstream fout;
+	try
+	{
+		fout.open(filename, std::ios::out | std::ios::trunc);
+		fout <<
+			"<!DOCTYPE html>" << std::endl <<
+			"<html>" << std::endl <<
+			"<head>" << std::endl <<
+			"<meta http-equiv=\"Content-Type\" content=\"text/html; charset=UTF-8\">" << std::endl <<
+			"<title>WinMerge Webpage Compare Report</title>" << std::endl <<
+			"<style type=\"text/css\">" << std::endl <<
+			"table { table-layout: fixed; width: 100%; border-collapse: collapse; }" << std::endl <<
+			"th,td { border: solid 1px black; }" << std::endl <<
+			"embed { width: 100%; height: calc(100vh - 56px) }" << std::endl <<
+			".title { color: white; background-color: blue; vertical-align: top; }" << std::endl <<
+			"</style>" << std::endl <<
+			"</head>" << std::endl <<
+			"<body>" << std::endl <<
+			"<table>" << std::endl <<
+			"<tr>" << std::endl;
+		for (int i = 0; i < m_pWebDiffWindow->GetPaneCount(); ++i)
+			fout << "<th class=\"title\">" << rptfilepath_utf8[i] << "</th>" << std::endl;
+		fout << 
+			"</tr>" << std::endl <<
+			"<tr>" << std::endl;
+		for (int i = 0; i < m_pWebDiffWindow->GetPaneCount(); ++i)
+			fout << "<td><embed type=\"application/pdf\" src=\"" << difffilename_utf8[i] <<
+			"\" title=\"" << difffilename_utf8[i] << "\"></td>" << std::endl;
+		fout <<
+			"</tr>" << std::endl <<
+			"</table>" << std::endl <<
+			"</body>" << std::endl <<
+			"</html>" << std::endl;
+	}
+	catch (...)
+	{
+		return false;
+	}
+	m_pWebDiffWindow->SaveDiffFiles(IWebDiffWindow::PDF, pfilenames,
+		Callback<IWebDiffCallback>([](const WebDiffCallbackResult& result) -> HRESULT
+			{
+				if (SUCCEEDED(result.errorCode))
+					AppMsgBox(L"The report has been created successfully.", MB_OK | MB_ICONINFORMATION);
+				else
+					AppMsgBox(L"Failed to create the report", MB_OK | MB_ICONWARNING);
+				return S_OK;
+			})
+		.Get());
+	return true;
+}
+
 void UpdateMenuState(HWND hWnd)
 {
 	HMENU hMenu = GetMenu(hWnd);
@@ -300,6 +395,9 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 		case IDM_FILE_NEW:
 			m_pWebDiffWindow->New(2, nullptr);
 			break;
+		case IDM_FILE_NEW3:
+			m_pWebDiffWindow->New(3, nullptr);
+			break;
 		case IDM_FILE_NEW_TAB:
 		{
 			int nActivePane = m_pWebDiffWindow->GetActivePane();
@@ -315,6 +413,26 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 		case IDM_FILE_RELOAD:
 			m_pWebDiffWindow->ReloadAll();
 			break;
+		case IDM_FILE_GENERATE_REPORT:
+		{
+			wchar_t szFileName[MAX_PATH] = {0}, szFile[MAX_PATH] = {0};
+			OPENFILENAMEW ofn = {0};
+			ofn.lStructSize = sizeof(OPENFILENAME);
+			ofn.hwndOwner = hWnd;
+			ofn.lpstrFilter = L"HTML file(*.html)\0*.html\0\0";
+			ofn.lpstrFile = szFileName;
+			ofn.lpstrFileTitle = szFile;
+			ofn.nMaxFile = MAX_PATH;
+			ofn.nMaxFileTitle = sizeof(szFile);
+			ofn.Flags = OFN_OVERWRITEPROMPT | OFN_HIDEREADONLY;
+			ofn.lpstrTitle = L"Generate HTML Report File";
+			ofn.lpstrDefExt = L"html";
+			if (GetSaveFileNameW(&ofn) != 0)
+			{
+				GenerateHTMLReport(ofn.lpstrFile);
+			}
+			break;
+		}
 		case IDM_EXIT:
 			DestroyWindow(hWnd);
 			break;
@@ -480,6 +598,13 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 		default:
 			return DefWindowProc(hWnd, message, wParam, lParam);
 		}
+		break;
+	}
+	case WM_USER + 100:
+	{
+		std::wstring* ptext = reinterpret_cast<std::wstring*>(wParam);
+		MessageBoxW(m_hWnd, ptext->c_str(), L"WinWebDiff", static_cast<int>(lParam));
+		delete ptext;
 		break;
 	}
 	case WM_PAINT:

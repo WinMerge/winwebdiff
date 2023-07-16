@@ -8,9 +8,11 @@
 #define IDM_ABOUT				104
 #define IDM_EXIT				105
 #define IDM_FILE_NEW            106
-#define IDM_FILE_NEW_TAB        107
-#define IDM_FILE_CLOSE_TAB      108
-#define IDM_FILE_RELOAD         109
+#define IDM_FILE_NEW3           107
+#define IDM_FILE_NEW_TAB        108
+#define IDM_FILE_CLOSE_TAB      109
+#define IDM_FILE_RELOAD         110
+#define IDM_FILE_GENERATE_REPORT 111
 #define IDM_VIEW_SIZE_FIT_TO_WINDOW 120
 #define IDM_VIEW_SIZE_320x512   121
 #define IDM_VIEW_SIZE_375x600   122

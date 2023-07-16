@@ -240,6 +240,22 @@ public:
 				}).Get());
 	}
 
+	HRESULT SaveDiffFiles(FormatType kind, const wchar_t* filenames[], IWebDiffCallback* callback) override
+	{
+		auto sfilenames = std::make_shared<std::vector<std::wstring>>();
+		for (int pane = 0; pane < m_nPanes; ++pane)
+			sfilenames->push_back(filenames[pane]);
+		ComPtr<IWebDiffCallback> callback2(callback);
+		HRESULT hr = saveFilesLoop(kind, sfilenames,
+			Callback<IWebDiffCallback>([this, sfilenames, callback2](const WebDiffCallbackResult& result) -> HRESULT
+				{
+					if (callback2)
+						return callback2->Invoke({ result.errorCode, nullptr });
+					return S_OK;
+				}).Get());
+		return hr;
+	}
+
 	HRESULT ClearBrowsingData(int pane, BrowsingDataType datakinds) override
 	{
 		int spane = pane, epane = pane;

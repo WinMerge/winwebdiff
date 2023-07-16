@@ -548,6 +548,8 @@ public:
 			return SaveText(filename, callback);
 		case IWebDiffWindow::RESOURCETREE:
 			return SaveResourceTree(filename, callback);
+		case IWebDiffWindow::PDF:
+			return SavePDF(filename, callback);
 		default:
 			return E_INVALIDARG;
 		}
@@ -967,6 +969,33 @@ public:
 									return callback2->Invoke(result);
 								return S_OK;
 							}).Get());
+					return S_OK;
+				}).Get());
+		if (FAILED(hr) && callback2)
+			return callback2->Invoke({ hr, nullptr });
+		return hr;
+	}
+
+	HRESULT SavePDF(const std::wstring& filename, IWebDiffCallback* callback)
+	{
+		if (!GetActiveWebView())
+			return E_FAIL;
+		ComPtr<IWebDiffCallback> callback2(callback);
+		wil::com_ptr<ICoreWebView2_7> webview2_7 = GetActiveTab()->m_webview.try_query<ICoreWebView2_7>();
+		if (!webview2_7)
+			return E_NOINTERFACE;
+		wil::com_ptr<ICoreWebView2PrintSettings> printSettings;
+		wil::com_ptr<ICoreWebView2Environment6> webviewEnvironment6 = m_webviewEnvironment.try_query<ICoreWebView2Environment6>();
+		if (webviewEnvironment6)
+		{
+			webviewEnvironment6->CreatePrintSettings(&printSettings);
+			printSettings->put_ShouldPrintBackgrounds(true);
+		}
+		HRESULT hr = webview2_7->PrintToPdf(filename.c_str(), printSettings.get(),
+			Callback<ICoreWebView2PrintToPdfCompletedHandler>(
+				[callback2](HRESULT errorCode, BOOL isSucessful) -> HRESULT {
+					if (callback2)
+						return callback2->Invoke({ errorCode, nullptr});
 					return S_OK;
 				}).Get());
 		if (FAILED(hr) && callback2)
