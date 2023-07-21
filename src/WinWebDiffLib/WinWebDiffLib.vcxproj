@@ -32,7 +32,8 @@
     <ProjectGuid>{551ab4a6-2721-48f0-96a4-231bd11032b8}</ProjectGuid>
     <RootNamespace>WinWebDiffLib</RootNamespace>
     <WindowsTargetPlatformVersion Condition="'$(VisualStudioVersion)' == '15'">10.0.17763.0</WindowsTargetPlatformVersion>
-    <WindowsTargetPlatformVersion Condition="'$(VisualStudioVersion)' &gt; '15'">10.0.19041.0</WindowsTargetPlatformVersion>
+    <WindowsTargetPlatformVersion Condition="'$(VisualStudioVersion)' == '16'">10.0.19041.0</WindowsTargetPlatformVersion>
+    <WindowsTargetPlatformVersion Condition="'$(VisualStudioVersion)' &gt; '16'">$(LatestTargetPlatformVersion)</WindowsTargetPlatformVersion>
     <ProjectName>WinWebDiffLib</ProjectName>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
