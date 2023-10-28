@@ -122,14 +122,36 @@ public:
 								}
 								else if (event == WebDiffEvent::NavigationCompleted)
 								{
+									addEventListener(ev.pane, nullptr);
 									*counter = *counter - 1;
 									if (*counter == 0)
 										Recompare(callback2.Get());
 								}
 								else if (event == WebDiffEvent::WebMessageReceived)
 								{
-									const int diffIndex = _wtoi(m_webWindow[i].GetWebMessage().c_str() + sizeof(L"wwdid=") / sizeof(wchar_t) - 1);
-									SelectDiff(diffIndex);
+									std::wstring msg = m_webWindow[i].GetWebMessage();
+									WDocument doc;
+									doc.Parse(msg.c_str());
+									std::wstring event = doc.HasMember(L"event") ? doc[L"event"].GetString() : L"";
+									if (event == L"dblclick")
+									{
+										const int diffIndex = doc[L"wwdid"].GetInt();
+										if (diffIndex > -1)
+											SelectDiff(diffIndex);
+									}
+									else if (event == L"click")
+									{
+										const std::wstring& selector = doc[L"selector"].GetString();
+										syncClick(ev.pane, selector);
+									}
+									else if (event == L"scroll")
+									{
+										const double left = doc[L"left"].GetDouble();
+										const double top = doc[L"top"].GetDouble();
+										const std::wstring& window = doc[L"window"].GetString();
+										const std::wstring& selector = doc[L"selector"].GetString();
+										syncScroll(ev.pane, window, selector, left, top);
+									}
 								}
 								for (const auto& listener : m_listeners)
 									listener->Invoke(ev);
@@ -693,38 +715,150 @@ private:
 		return hr;
 	}
 
-	HRESULT addDblClickEventListenerLoop(IWebDiffCallback* callback, int pane = 0)
+	HRESULT addEventListener(int pane, IWebDiffCallback* callback)
 	{
 		ComPtr<IWebDiffCallback> callback2(callback);
 		const wchar_t* script =
 LR"(
 (function() {
-  const elms = document.querySelectorAll('.wwd-diff');
-  if (elms) {
-    elms.forEach(function(el) {
-      el.addEventListener('dblclick', function() {
-        window.chrome.webview.postMessage('wwdid=' + el.dataset['wwdid']);
-      });
-    });
+  window.wdw = { };
+  wdw.syncScroll = function(win, selector, left, top) {
+	var el = document.querySelector(selector);
+	if (el && wdw.getWindowLocation() === win) {
+	  var sleft = (el.scrollWidth  - el.clientWidth)  * left;
+	  var stop  = (el.scrollHeight - el.clientHeight) * top;
+      clearTimeout(wdw.timeout);
+	  wdw.timeout = setTimeout(function() {
+	    el.scroll(sleft, stop);
+	  }, 200);
+	}
   }
+  wdw.getWindowLocation = function() {
+    let locationString = '';
+    let currentWindow = window;
+
+    while (currentWindow !== window.top) {
+        const frames = currentWindow.parent.frames;
+        let index = -1;
+        for (let i = 0; i < frames.length; i++) {
+            if (frames[i] === currentWindow) {
+                index = i;
+                break;
+            }
+        }
+        if (index !== -1) {
+            locationString = `[${index}]` + locationString;
+        } else {
+            locationString = 'top' + locationString;
+        }
+        currentWindow = currentWindow.parent;
+    }
+
+    return locationString;
+  }
+  function getElementSelector(element) {
+    if (!(element instanceof Element)) {
+        return null;
+    }
+
+    const selectorList = [];
+    while (element.parentNode) {
+        let nodeName = element.nodeName.toLowerCase();
+        if (element.id) {
+            selectorList.unshift(`#${element.id}`);
+            break;
+        } else {
+            let sibCount = 0;
+            let sibIndex = 0;
+            const siblings = element.parentNode.childNodes;
+            for (let i = 0; i < siblings.length; i++) {
+                const sibling = siblings[i];
+                if (sibling.nodeType === 1) {
+                    if (sibling === element) {
+                        sibIndex = sibCount;
+                    }
+                    if (sibling.nodeName.toLowerCase() === nodeName) {
+                        sibCount++;
+                    }
+                }
+            }
+            if (sibIndex > 0) {
+                nodeName += `:nth-of-type(${sibIndex + 1})`;
+            }
+            selectorList.unshift(nodeName);
+            element = element.parentNode;
+        }
+    }
+    return selectorList.join(' > ');
+  }
+  window.addEventListener('click', function(e) {
+    var sel = getElementSelector(e.target);
+    var msg = { "event": "click", "selector": sel };
+    window.chrome.webview.postMessage(JSON.stringify(msg));
+  }, true);
+  window.addEventListener('dblclick', function(e) {
+    var el = e.target;
+    var sel = getElementSelector(el);
+    var wwdid = ('wwdid' in el.dataset) ? el.dataset['wwdid'] : (('wwdid' in el.parentElement.dataset) ? el.parentElement.dataset['wwdid'] : -1);
+    var msg = { "event": "dblclick", "selector": sel, "wwdid": parseInt(wwdid) };
+    window.chrome.webview.postMessage(JSON.stringify(msg));
+  }, true);
+  window.addEventListener('scroll', function(e) {
+      var el = ('scrollingElement' in e.target) ? e.target.scrollingElement : e.target;
+      var sel = getElementSelector(el);
+      var msg = {
+        "event": "scroll",
+        "window": wdw.getWindowLocation(),
+        "selector": sel,
+        "left": ((el.scrollWidth  == el.clientWidth)  ? 0 : (el.scrollLeft / (el.scrollWidth - el.clientWidth))),
+        "top":  ((el.scrollHeight == el.clientHeight) ? 0 : (el.scrollTop / (el.scrollHeight - el.clientHeight)))
+      };
+      window.chrome.webview.postMessage(JSON.stringify(msg));
+  }, true);
 })();
 )";
 		HRESULT hr = m_webWindow[pane].ExecuteScriptInAllFrames(script,
 			Callback<IWebDiffCallback>([this, pane, callback2](const WebDiffCallbackResult& result) -> HRESULT
 				{
-					HRESULT hr = S_OK; // result.errorCode;
-					if (SUCCEEDED(hr))
-					{
-						if (pane + 1 < m_nPanes)
-							hr = addDblClickEventListenerLoop(callback2.Get(), pane + 1);
-						else if (callback2)
-							return callback2->Invoke({ hr, nullptr });
-					}
-					if (FAILED(hr) && callback2)
+					HRESULT hr = result.errorCode;
+					if (callback2)
 						return callback2->Invoke({ hr, nullptr });
 					return S_OK;
 				}).Get());
 		return hr;
+	}
+
+	HRESULT syncScroll(int srcPane, const std::wstring& window, const std::wstring& selector, double left, double top)
+	{
+		std::wstring script =
+			L"wdw.syncScroll('" + window + L"', '" + selector + L"', "
+			+ std::to_wstring(left) + L", " + std::to_wstring(top) + L");";
+		for (int pane = 0; pane < m_nPanes; ++pane)
+		{
+			if (pane == srcPane)
+				continue;
+			m_webWindow[pane].ExecuteScriptInAllFrames(script.c_str(), nullptr);
+		}
+		return S_OK;
+	}
+
+	HRESULT syncClick(int srcPane, const std::wstring& selector)
+	{
+		std::wstring script = 
+			L"if (!('wdw' in window)) { console.log('none'); window.wdw = {}; }"
+			L"var el = document.querySelector('" + selector + L"');"
+			L"if (el) {"
+			L"  el.click();"
+			L"  setTimeout(function() {"
+			L"  }, 500);"
+			L"}";
+		for (int pane = 0; pane < m_nPanes; ++pane)
+		{
+			if (pane == srcPane)
+				continue;
+			m_webWindow[pane].ExecuteScriptInAllFrames(script.c_str(), nullptr);
+		}
+		return S_OK;
 	}
 
 	HRESULT compare(IWebDiffCallback* callback)
@@ -781,9 +915,7 @@ LR"(
 											Callback<IWebDiffCallback>([this, callback2](const WebDiffCallbackResult& result) -> HRESULT
 												{
 													HRESULT hr = result.errorCode;
-													if (SUCCEEDED(hr))
-														hr = addDblClickEventListenerLoop(callback2.Get());
-													if (FAILED(hr) && callback2)
+													if (callback2)
 														return callback2->Invoke({ hr, nullptr });
 													return S_OK;
 												}).Get());
