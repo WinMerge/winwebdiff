@@ -141,16 +141,22 @@ public:
 									}
 									else if (event == L"click")
 									{
-										const std::wstring& selector = doc[L"selector"].GetString();
-										syncClick(ev.pane, selector);
+										if (GetSyncEventFlag(EVENT_CLICK))
+										{
+											const std::wstring& selector = doc[L"selector"].GetString();
+											syncClick(ev.pane, selector);
+										}
 									}
 									else if (event == L"scroll")
 									{
-										const double left = doc[L"left"].GetDouble();
-										const double top = doc[L"top"].GetDouble();
-										const std::wstring& window = doc[L"window"].GetString();
-										const std::wstring& selector = doc[L"selector"].GetString();
-										syncScroll(ev.pane, window, selector, left, top);
+										if (GetSyncEventFlag(EVENT_SCROLL))
+										{
+											const double left = doc[L"left"].GetDouble();
+											const double top = doc[L"top"].GetDouble();
+											const std::wstring& window = doc[L"window"].GetString();
+											const std::wstring& selector = doc[L"selector"].GetString();
+											syncScroll(ev.pane, window, selector, left, top);
+										}
 									}
 								}
 								for (const auto& listener : m_listeners)
@@ -468,6 +474,19 @@ public:
 		Recompare(nullptr);
 	}
 
+	bool GetSyncEventFlag(EventType event) const
+	{
+		return (m_eventSyncFlags & event) != 0;
+	}
+
+	void SetSyncEventFlag(EventType event, bool flag)
+	{
+		if (flag)
+			m_eventSyncFlags = m_eventSyncFlags | static_cast<unsigned>(event);
+		else
+			m_eventSyncFlags = m_eventSyncFlags & ~static_cast<unsigned>(event);
+	}
+
 	int  GetDiffCount() const override
 	{
 		return static_cast<int>(m_diffInfos.size());
@@ -721,12 +740,12 @@ private:
 		const wchar_t* script =
 LR"(
 (function() {
-  window.wdw = { };
+  window.wdw = {};
   wdw.syncScroll = function(win, selector, left, top) {
 	var el = document.querySelector(selector);
 	if (el && wdw.getWindowLocation() === win) {
-	  var sleft = (el.scrollWidth  - el.clientWidth)  * left;
-	  var stop  = (el.scrollHeight - el.clientHeight) * top;
+	  var sleft = Math.round((el.scrollWidth  - el.clientWidth)  * left);
+	  var stop  = Math.round((el.scrollHeight - el.clientHeight) * top);
       clearTimeout(wdw.timeout);
 	  wdw.timeout = setTimeout(function() {
 	    el.scroll(sleft, stop);
@@ -844,19 +863,23 @@ LR"(
 
 	HRESULT syncClick(int srcPane, const std::wstring& selector)
 	{
-		std::wstring script = 
-			L"if (!('wdw' in window)) { console.log('none'); window.wdw = {}; }"
-			L"var el = document.querySelector('" + selector + L"');"
-			L"if (el) {"
-			L"  el.click();"
-			L"  setTimeout(function() {"
-			L"  }, 500);"
-			L"}";
-		for (int pane = 0; pane < m_nPanes; ++pane)
+		uint64_t now = GetTickCount64();
+		if (m_lastClickEvent.selector != selector || GetTickCount64() - m_lastClickEvent.time > 200)
 		{
-			if (pane == srcPane)
-				continue;
-			m_webWindow[pane].ExecuteScriptInAllFrames(script.c_str(), nullptr);
+			m_lastClickEvent.selector = selector;
+			m_lastClickEvent.time = now;
+			std::wstring script =
+				L"if (!('wdw' in window)) { console.log('none'); window.wdw = {}; }"
+				L"var el = document.querySelector('" + selector + L"');"
+				L"if (el) {"
+				L"  el.click();"
+				L"}";
+			for (int pane = 0; pane < m_nPanes; ++pane)
+			{
+				if (pane == srcPane)
+					continue;
+				m_webWindow[pane].ExecuteScriptInAllFrames(script.c_str(), nullptr);
+			}
 		}
 		return S_OK;
 	}
@@ -1476,6 +1499,11 @@ LR"(
 	DiffOptions m_diffOptions{};
 	bool m_bShowDifferences = true;
 	bool m_bShowWordDifferences = true;
+	unsigned m_eventSyncFlags = EVENT_SCROLL | EVENT_CLICK;
+	struct LastClickEvent {
+		std::wstring selector;
+		uint64_t time;
+	} m_lastClickEvent;
 	IWebDiffWindow::ColorSettings m_colorSettings = {
 		RGB(239, 203,   5), RGB(192, 192, 192), RGB(0, 0, 0),
 		RGB(239, 119, 116), RGB(240, 192, 192), RGB(0, 0, 0),
