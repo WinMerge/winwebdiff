@@ -369,6 +369,7 @@ void UpdateMenuState(HWND hWnd)
 		m_pWebDiffWindow->GetDiffOptions().diffAlgorithm + IDM_VIEW_DIFF_ALGORITHM_MYERS, MF_BYCOMMAND);
 	CheckMenuItem(hMenu, IDM_SYNC_SCROLL,    m_pWebDiffWindow->GetSyncEventFlag(IWebDiffWindow::EVENT_SCROLL) ? MF_CHECKED : MF_UNCHECKED);
 	CheckMenuItem(hMenu, IDM_SYNC_CLICK,  m_pWebDiffWindow->GetSyncEventFlag(IWebDiffWindow::EVENT_CLICK) ? MF_CHECKED : MF_UNCHECKED);
+	CheckMenuItem(hMenu, IDM_SYNC_INPUT,  m_pWebDiffWindow->GetSyncEventFlag(IWebDiffWindow::EVENT_INPUT) ? MF_CHECKED : MF_UNCHECKED);
 }
 
 LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
@@ -593,6 +594,11 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 		case IDM_SYNC_CLICK:
 			m_pWebDiffWindow->SetSyncEventFlag(IWebDiffWindow::EVENT_CLICK,
 				!m_pWebDiffWindow->GetSyncEventFlag(IWebDiffWindow::EVENT_CLICK));
+			UpdateMenuState(m_hWnd);
+			break;
+		case IDM_SYNC_INPUT:
+			m_pWebDiffWindow->SetSyncEventFlag(IWebDiffWindow::EVENT_INPUT,
+				!m_pWebDiffWindow->GetSyncEventFlag(IWebDiffWindow::EVENT_INPUT));
 			UpdateMenuState(m_hWnd);
 			break;
 		case IDM_CLEAR_DISK_CACHE:

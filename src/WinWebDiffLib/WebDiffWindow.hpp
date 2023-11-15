@@ -120,12 +120,22 @@ public:
 											m_webWindow[pane].SetVScrollPos(m_webWindow[ev.pane].GetVScrollPos());
 									}
 								}
-								else if (event == WebDiffEvent::NavigationCompleted)
+								else if (event == WebDiffEvent::NavigationStarting)
 								{
 									addEventListener(ev.pane, nullptr);
+								}
+								else if (event == WebDiffEvent::FrameNavigationStarting)
+								{
+									addEventListener(ev.pane, nullptr);
+								}
+								else if (event == WebDiffEvent::NavigationCompleted)
+								{
 									*counter = *counter - 1;
 									if (*counter == 0)
 										Recompare(callback2.Get());
+								}
+								else if (event == WebDiffEvent::FrameNavigationCompleted)
+								{
 								}
 								else if (event == WebDiffEvent::WebMessageReceived)
 								{
@@ -143,8 +153,19 @@ public:
 									{
 										if (GetSyncEventFlag(EVENT_CLICK))
 										{
+											const std::wstring& window = doc[L"window"].GetString();
 											const std::wstring& selector = doc[L"selector"].GetString();
-											syncClick(ev.pane, selector);
+											syncClick(ev.pane, window, selector);
+										}
+									}
+									else if (event == L"input")
+									{
+										if (GetSyncEventFlag(EVENT_INPUT))
+										{
+											const std::wstring& window = doc[L"window"].GetString();
+											const std::wstring& selector = doc[L"selector"].GetString();
+											const std::wstring& value = doc[L"value"].GetString();
+											syncInput(ev.pane, window, selector, value);
 										}
 									}
 									else if (event == L"scroll")
@@ -740,6 +761,10 @@ private:
 		const wchar_t* script =
 LR"(
 (function() {
+  if (window.wdw)
+  {
+    return;
+  }
   window.wdw = {};
   wdw.syncScroll = function(win, selector, left, top) {
 	var el = document.querySelector(selector);
@@ -751,6 +776,18 @@ LR"(
 	    el.scroll(sleft, stop);
 	  }, 200);
 	}
+  }
+  wdw.syncClick = function(win, selector) {
+    var el = document.querySelector(selector);
+	if (el && wdw.getWindowLocation() === win) {
+      el.click();
+    }
+  }
+  wdw.syncInput = function(win, selector, value) {
+    var el = document.querySelector(selector);
+	if (el && wdw.getWindowLocation() === win) {
+      el.value = value;
+    }
   }
   wdw.getWindowLocation = function() {
     let locationString = '';
@@ -812,14 +849,19 @@ LR"(
   }
   window.addEventListener('click', function(e) {
     var sel = getElementSelector(e.target);
-    var msg = { "event": "click", "selector": sel };
+    var msg = { "event": "click", "window": wdw.getWindowLocation(), "selector": sel };
+    window.chrome.webview.postMessage(JSON.stringify(msg));
+  }, true);
+  window.addEventListener('input', function(e) {
+    var sel = getElementSelector(e.target);
+    var msg = { "event": "input", "window": wdw.getWindowLocation(), "selector": sel, "value": e.target.value };
     window.chrome.webview.postMessage(JSON.stringify(msg));
   }, true);
   window.addEventListener('dblclick', function(e) {
     var el = e.target;
     var sel = getElementSelector(el);
     var wwdid = ('wwdid' in el.dataset) ? el.dataset['wwdid'] : (('wwdid' in el.parentElement.dataset) ? el.parentElement.dataset['wwdid'] : -1);
-    var msg = { "event": "dblclick", "selector": sel, "wwdid": parseInt(wwdid) };
+    var msg = { "event": "dblclick", "window": wdw.getWindowLocation(), "selector": sel, "wwdid": parseInt(wwdid) };
     window.chrome.webview.postMessage(JSON.stringify(msg));
   }, true);
   window.addEventListener('scroll', function(e) {
@@ -861,25 +903,35 @@ LR"(
 		return S_OK;
 	}
 
-	HRESULT syncClick(int srcPane, const std::wstring& selector)
+	HRESULT syncClick(int srcPane, const std::wstring& window, const std::wstring& selector)
 	{
 		uint64_t now = GetTickCount64();
-		if (m_lastClickEvent.selector != selector || GetTickCount64() - m_lastClickEvent.time > 200)
+		if (m_lastEvent.type != L"click" || m_lastEvent.selector != selector || GetTickCount64() - m_lastEvent.time > 200)
 		{
-			m_lastClickEvent.selector = selector;
-			m_lastClickEvent.time = now;
+			m_lastEvent.type = L"click";
+			m_lastEvent.selector = selector;
+			m_lastEvent.time = now;
 			std::wstring script =
-				L"if (!('wdw' in window)) { console.log('none'); window.wdw = {}; }"
-				L"var el = document.querySelector('" + selector + L"');"
-				L"if (el) {"
-				L"  el.click();"
-				L"}";
+				L"wdw.syncClick('" + window + L"', '" + selector + L"');";
 			for (int pane = 0; pane < m_nPanes; ++pane)
 			{
 				if (pane == srcPane)
 					continue;
 				m_webWindow[pane].ExecuteScriptInAllFrames(script.c_str(), nullptr);
 			}
+		}
+		return S_OK;
+	}
+
+	HRESULT syncInput(int srcPane, const std::wstring& window, const std::wstring& selector, const std::wstring& value)
+	{
+		std::wstring script =
+			L"wdw.syncInput('" + window + L"', '" + selector + L"', " + utils::Quote(value) + L");";
+		for (int pane = 0; pane < m_nPanes; ++pane)
+		{
+			if (pane == srcPane)
+				continue;
+			m_webWindow[pane].ExecuteScriptInAllFrames(script.c_str(), nullptr);
 		}
 		return S_OK;
 	}
@@ -1499,11 +1551,12 @@ LR"(
 	DiffOptions m_diffOptions{};
 	bool m_bShowDifferences = true;
 	bool m_bShowWordDifferences = true;
-	unsigned m_eventSyncFlags = EVENT_SCROLL | EVENT_CLICK;
-	struct LastClickEvent {
+	unsigned m_eventSyncFlags = EVENT_SCROLL | EVENT_CLICK | EVENT_INPUT;
+	struct LastEvent {
+		std::wstring type;
 		std::wstring selector;
 		uint64_t time;
-	} m_lastClickEvent;
+	} m_lastEvent;
 	IWebDiffWindow::ColorSettings m_colorSettings = {
 		RGB(239, 203,   5), RGB(192, 192, 192), RGB(0, 0, 0),
 		RGB(239, 119, 116), RGB(240, 192, 192), RGB(0, 0, 0),

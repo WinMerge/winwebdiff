@@ -119,6 +119,12 @@ class CWebWindow
 								return m_parent->OnNavigationStarting(sender, args);
 							}).Get(), nullptr);
 
+					m_webview->add_FrameNavigationStarting(
+						Callback<ICoreWebView2NavigationStartingEventHandler>(
+							[this](ICoreWebView2* sender, ICoreWebView2NavigationStartingEventArgs* args) -> HRESULT {
+								return m_parent->OnFrameNavigationStarting(sender, args);
+							}).Get(), nullptr);
+
 					m_webview->add_HistoryChanged(
 						Callback<ICoreWebView2HistoryChangedEventHandler>(
 							[this](ICoreWebView2* sender, IUnknown* args) -> HRESULT {
@@ -142,6 +148,12 @@ class CWebWindow
 							[this](ICoreWebView2* sender, ICoreWebView2NavigationCompletedEventArgs* args) -> HRESULT {
 								m_navigationCompleted = true;
 								return m_parent->OnNavigationCompleted(sender, args);
+							}).Get(), nullptr);
+
+					m_webview->add_FrameNavigationCompleted(
+						Callback<ICoreWebView2NavigationCompletedEventHandler>(
+							[this](ICoreWebView2* sender, ICoreWebView2NavigationCompletedEventArgs* args) -> HRESULT {
+								return m_parent->OnFrameNavigationCompleted(sender, args);
 							}).Get(), nullptr);
 
 					m_webview->add_WebMessageReceived(
@@ -1065,6 +1077,8 @@ public:
 			return S_OK;
 		}
 		ComPtr<IWebDiffCallback> callback2(callback);
+		if (*it == nullptr)
+			return E_FAIL;
 		wil::com_ptr<ICoreWebView2Frame2> frame2 =
 			it->try_query<ICoreWebView2Frame2>();
 		if (!frame2)
@@ -1660,6 +1674,12 @@ private:
 		return S_OK;
 	}
 
+	HRESULT OnFrameNavigationStarting(ICoreWebView2* sender, ICoreWebView2NavigationStartingEventArgs* args)
+	{
+		m_eventHandler(WebDiffEvent::FrameNavigationStarting);
+		return S_OK;
+	}
+
 	HRESULT OnHistoryChanged(ICoreWebView2* sender, IUnknown* args)
 	{
 		UpdateToolbarControls();
@@ -1694,6 +1714,12 @@ private:
 	{
 		UpdateToolbarControls();
 		m_eventHandler(WebDiffEvent::NavigationCompleted);
+		return S_OK;
+	}
+
+	HRESULT OnFrameNavigationCompleted(ICoreWebView2* sender, ICoreWebView2NavigationCompletedEventArgs* args)
+	{
+		m_eventHandler(WebDiffEvent::FrameNavigationCompleted);
 		return S_OK;
 	}
 
