@@ -1122,6 +1122,27 @@ public:
 		return hr;
 	}
 
+	HRESULT PostWebMessageAsJsonInAllFrames(const wchar_t* json)
+	{
+		if (!GetActiveWebView())
+			return E_FAIL;
+		auto script2 = std::make_shared<std::wstring>(json);
+		HRESULT hr = GetActiveWebView()->PostWebMessageAsJson(json);
+		if (FAILED(hr))
+			return hr;
+		for (auto frame : GetActiveTab()->m_frames)
+		{
+			auto frame3 = frame.try_query<ICoreWebView2Frame3>();
+			if (frame3)
+			{
+				hr = frame3->PostWebMessageAsJson(json);
+				if (FAILED(hr))
+					return hr;
+			}
+		}
+		return S_OK;
+	}
+
 	HRESULT setStyleSheetText(const std::wstring& styleSheetId, const std::wstring& styles, IWebDiffCallback* callback)
 	{
 		static const wchar_t* method = L"CSS.setStyleSheetText";

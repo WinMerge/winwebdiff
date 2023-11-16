@@ -766,9 +766,9 @@ LR"(
     return;
   }
   window.wdw = {};
-  wdw.syncScroll = function(win, selector, left, top) {
+  function syncScroll(win, selector, left, top) {
 	var el = document.querySelector(selector);
-	if (el && wdw.getWindowLocation() === win) {
+	if (el && getWindowLocation() === win) {
 	  var sleft = Math.round((el.scrollWidth  - el.clientWidth)  * left);
 	  var stop  = Math.round((el.scrollHeight - el.clientHeight) * top);
       clearTimeout(wdw.timeout);
@@ -777,19 +777,19 @@ LR"(
 	  }, 200);
 	}
   }
-  wdw.syncClick = function(win, selector) {
+  function syncClick(win, selector) {
     var el = document.querySelector(selector);
-	if (el && wdw.getWindowLocation() === win) {
+	if (el && getWindowLocation() === win) {
       el.click();
     }
   }
-  wdw.syncInput = function(win, selector, value) {
+  function syncInput(win, selector, value) {
     var el = document.querySelector(selector);
-	if (el && wdw.getWindowLocation() === win) {
+	if (el && getWindowLocation() === win) {
       el.value = value;
     }
   }
-  wdw.getWindowLocation = function() {
+  function getWindowLocation() {
     let locationString = '';
     let currentWindow = window;
 
@@ -849,19 +849,19 @@ LR"(
   }
   window.addEventListener('click', function(e) {
     var sel = getElementSelector(e.target);
-    var msg = { "event": "click", "window": wdw.getWindowLocation(), "selector": sel };
+    var msg = { "event": "click", "window": getWindowLocation(), "selector": sel };
     window.chrome.webview.postMessage(JSON.stringify(msg));
   }, true);
   window.addEventListener('input', function(e) {
     var sel = getElementSelector(e.target);
-    var msg = { "event": "input", "window": wdw.getWindowLocation(), "selector": sel, "value": e.target.value };
+    var msg = { "event": "input", "window": getWindowLocation(), "selector": sel, "value": e.target.value };
     window.chrome.webview.postMessage(JSON.stringify(msg));
   }, true);
   window.addEventListener('dblclick', function(e) {
     var el = e.target;
     var sel = getElementSelector(el);
     var wwdid = ('wwdid' in el.dataset) ? el.dataset['wwdid'] : (('wwdid' in el.parentElement.dataset) ? el.parentElement.dataset['wwdid'] : -1);
-    var msg = { "event": "dblclick", "window": wdw.getWindowLocation(), "selector": sel, "wwdid": parseInt(wwdid) };
+    var msg = { "event": "dblclick", "window": getWindowLocation(), "selector": sel, "wwdid": parseInt(wwdid) };
     window.chrome.webview.postMessage(JSON.stringify(msg));
   }, true);
   window.addEventListener('scroll', function(e) {
@@ -869,13 +869,27 @@ LR"(
       var sel = getElementSelector(el);
       var msg = {
         "event": "scroll",
-        "window": wdw.getWindowLocation(),
+        "window": getWindowLocation(),
         "selector": sel,
         "left": ((el.scrollWidth  == el.clientWidth)  ? 0 : (el.scrollLeft / (el.scrollWidth - el.clientWidth))),
         "top":  ((el.scrollHeight == el.clientHeight) ? 0 : (el.scrollTop / (el.scrollHeight - el.clientHeight)))
       };
       window.chrome.webview.postMessage(JSON.stringify(msg));
   }, true);
+  window.chrome.webview.addEventListener('message', function(arg) {
+    var data = arg.data;
+    switch (data.event) {
+    case "scroll":
+      syncScroll(data.window, data.selector, data.left, data.top);
+      break;
+    case "click":
+      syncClick(data.window, data.selector);
+      break;
+    case "input":
+      syncInput(data.window, data.selector, data.value);
+      break;
+   }
+  });
 })();
 )";
 		HRESULT hr = m_webWindow[pane].ExecuteScriptInAllFrames(script,
@@ -891,14 +905,14 @@ LR"(
 
 	HRESULT syncScroll(int srcPane, const std::wstring& window, const std::wstring& selector, double left, double top)
 	{
-		std::wstring script =
-			L"wdw.syncScroll('" + window + L"', '" + selector + L"', "
-			+ std::to_wstring(left) + L", " + std::to_wstring(top) + L");";
+		std::wstring json =
+			L"{\"event\": \"scroll\", \"window\": \"" + window + L"\", \"selector\": \"" + selector + L"\", "
+			L"\"left\": " + std::to_wstring(left) + L", \"top\": " + std::to_wstring(top) + L"}";
 		for (int pane = 0; pane < m_nPanes; ++pane)
 		{
 			if (pane == srcPane)
 				continue;
-			m_webWindow[pane].ExecuteScriptInAllFrames(script.c_str(), nullptr);
+			m_webWindow[pane].PostWebMessageAsJsonInAllFrames(json.c_str());
 		}
 		return S_OK;
 	}
@@ -911,13 +925,12 @@ LR"(
 			m_lastEvent.type = L"click";
 			m_lastEvent.selector = selector;
 			m_lastEvent.time = now;
-			std::wstring script =
-				L"wdw.syncClick('" + window + L"', '" + selector + L"');";
+			std::wstring json = L"{\"event\": \"click\", \"window\": \"" + window + L"\", \"selector\": \"" + selector + L"\"}";
 			for (int pane = 0; pane < m_nPanes; ++pane)
 			{
 				if (pane == srcPane)
 					continue;
-				m_webWindow[pane].ExecuteScriptInAllFrames(script.c_str(), nullptr);
+				m_webWindow[pane].PostWebMessageAsJsonInAllFrames(json.c_str());
 			}
 		}
 		return S_OK;
@@ -925,13 +938,13 @@ LR"(
 
 	HRESULT syncInput(int srcPane, const std::wstring& window, const std::wstring& selector, const std::wstring& value)
 	{
-		std::wstring script =
-			L"wdw.syncInput('" + window + L"', '" + selector + L"', " + utils::Quote(value) + L");";
+		std::wstring json =
+			L"{\"event\": \"input\", \"window\": \"" + window + L"\", \"selector\": \"" + selector + L"\", \"value\": " + utils::Quote(value) + L"}";
 		for (int pane = 0; pane < m_nPanes; ++pane)
 		{
 			if (pane == srcPane)
 				continue;
-			m_webWindow[pane].ExecuteScriptInAllFrames(script.c_str(), nullptr);
+			m_webWindow[pane].PostWebMessageAsJsonInAllFrames(json.c_str());
 		}
 		return S_OK;
 	}
