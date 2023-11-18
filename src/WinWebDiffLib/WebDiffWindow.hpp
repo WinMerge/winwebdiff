@@ -9,34 +9,55 @@
 const wchar_t* scriptOnLoad =
 LR"(
 (function() {
-  if (window.wdw)
-  {
-    return;
-  }
-  window.wdw = {};
-  function syncScroll(win, selector, left, top) {
-	var el = document.querySelector(selector);
-	if (el && getWindowLocation() === win) {
-	  var sleft = Math.round((el.scrollWidth  - el.clientWidth)  * left);
-	  var stop  = Math.round((el.scrollHeight - el.clientHeight) * top);
+  window.wdw = { "inClick": false/*, "inSubmit": false, "inKeydown": false*/ };
+  function syncScroll(e) {
+    var el = document.querySelector(e.selector);
+    if (el && getWindowLocation() === e.window) {
+      var sleft = Math.round((el.scrollWidth  - el.clientWidth)  * e.left);
+      var stop  = Math.round((el.scrollHeight - el.clientHeight) * e.top);
       clearTimeout(wdw.timeout);
-	  wdw.timeout = setTimeout(function() {
-	    el.scroll(sleft, stop);
-	  }, 200);
-	}
-  }
-  function syncClick(win, selector) {
-    var el = document.querySelector(selector);
-	if (el && getWindowLocation() === win) {
-      el.click();
+      wdw.timeout = setTimeout(function() {
+        if (el.scroll)
+          el.scroll(sleft, stop);
+      }, 100);
     }
   }
-  function syncInput(win, selector, value) {
-    var el = document.querySelector(selector);
-	if (el && getWindowLocation() === win) {
-      el.value = value;
+  function syncClick(e) {
+    var el = document.querySelector(e.selector);
+    if (el && getWindowLocation() === e.window) {
+      wdw.inClick = true;
+      if (el.click)
+        el.click();
+      wdw.inClick = false;
     }
   }
+  function syncInput(e) {
+    var el = document.querySelector(e.selector);
+    if (el && getWindowLocation() === e.window) {
+      el.value = e.value;
+    }
+  }
+/*
+  function syncSubmit(e) {
+    var el = document.querySelector(e.selector);
+    if (el && getWindowLocation() === e.window) {
+      wdw.inSubmit = true;
+      if (el.submit)
+        el.submit();
+      wdw.inSubmit = false;
+    }
+  }
+  function syncKeydown(e) {
+    var el = document.querySelector(e.selector);
+    if (el && getWindowLocation() === e.window) {
+      wdw.inKeydown = true;
+      var ev = new KeyboardEvent("keydown", e);
+      if (el.dispatchEvent)
+        el.dispatchEvent(ev);
+      wdw.inKeydown = false;
+    }
+  }
+*/
   function getWindowLocation() {
     let locationString = '';
     let currentWindow = window;
@@ -96,6 +117,8 @@ LR"(
     return selectorList.join(' > ');
   }
   window.addEventListener('click', function(e) {
+    if (wdw.inClick)
+      return;
     var sel = getElementSelector(e.target);
     var msg = { "event": "click", "window": getWindowLocation(), "selector": sel };
     window.chrome.webview.postMessage(JSON.stringify(msg));
@@ -105,6 +128,25 @@ LR"(
     var msg = { "event": "input", "window": getWindowLocation(), "selector": sel, "value": e.target.value };
     window.chrome.webview.postMessage(JSON.stringify(msg));
   }, true);
+/*
+  var forms = document.querySelectorAll('form');
+  forms.forEach(function(form) {
+    form.addEventListener('submit', function(e) {
+      if (wdw.inSubmit)
+        return;
+      var sel = getElementSelector(e.target);
+      var msg = { "event": "submit", "window": getWindowLocation(), "selector": sel };
+      window.chrome.webview.postMessage(JSON.stringify(msg));
+    });
+  }, true);
+  window.addEventListener('keydown', function(e) {
+    if (wdw.inKeydown)
+      return;
+    var sel = getElementSelector(e.target);
+    var msg = { "event": "keydown", "window": getWindowLocation(), "selector": sel, "altKey": e.altKey, "code": e.code, "ctrlKey": e.ctrlKey, "isComposing": e.isComposing, "key": e.key, "locale": e.locale, "location": e.location, "metaKey": e.metaKey, "repeat": e.repeat, "shiftKey": e.shiftKey };
+    window.chrome.webview.postMessage(JSON.stringify(msg));
+  }, true);
+*/
   window.addEventListener('dblclick', function(e) {
     var el = e.target;
     var sel = getElementSelector(el);
@@ -128,14 +170,22 @@ LR"(
     var data = arg.data;
     switch (data.event) {
     case "scroll":
-      syncScroll(data.window, data.selector, data.left, data.top);
+      syncScroll(data);
       break;
     case "click":
-      syncClick(data.window, data.selector);
+      syncClick(data);
       break;
     case "input":
-      syncInput(data.window, data.selector, data.value);
+      syncInput(data);
       break;
+/*
+    case "submit":
+      syncSubmit(data);
+      break;
+    case "keydown":
+      syncKeydown(data);
+      break;
+*/
    }
   });
 })();
@@ -257,20 +307,21 @@ public:
 								}
 								else if (event == WebDiffEvent::NavigationStarting)
 								{
-									addEventListener(sender, ev.pane, nullptr);
+									m_compareState = NOT_COMPARED;
 								}
 								else if (event == WebDiffEvent::FrameNavigationStarting)
 								{
-									addEventListener(sender,ev.pane, nullptr);
 								}
 								else if (event == WebDiffEvent::NavigationCompleted)
 								{
+									addEventListener(sender, ev.pane, nullptr);
 									*counter = *counter - 1;
 									if (*counter == 0)
 										Recompare(callback2.Get());
 								}
 								else if (event == WebDiffEvent::FrameNavigationCompleted)
 								{
+									addEventListener(sender,ev.pane, nullptr);
 								}
 								else if (event == WebDiffEvent::WebMessageReceived || event == WebDiffEvent::FrameWebMessageReceived)
 								{
@@ -284,36 +335,33 @@ public:
 										if (diffIndex > -1)
 											SelectDiff(diffIndex);
 									}
+									else if (event == L"scroll")
+									{
+										if (m_bSynchronizeEvents && GetSyncEventFlag(EVENT_SCROLL))
+											syncEvent(ev.pane, msg);
+									}
 									else if (event == L"click")
 									{
 										if (m_bSynchronizeEvents && GetSyncEventFlag(EVENT_CLICK))
-										{
-											const std::wstring& window = doc[L"window"].GetString();
-											const std::wstring& selector = doc[L"selector"].GetString();
-											syncClick(ev.pane, window, selector);
-										}
+											syncEvent(ev.pane, msg);
 									}
 									else if (event == L"input")
 									{
 										if (m_bSynchronizeEvents && GetSyncEventFlag(EVENT_INPUT))
-										{
-											const std::wstring& window = doc[L"window"].GetString();
-											const std::wstring& selector = doc[L"selector"].GetString();
-											const std::wstring& value = doc[L"value"].GetString();
-											syncInput(ev.pane, window, selector, value);
-										}
+											syncEvent(ev.pane, msg);
 									}
-									else if (event == L"scroll")
+/*
+									else if (event == L"submit")
 									{
-										if (m_bSynchronizeEvents && GetSyncEventFlag(EVENT_SCROLL))
-										{
-											const double left = doc[L"left"].GetDouble();
-											const double top = doc[L"top"].GetDouble();
-											const std::wstring& window = doc[L"window"].GetString();
-											const std::wstring& selector = doc[L"selector"].GetString();
-											syncScroll(ev.pane, window, selector, left, top);
-										}
+										if (m_bSynchronizeEvents && GetSyncEventFlag(EVENT_CLICK))
+											syncEvent(ev.pane, msg);
 									}
+									else if (event == L"keydown")
+									{
+										if (m_bSynchronizeEvents && GetSyncEventFlag(EVENT_INPUT))
+											syncEvent(ev.pane, msg);
+									}
+*/
 								}
 								for (const auto& listener : m_listeners)
 									listener->Invoke(ev);
@@ -663,6 +711,11 @@ public:
 			m_eventSyncFlags = m_eventSyncFlags & ~static_cast<unsigned>(event);
 	}
 
+	CompareState GetCompareState() const
+	{
+		return m_compareState;
+	}
+
 	int  GetDiffCount() const override
 	{
 		return static_cast<int>(m_diffInfos.size());
@@ -915,43 +968,8 @@ private:
 		return m_webWindow[pane].ExecuteScript(sender, scriptOnLoad, callback);
 	}
 
-	HRESULT syncScroll(int srcPane, const std::wstring& window, const std::wstring& selector, double left, double top)
+	HRESULT syncEvent(int srcPane, const std::wstring& json)
 	{
-		std::wstring json =
-			L"{\"event\": \"scroll\", \"window\": \"" + window + L"\", \"selector\": \"" + selector + L"\", "
-			L"\"left\": " + std::to_wstring(left) + L", \"top\": " + std::to_wstring(top) + L"}";
-		for (int pane = 0; pane < m_nPanes; ++pane)
-		{
-			if (pane == srcPane)
-				continue;
-			m_webWindow[pane].PostWebMessageAsJsonInAllFrames(json.c_str());
-		}
-		return S_OK;
-	}
-
-	HRESULT syncClick(int srcPane, const std::wstring& window, const std::wstring& selector)
-	{
-		uint64_t now = GetTickCount64();
-		if (m_lastEvent.type != L"click" || m_lastEvent.selector != selector || GetTickCount64() - m_lastEvent.time > 200)
-		{
-			m_lastEvent.type = L"click";
-			m_lastEvent.selector = selector;
-			m_lastEvent.time = now;
-			std::wstring json = L"{\"event\": \"click\", \"window\": \"" + window + L"\", \"selector\": \"" + selector + L"\"}";
-			for (int pane = 0; pane < m_nPanes; ++pane)
-			{
-				if (pane == srcPane)
-					continue;
-				m_webWindow[pane].PostWebMessageAsJsonInAllFrames(json.c_str());
-			}
-		}
-		return S_OK;
-	}
-
-	HRESULT syncInput(int srcPane, const std::wstring& window, const std::wstring& selector, const std::wstring& value)
-	{
-		std::wstring json =
-			L"{\"event\": \"input\", \"window\": \"" + window + L"\", \"selector\": \"" + selector + L"\", \"value\": " + utils::Quote(value) + L"}";
 		for (int pane = 0; pane < m_nPanes; ++pane)
 		{
 			if (pane == srcPane)
@@ -963,6 +981,7 @@ private:
 
 	HRESULT compare(IWebDiffCallback* callback)
 	{
+		m_compareState = COMPARING;
 		ComPtr<IWebDiffCallback> callback2(callback);
 		std::shared_ptr<std::vector<std::wstring>> jsons(new std::vector<std::wstring>());
 		HRESULT hr = getDocumentsLoop(jsons,
@@ -1015,20 +1034,27 @@ private:
 											Callback<IWebDiffCallback>([this, callback2](const WebDiffCallbackResult& result) -> HRESULT
 												{
 													HRESULT hr = result.errorCode;
+													m_compareState = FAILED(hr) ? NOT_COMPARED : COMPARED;
 													if (callback2)
 														return callback2->Invoke({ hr, nullptr });
 													return S_OK;
 												}).Get());
 									}
+									if (FAILED(hr))
+										m_compareState = NOT_COMPARED;
 									if (FAILED(hr) && callback2)
 										return callback2->Invoke({ hr, nullptr });
 									return S_OK;
 								}).Get());
 					}
+					if (FAILED(hr))
+						m_compareState = NOT_COMPARED;
 					if (FAILED(hr) && callback2)
 						return callback2->Invoke({ hr, nullptr });
 					return S_OK;
 				}).Get());
+		if (FAILED(hr))
+			m_compareState = NOT_COMPARED;
 		return hr;
 	}
 
@@ -1577,12 +1603,9 @@ private:
 	bool m_bShowDifferences = true;
 	bool m_bShowWordDifferences = true;
 	bool m_bSynchronizeEvents = true;
+	bool m_bCompareCompleted = false;
 	unsigned m_eventSyncFlags = EVENT_SCROLL | EVENT_CLICK | EVENT_INPUT;
-	struct LastEvent {
-		std::wstring type;
-		std::wstring selector;
-		uint64_t time;
-	} m_lastEvent;
+	CompareState m_compareState = NOT_COMPARED;
 	IWebDiffWindow::ColorSettings m_colorSettings = {
 		RGB(239, 203,   5), RGB(192, 192, 192), RGB(0, 0, 0),
 		RGB(239, 119, 116), RGB(240, 192, 192), RGB(0, 0, 0),
