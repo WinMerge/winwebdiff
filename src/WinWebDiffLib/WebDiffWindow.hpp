@@ -286,7 +286,7 @@ public:
 									}
 									else if (event == L"click")
 									{
-										if (GetSyncEventFlag(EVENT_CLICK))
+										if (m_bSynchronizeEvents && GetSyncEventFlag(EVENT_CLICK))
 										{
 											const std::wstring& window = doc[L"window"].GetString();
 											const std::wstring& selector = doc[L"selector"].GetString();
@@ -295,7 +295,7 @@ public:
 									}
 									else if (event == L"input")
 									{
-										if (GetSyncEventFlag(EVENT_INPUT))
+										if (m_bSynchronizeEvents && GetSyncEventFlag(EVENT_INPUT))
 										{
 											const std::wstring& window = doc[L"window"].GetString();
 											const std::wstring& selector = doc[L"selector"].GetString();
@@ -305,7 +305,7 @@ public:
 									}
 									else if (event == L"scroll")
 									{
-										if (GetSyncEventFlag(EVENT_SCROLL))
+										if (m_bSynchronizeEvents && GetSyncEventFlag(EVENT_SCROLL))
 										{
 											const double left = doc[L"left"].GetDouble();
 											const double top = doc[L"top"].GetDouble();
@@ -628,6 +628,26 @@ public:
 	{
 		m_diffOptions = diffOptions;
 		Recompare(nullptr);
+	}
+
+	bool GetSyncEvents() const
+	{
+		return m_bSynchronizeEvents;
+	}
+
+	void SetSyncEvents(bool syncEvents)
+	{
+		m_bSynchronizeEvents = syncEvents;
+	}
+
+	unsigned GetSyncEventFlags() const
+	{
+		return m_eventSyncFlags;
+	}
+
+	void SetSyncEventFlags(unsigned flags)
+	{
+		m_eventSyncFlags = flags;
 	}
 
 	bool GetSyncEventFlag(EventType event) const
@@ -1556,6 +1576,7 @@ private:
 	DiffOptions m_diffOptions{};
 	bool m_bShowDifferences = true;
 	bool m_bShowWordDifferences = true;
+	bool m_bSynchronizeEvents = true;
 	unsigned m_eventSyncFlags = EVENT_SCROLL | EVENT_CLICK | EVENT_INPUT;
 	struct LastEvent {
 		std::wstring type;
