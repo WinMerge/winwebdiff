@@ -119,12 +119,6 @@ class CWebWindow
 								return m_parent->OnNavigationStarting(sender, args);
 							}).Get(), nullptr);
 
-					m_webview->add_FrameNavigationStarting(
-						Callback<ICoreWebView2NavigationStartingEventHandler>(
-							[this](ICoreWebView2* sender, ICoreWebView2NavigationStartingEventArgs* args) -> HRESULT {
-								return m_parent->OnFrameNavigationStarting(sender, args);
-							}).Get(), nullptr);
-
 					m_webview->add_HistoryChanged(
 						Callback<ICoreWebView2HistoryChangedEventHandler>(
 							[this](ICoreWebView2* sender, IUnknown* args) -> HRESULT {
@@ -148,12 +142,6 @@ class CWebWindow
 							[this](ICoreWebView2* sender, ICoreWebView2NavigationCompletedEventArgs* args) -> HRESULT {
 								m_navigationCompleted = true;
 								return m_parent->OnNavigationCompleted(sender, args);
-							}).Get(), nullptr);
-
-					m_webview->add_FrameNavigationCompleted(
-						Callback<ICoreWebView2NavigationCompletedEventHandler>(
-							[this](ICoreWebView2* sender, ICoreWebView2NavigationCompletedEventArgs* args) -> HRESULT {
-								return m_parent->OnFrameNavigationCompleted(sender, args);
 							}).Get(), nullptr);
 
 					m_webview->add_WebMessageReceived(
@@ -207,6 +195,18 @@ class CWebWindow
 												{
 													return m_parent->OnFrameWebMessageReceived(sender, args);
 												}).Get(), nullptr);
+										webviewFrame2->add_NavigationStarting(
+											Callback<ICoreWebView2FrameNavigationStartingEventHandler>(
+												[this](ICoreWebView2Frame* sender, ICoreWebView2NavigationStartingEventArgs* args) -> HRESULT {
+													return m_parent->OnFrameNavigationStarting(sender, args);
+												}).Get(), nullptr);
+
+										webviewFrame2->add_NavigationCompleted(
+											Callback<ICoreWebView2FrameNavigationCompletedEventHandler>(
+												[this](ICoreWebView2Frame* sender, ICoreWebView2NavigationCompletedEventArgs* args) -> HRESULT {
+													return m_parent->OnFrameNavigationCompleted(sender, args);
+												}).Get(), nullptr);
+
 									}
 
 									webviewFrame->add_Destroyed(
@@ -271,7 +271,7 @@ public:
 
 	HRESULT Create(HINSTANCE hInstance, HWND hWndParent, const wchar_t* url, const wchar_t* userDataFolder,
 		const SIZE& size, bool fitToWindow, double zoom, std::wstring& userAgent,
-		IWebDiffCallback* callback, std::function<void(WebDiffEvent::EVENT_TYPE)> eventHandler)
+		IWebDiffCallback* callback, std::function<void(WebDiffEvent::EVENT_TYPE, IUnknown*, IUnknown*)> eventHandler)
 	{
 		m_fitToWindow = fitToWindow;
 		m_size = size;
@@ -1067,6 +1067,44 @@ public:
 		return hr;
 	}
 
+	HRESULT ExecuteScript(IUnknown* target, const wchar_t* script, IWebDiffCallback *callback)
+	{
+		if (!GetActiveWebView())
+			return E_FAIL;
+		ComPtr<IWebDiffCallback> callback2(callback);
+		wil::com_ptr<ICoreWebView2Frame2> frame;
+		target->QueryInterface<ICoreWebView2Frame2>(&frame);
+		if (frame)
+			return frame->ExecuteScript(script,
+				Callback<ICoreWebView2ExecuteScriptCompletedHandler>(
+					[this, callback2](HRESULT errorCode, LPCWSTR resultObjectAsJson) -> HRESULT {
+						if (FAILED(errorCode))
+						{
+							SetToolTipText(resultObjectAsJson);
+							ShowToolTip(true, TOOLTIP_TIMEOUT);
+						}
+						if (callback2)
+							return callback2->Invoke({ errorCode, resultObjectAsJson });
+						return S_OK;
+					}).Get());
+		wil::com_ptr<ICoreWebView2> webview;
+		target->QueryInterface<ICoreWebView2>(&webview);
+		if (webview)
+			return webview->ExecuteScript(script,
+				Callback<ICoreWebView2ExecuteScriptCompletedHandler>(
+					[this, callback2](HRESULT errorCode, LPCWSTR resultObjectAsJson) -> HRESULT {
+						if (FAILED(errorCode))
+						{
+							SetToolTipText(resultObjectAsJson);
+							ShowToolTip(true, TOOLTIP_TIMEOUT);
+						}
+						if (callback2)
+							return callback2->Invoke({ errorCode, resultObjectAsJson });
+						return S_OK;
+					}).Get());
+		return E_FAIL;
+	}
+
 	HRESULT executeScriptLoop(std::shared_ptr<std::wstring> script, IWebDiffCallback *callback,
 		std::vector<wil::com_ptr<ICoreWebView2Frame>>::iterator it)
 	{
@@ -1356,7 +1394,7 @@ private:
 		ResizeWebView();
 		CalcScrollBarRange(m_nHScrollPos, m_nVScrollPos);
 		UpdateToolbarControls();
-		m_eventHandler(WebDiffEvent::TabChanged);
+		m_eventHandler(WebDiffEvent::TabChanged, nullptr, nullptr);
 	}
 
 	CWebTab* GetActiveTab() const
@@ -1656,7 +1694,7 @@ private:
 
 	HRESULT OnZoomFactorChanged(ICoreWebView2Controller* sender, IUnknown* args)
 	{
-		m_eventHandler(WebDiffEvent::ZoomFactorChanged);
+		m_eventHandler(WebDiffEvent::ZoomFactorChanged, sender, args);
 		return S_OK;
 	}
 
@@ -1676,7 +1714,7 @@ private:
 		TabCtrl_InsertItem(m_hTabCtrl, m_activeTab, &tcItem);
 		TabCtrl_SetCurSel(m_hTabCtrl, m_activeTab);
 
-		m_eventHandler(WebDiffEvent::NewWindowRequested);
+		m_eventHandler(WebDiffEvent::NewWindowRequested, sender, args);
 
 		return S_OK;
 	}
@@ -1686,34 +1724,34 @@ private:
 		int i = FindTabIndex(sender);
 		if (i < 0)
 			return S_OK;
-		m_eventHandler(WebDiffEvent::WindowCloseRequested);
+		m_eventHandler(WebDiffEvent::WindowCloseRequested, sender, args);
 		return CloseTab(i);
 	}
 
 	HRESULT OnNavigationStarting(ICoreWebView2* sender, ICoreWebView2NavigationStartingEventArgs* args)
 	{
 		UpdateToolbarControls();
-		m_eventHandler(WebDiffEvent::NavigationStarting);
+		m_eventHandler(WebDiffEvent::NavigationStarting, sender, args);
 		return S_OK;
 	}
 
-	HRESULT OnFrameNavigationStarting(ICoreWebView2* sender, ICoreWebView2NavigationStartingEventArgs* args)
+	HRESULT OnFrameNavigationStarting(ICoreWebView2Frame* sender, ICoreWebView2NavigationStartingEventArgs* args)
 	{
-		m_eventHandler(WebDiffEvent::FrameNavigationStarting);
+		m_eventHandler(WebDiffEvent::FrameNavigationStarting, sender, args);
 		return S_OK;
 	}
 
 	HRESULT OnHistoryChanged(ICoreWebView2* sender, IUnknown* args)
 	{
 		UpdateToolbarControls();
-		m_eventHandler(WebDiffEvent::HistoryChanged);
+		m_eventHandler(WebDiffEvent::HistoryChanged, sender, args);
 		return S_OK;
 	}
 	
 	HRESULT OnSourceChanged(ICoreWebView2* sender, ICoreWebView2SourceChangedEventArgs* args)
 	{
 		UpdateToolbarControls();
-		m_eventHandler(WebDiffEvent::SourceChanged);
+		m_eventHandler(WebDiffEvent::SourceChanged, sender, args);
 		return S_OK;
 	}
 
@@ -1729,20 +1767,20 @@ private:
 			tcItem.pszText = title.get();
 			TabCtrl_SetItem(m_hTabCtrl, i, &tcItem);
 		}
-		m_eventHandler(WebDiffEvent::DocumentTitleChanged);
+		m_eventHandler(WebDiffEvent::DocumentTitleChanged, sender, args);
 		return S_OK;
 	}
 
 	HRESULT OnNavigationCompleted(ICoreWebView2* sender, ICoreWebView2NavigationCompletedEventArgs* args)
 	{
 		UpdateToolbarControls();
-		m_eventHandler(WebDiffEvent::NavigationCompleted);
+		m_eventHandler(WebDiffEvent::NavigationCompleted, sender, args);
 		return S_OK;
 	}
 
-	HRESULT OnFrameNavigationCompleted(ICoreWebView2* sender, ICoreWebView2NavigationCompletedEventArgs* args)
+	HRESULT OnFrameNavigationCompleted(ICoreWebView2Frame* sender, ICoreWebView2NavigationCompletedEventArgs* args)
 	{
-		m_eventHandler(WebDiffEvent::FrameNavigationCompleted);
+		m_eventHandler(WebDiffEvent::FrameNavigationCompleted, sender, args);
 		return S_OK;
 	}
 
@@ -1751,7 +1789,7 @@ private:
 		wil::unique_cotaskmem_string messageRaw;
 		args->TryGetWebMessageAsString(&messageRaw);
 		m_webmessage = messageRaw.get();
-		m_eventHandler(WebDiffEvent::WebMessageReceived);
+		m_eventHandler(WebDiffEvent::FrameWebMessageReceived, sender, args);
 		return S_OK;
 	}
 
@@ -1760,7 +1798,7 @@ private:
 		wil::unique_cotaskmem_string messageRaw;
 		args->TryGetWebMessageAsString(&messageRaw);
 		m_webmessage = messageRaw.get();
-		m_eventHandler(WebDiffEvent::WebMessageReceived);
+		m_eventHandler(WebDiffEvent::WebMessageReceived, sender, args);
 		return S_OK;
 	}
 
@@ -1795,7 +1833,7 @@ private:
 		}
 		CalcScrollBarRange(m_nHScrollPos, m_nVScrollPos);
 		ScrollWindow(m_hWebViewParent, si.nPos - m_nHScrollPos, 0, NULL, NULL);
-		m_eventHandler(WebDiffEvent::HSCROLL);
+		m_eventHandler(WebDiffEvent::HSCROLL, nullptr, nullptr);
 	}
 
 	void OnVScroll(UINT nSBCode, UINT nPos)
@@ -1822,7 +1860,7 @@ private:
 		}
 		CalcScrollBarRange(m_nHScrollPos, m_nVScrollPos);
 		ScrollWindow(m_hWebViewParent, 0, si.nPos - m_nVScrollPos, NULL, NULL);
-		m_eventHandler(WebDiffEvent::VSCROLL);
+		m_eventHandler(WebDiffEvent::VSCROLL, nullptr, nullptr);
 	}
 
 	LRESULT OnWndMsg(HWND hWnd, UINT iMsg, WPARAM wParam, LPARAM lParam)
@@ -2023,7 +2061,7 @@ private:
 	int m_nHScrollPos = 0;
 	SIZE m_size{ 1024, 600 };
 	bool m_fitToWindow = true;
-	std::function<void(WebDiffEvent::EVENT_TYPE)> m_eventHandler;
+	std::function<void(WebDiffEvent::EVENT_TYPE, IUnknown*, IUnknown*)> m_eventHandler;
 	std::wstring m_currentUrl;
 	std::wstring m_toolTipText = L"test";
 	bool m_showToolTip = false;

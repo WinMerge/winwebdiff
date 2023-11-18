@@ -6,7 +6,7 @@
 
 struct WebDiffEvent
 {
-	enum EVENT_TYPE { ZoomFactorChanged, NewWindowRequested, WindowCloseRequested, NavigationStarting, FrameNavigationStarting, HistoryChanged, SourceChanged, DocumentTitleChanged, NavigationCompleted, FrameNavigationCompleted, WebMessageReceived, TabChanged, HSCROLL, VSCROLL };
+	enum EVENT_TYPE { ZoomFactorChanged, NewWindowRequested, WindowCloseRequested, NavigationStarting, FrameNavigationStarting, HistoryChanged, SourceChanged, DocumentTitleChanged, NavigationCompleted, FrameNavigationCompleted, WebMessageReceived, FrameWebMessageReceived, TabChanged, HSCROLL, VSCROLL };
 	EVENT_TYPE type;
 	int pane;
 };

@@ -221,7 +221,7 @@ public:
 				ComPtr<IWebDiffCallback> callback2(callback);
 				hr = m_webWindow[i].Create(m_hInstance, m_hWnd, urls[i], userDataFolder.c_str(),
 						m_size, m_fitToWindow, m_zoom, m_userAgent, nullptr,
-						[this, i, counter, callback2](WebDiffEvent::EVENT_TYPE event)
+						[this, i, counter, callback2](WebDiffEvent::EVENT_TYPE event, IUnknown* sender, IUnknown* args)
 							{
 								WebDiffEvent ev{};
 								ev.type = event;
@@ -257,11 +257,11 @@ public:
 								}
 								else if (event == WebDiffEvent::NavigationStarting)
 								{
-									addEventListener(ev.pane, nullptr);
+									addEventListener(sender, ev.pane, nullptr);
 								}
 								else if (event == WebDiffEvent::FrameNavigationStarting)
 								{
-									addEventListener(ev.pane, nullptr);
+									addEventListener(sender,ev.pane, nullptr);
 								}
 								else if (event == WebDiffEvent::NavigationCompleted)
 								{
@@ -272,7 +272,7 @@ public:
 								else if (event == WebDiffEvent::FrameNavigationCompleted)
 								{
 								}
-								else if (event == WebDiffEvent::WebMessageReceived)
+								else if (event == WebDiffEvent::WebMessageReceived || event == WebDiffEvent::FrameWebMessageReceived)
 								{
 									std::wstring msg = m_webWindow[i].GetWebMessage();
 									WDocument doc;
@@ -890,18 +890,9 @@ private:
 		return hr;
 	}
 
-	HRESULT addEventListener(int pane, IWebDiffCallback* callback)
+	HRESULT addEventListener(IUnknown* sender, int pane, IWebDiffCallback* callback)
 	{
-		ComPtr<IWebDiffCallback> callback2(callback);
-		HRESULT hr = m_webWindow[pane].ExecuteScriptInAllFrames(scriptOnLoad,
-			Callback<IWebDiffCallback>([this, pane, callback2](const WebDiffCallbackResult& result) -> HRESULT
-				{
-					HRESULT hr = result.errorCode;
-					if (callback2)
-						return callback2->Invoke({ hr, nullptr });
-					return S_OK;
-				}).Get());
-		return hr;
+		return m_webWindow[pane].ExecuteScript(sender, scriptOnLoad, callback);
 	}
 
 	HRESULT syncScroll(int srcPane, const std::wstring& window, const std::wstring& selector, double left, double top)
