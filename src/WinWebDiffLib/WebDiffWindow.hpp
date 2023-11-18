@@ -6,6 +6,141 @@
 #include <shellapi.h>
 #include <wil/win32_helpers.h>
 
+const wchar_t* scriptOnLoad =
+LR"(
+(function() {
+  if (window.wdw)
+  {
+    return;
+  }
+  window.wdw = {};
+  function syncScroll(win, selector, left, top) {
+	var el = document.querySelector(selector);
+	if (el && getWindowLocation() === win) {
+	  var sleft = Math.round((el.scrollWidth  - el.clientWidth)  * left);
+	  var stop  = Math.round((el.scrollHeight - el.clientHeight) * top);
+      clearTimeout(wdw.timeout);
+	  wdw.timeout = setTimeout(function() {
+	    el.scroll(sleft, stop);
+	  }, 200);
+	}
+  }
+  function syncClick(win, selector) {
+    var el = document.querySelector(selector);
+	if (el && getWindowLocation() === win) {
+      el.click();
+    }
+  }
+  function syncInput(win, selector, value) {
+    var el = document.querySelector(selector);
+	if (el && getWindowLocation() === win) {
+      el.value = value;
+    }
+  }
+  function getWindowLocation() {
+    let locationString = '';
+    let currentWindow = window;
+
+    while (currentWindow !== window.top) {
+        const frames = currentWindow.parent.frames;
+        let index = -1;
+        for (let i = 0; i < frames.length; i++) {
+            if (frames[i] === currentWindow) {
+                index = i;
+                break;
+            }
+        }
+        if (index !== -1) {
+            locationString = `[${index}]` + locationString;
+        } else {
+            locationString = 'top' + locationString;
+        }
+        currentWindow = currentWindow.parent;
+    }
+
+    return locationString;
+  }
+  function getElementSelector(element) {
+    if (!(element instanceof Element)) {
+        return null;
+    }
+
+    const selectorList = [];
+    while (element.parentNode) {
+        let nodeName = element.nodeName.toLowerCase();
+        if (element.id) {
+            selectorList.unshift(`#${element.id}`);
+            break;
+        } else {
+            let sibCount = 0;
+            let sibIndex = 0;
+            const siblings = element.parentNode.childNodes;
+            for (let i = 0; i < siblings.length; i++) {
+                const sibling = siblings[i];
+                if (sibling.nodeType === 1) {
+                    if (sibling === element) {
+                        sibIndex = sibCount;
+                    }
+                    if (sibling.nodeName.toLowerCase() === nodeName) {
+                        sibCount++;
+                    }
+                }
+            }
+            if (sibIndex > 0) {
+                nodeName += `:nth-of-type(${sibIndex + 1})`;
+            }
+            selectorList.unshift(nodeName);
+            element = element.parentNode;
+        }
+    }
+    return selectorList.join(' > ');
+  }
+  window.addEventListener('click', function(e) {
+    var sel = getElementSelector(e.target);
+    var msg = { "event": "click", "window": getWindowLocation(), "selector": sel };
+    window.chrome.webview.postMessage(JSON.stringify(msg));
+  }, true);
+  window.addEventListener('input', function(e) {
+    var sel = getElementSelector(e.target);
+    var msg = { "event": "input", "window": getWindowLocation(), "selector": sel, "value": e.target.value };
+    window.chrome.webview.postMessage(JSON.stringify(msg));
+  }, true);
+  window.addEventListener('dblclick', function(e) {
+    var el = e.target;
+    var sel = getElementSelector(el);
+    var wwdid = ('wwdid' in el.dataset) ? el.dataset['wwdid'] : (('wwdid' in el.parentElement.dataset) ? el.parentElement.dataset['wwdid'] : -1);
+    var msg = { "event": "dblclick", "window": getWindowLocation(), "selector": sel, "wwdid": parseInt(wwdid) };
+    window.chrome.webview.postMessage(JSON.stringify(msg));
+  }, true);
+  window.addEventListener('scroll', function(e) {
+      var el = ('scrollingElement' in e.target) ? e.target.scrollingElement : e.target;
+      var sel = getElementSelector(el);
+      var msg = {
+        "event": "scroll",
+        "window": getWindowLocation(),
+        "selector": sel,
+        "left": ((el.scrollWidth  == el.clientWidth)  ? 0 : (el.scrollLeft / (el.scrollWidth - el.clientWidth))),
+        "top":  ((el.scrollHeight == el.clientHeight) ? 0 : (el.scrollTop / (el.scrollHeight - el.clientHeight)))
+      };
+      window.chrome.webview.postMessage(JSON.stringify(msg));
+  }, true);
+  window.chrome.webview.addEventListener('message', function(arg) {
+    var data = arg.data;
+    switch (data.event) {
+    case "scroll":
+      syncScroll(data.window, data.selector, data.left, data.top);
+      break;
+    case "click":
+      syncClick(data.window, data.selector);
+      break;
+    case "input":
+      syncInput(data.window, data.selector, data.value);
+      break;
+   }
+  });
+})();
+)";
+
 class CWebDiffWindow : public IWebDiffWindow
 {
 public:
@@ -758,141 +893,7 @@ private:
 	HRESULT addEventListener(int pane, IWebDiffCallback* callback)
 	{
 		ComPtr<IWebDiffCallback> callback2(callback);
-		const wchar_t* script =
-LR"(
-(function() {
-  if (window.wdw)
-  {
-    return;
-  }
-  window.wdw = {};
-  function syncScroll(win, selector, left, top) {
-	var el = document.querySelector(selector);
-	if (el && getWindowLocation() === win) {
-	  var sleft = Math.round((el.scrollWidth  - el.clientWidth)  * left);
-	  var stop  = Math.round((el.scrollHeight - el.clientHeight) * top);
-      clearTimeout(wdw.timeout);
-	  wdw.timeout = setTimeout(function() {
-	    el.scroll(sleft, stop);
-	  }, 200);
-	}
-  }
-  function syncClick(win, selector) {
-    var el = document.querySelector(selector);
-	if (el && getWindowLocation() === win) {
-      el.click();
-    }
-  }
-  function syncInput(win, selector, value) {
-    var el = document.querySelector(selector);
-	if (el && getWindowLocation() === win) {
-      el.value = value;
-    }
-  }
-  function getWindowLocation() {
-    let locationString = '';
-    let currentWindow = window;
-
-    while (currentWindow !== window.top) {
-        const frames = currentWindow.parent.frames;
-        let index = -1;
-        for (let i = 0; i < frames.length; i++) {
-            if (frames[i] === currentWindow) {
-                index = i;
-                break;
-            }
-        }
-        if (index !== -1) {
-            locationString = `[${index}]` + locationString;
-        } else {
-            locationString = 'top' + locationString;
-        }
-        currentWindow = currentWindow.parent;
-    }
-
-    return locationString;
-  }
-  function getElementSelector(element) {
-    if (!(element instanceof Element)) {
-        return null;
-    }
-
-    const selectorList = [];
-    while (element.parentNode) {
-        let nodeName = element.nodeName.toLowerCase();
-        if (element.id) {
-            selectorList.unshift(`#${element.id}`);
-            break;
-        } else {
-            let sibCount = 0;
-            let sibIndex = 0;
-            const siblings = element.parentNode.childNodes;
-            for (let i = 0; i < siblings.length; i++) {
-                const sibling = siblings[i];
-                if (sibling.nodeType === 1) {
-                    if (sibling === element) {
-                        sibIndex = sibCount;
-                    }
-                    if (sibling.nodeName.toLowerCase() === nodeName) {
-                        sibCount++;
-                    }
-                }
-            }
-            if (sibIndex > 0) {
-                nodeName += `:nth-of-type(${sibIndex + 1})`;
-            }
-            selectorList.unshift(nodeName);
-            element = element.parentNode;
-        }
-    }
-    return selectorList.join(' > ');
-  }
-  window.addEventListener('click', function(e) {
-    var sel = getElementSelector(e.target);
-    var msg = { "event": "click", "window": getWindowLocation(), "selector": sel };
-    window.chrome.webview.postMessage(JSON.stringify(msg));
-  }, true);
-  window.addEventListener('input', function(e) {
-    var sel = getElementSelector(e.target);
-    var msg = { "event": "input", "window": getWindowLocation(), "selector": sel, "value": e.target.value };
-    window.chrome.webview.postMessage(JSON.stringify(msg));
-  }, true);
-  window.addEventListener('dblclick', function(e) {
-    var el = e.target;
-    var sel = getElementSelector(el);
-    var wwdid = ('wwdid' in el.dataset) ? el.dataset['wwdid'] : (('wwdid' in el.parentElement.dataset) ? el.parentElement.dataset['wwdid'] : -1);
-    var msg = { "event": "dblclick", "window": getWindowLocation(), "selector": sel, "wwdid": parseInt(wwdid) };
-    window.chrome.webview.postMessage(JSON.stringify(msg));
-  }, true);
-  window.addEventListener('scroll', function(e) {
-      var el = ('scrollingElement' in e.target) ? e.target.scrollingElement : e.target;
-      var sel = getElementSelector(el);
-      var msg = {
-        "event": "scroll",
-        "window": getWindowLocation(),
-        "selector": sel,
-        "left": ((el.scrollWidth  == el.clientWidth)  ? 0 : (el.scrollLeft / (el.scrollWidth - el.clientWidth))),
-        "top":  ((el.scrollHeight == el.clientHeight) ? 0 : (el.scrollTop / (el.scrollHeight - el.clientHeight)))
-      };
-      window.chrome.webview.postMessage(JSON.stringify(msg));
-  }, true);
-  window.chrome.webview.addEventListener('message', function(arg) {
-    var data = arg.data;
-    switch (data.event) {
-    case "scroll":
-      syncScroll(data.window, data.selector, data.left, data.top);
-      break;
-    case "click":
-      syncClick(data.window, data.selector);
-      break;
-    case "input":
-      syncInput(data.window, data.selector, data.value);
-      break;
-   }
-  });
-})();
-)";
-		HRESULT hr = m_webWindow[pane].ExecuteScriptInAllFrames(script,
+		HRESULT hr = m_webWindow[pane].ExecuteScriptInAllFrames(scriptOnLoad,
 			Callback<IWebDiffCallback>([this, pane, callback2](const WebDiffCallbackResult& result) -> HRESULT
 				{
 					HRESULT hr = result.errorCode;
