@@ -323,6 +323,24 @@ public:
 								{
 									addEventListener(sender,ev.pane, nullptr);
 								}
+								else if (event == WebDiffEvent::GoBacked)
+								{
+									for (int pane = 0; pane < m_nPanes; ++pane)
+									{
+										if (ev.pane == pane)
+											continue;
+										m_webWindow[pane].GoBack();
+									}
+								}
+								else if (event == WebDiffEvent::GoForwarded)
+								{
+									for (int pane = 0; pane < m_nPanes; ++pane)
+									{
+										if (ev.pane == pane)
+											continue;
+										m_webWindow[pane].GoForward();
+									}
+								}
 								else if (event == WebDiffEvent::WebMessageReceived || event == WebDiffEvent::FrameWebMessageReceived)
 								{
 									std::wstring msg = m_webWindow[i].GetWebMessage();
@@ -1615,7 +1633,7 @@ private:
 	bool m_bShowWordDifferences = true;
 	bool m_bSynchronizeEvents = true;
 	bool m_bCompareCompleted = false;
-	unsigned m_eventSyncFlags = EVENT_SCROLL | EVENT_CLICK | EVENT_INPUT;
+	unsigned m_eventSyncFlags = EVENT_SCROLL | EVENT_CLICK | EVENT_INPUT | EVENT_GOBACKFORWARD;
 	CompareState m_compareState = NOT_COMPARED;
 	IWebDiffWindow::ColorSettings m_colorSettings = {
 		RGB(239, 203,   5), RGB(192, 192, 192), RGB(0, 0, 0),

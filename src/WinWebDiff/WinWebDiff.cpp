@@ -371,6 +371,7 @@ void UpdateMenuState(HWND hWnd)
 	CheckMenuItem(hMenu, IDM_SYNC_SCROLL,    m_pWebDiffWindow->GetSyncEventFlag(IWebDiffWindow::EVENT_SCROLL) ? MF_CHECKED : MF_UNCHECKED);
 	CheckMenuItem(hMenu, IDM_SYNC_CLICK,  m_pWebDiffWindow->GetSyncEventFlag(IWebDiffWindow::EVENT_CLICK) ? MF_CHECKED : MF_UNCHECKED);
 	CheckMenuItem(hMenu, IDM_SYNC_INPUT,  m_pWebDiffWindow->GetSyncEventFlag(IWebDiffWindow::EVENT_INPUT) ? MF_CHECKED : MF_UNCHECKED);
+	CheckMenuItem(hMenu, IDM_SYNC_GOBACKFORWARD,  m_pWebDiffWindow->GetSyncEventFlag(IWebDiffWindow::EVENT_GOBACKFORWARD) ? MF_CHECKED : MF_UNCHECKED);
 }
 
 LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)

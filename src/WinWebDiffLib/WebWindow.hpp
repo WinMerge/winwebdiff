@@ -394,6 +394,20 @@ public:
 		return hr;
 	}
 
+	HRESULT GoBack()
+	{
+		if (!GetActiveWebView())
+			return E_FAIL;
+		return GetActiveWebView()->GoBack();
+	}
+
+	HRESULT GoForward()
+	{
+		if (!GetActiveWebView())
+			return E_FAIL;
+		return GetActiveWebView()->GoForward();
+	}
+
 	HRESULT Reload()
 	{
 		if (!GetActiveWebView())
@@ -1872,11 +1886,17 @@ private:
 			{
 			case ID_GOBACK:
 				if (GetActiveWebView())
+				{
 					GetActiveWebView()->GoBack();
+					m_eventHandler(WebDiffEvent::GoBacked, nullptr, nullptr);
+				}
 				break;
 			case ID_GOFORWARD:
 				if (GetActiveWebView())
+				{
 					GetActiveWebView()->GoForward();
+					m_eventHandler(WebDiffEvent::GoForwarded, nullptr, nullptr);
+				}
 				break;
 			case ID_RELOAD:
 				if (GetActiveWebView())

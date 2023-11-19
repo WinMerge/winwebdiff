@@ -42,6 +42,7 @@
 #define IDM_SYNC_SCROLL         161
 #define IDM_SYNC_CLICK          162
 #define IDM_SYNC_INPUT          163
+#define IDM_SYNC_GOBACKFORWARD  164
 #define IDM_CLEAR_DISK_CACHE    171
 #define IDM_CLEAR_COOKIES       172
 #define IDM_CLEAR_BROWSING_HISTORY 173
