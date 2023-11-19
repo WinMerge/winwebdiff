@@ -607,6 +607,11 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 				!m_pWebDiffWindow->GetSyncEventFlag(IWebDiffWindow::EVENT_INPUT));
 			UpdateMenuState(m_hWnd);
 			break;
+		case IDM_SYNC_GOBACKFORWARD:
+			m_pWebDiffWindow->SetSyncEventFlag(IWebDiffWindow::EVENT_GOBACKFORWARD,
+				!m_pWebDiffWindow->GetSyncEventFlag(IWebDiffWindow::EVENT_GOBACKFORWARD));
+			UpdateMenuState(m_hWnd);
+			break;
 		case IDM_CLEAR_DISK_CACHE:
 			m_pWebDiffWindow->ClearBrowsingData(-1, IWebDiffWindow::BrowsingDataType::DISK_CACHE);
 			break;

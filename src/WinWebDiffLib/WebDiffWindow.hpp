@@ -325,20 +325,26 @@ public:
 								}
 								else if (event == WebDiffEvent::GoBacked)
 								{
-									for (int pane = 0; pane < m_nPanes; ++pane)
+									if (m_bSynchronizeEvents && GetSyncEventFlag(EVENT_GOBACKFORWARD))
 									{
-										if (ev.pane == pane)
-											continue;
-										m_webWindow[pane].GoBack();
+										for (int pane = 0; pane < m_nPanes; ++pane)
+										{
+											if (ev.pane == pane)
+												continue;
+											m_webWindow[pane].GoBack();
+										}
 									}
 								}
 								else if (event == WebDiffEvent::GoForwarded)
 								{
-									for (int pane = 0; pane < m_nPanes; ++pane)
+									if (m_bSynchronizeEvents && GetSyncEventFlag(EVENT_GOBACKFORWARD))
 									{
-										if (ev.pane == pane)
-											continue;
-										m_webWindow[pane].GoForward();
+										for (int pane = 0; pane < m_nPanes; ++pane)
+										{
+											if (ev.pane == pane)
+												continue;
+											m_webWindow[pane].GoForward();
+										}
 									}
 								}
 								else if (event == WebDiffEvent::WebMessageReceived || event == WebDiffEvent::FrameWebMessageReceived)
