@@ -307,7 +307,7 @@ public:
 								}
 								else if (event == WebDiffEvent::NavigationStarting)
 								{
-									m_compareState = NOT_COMPARED;
+									SetCompareState(NOT_COMPARED);
 								}
 								else if (event == WebDiffEvent::FrameNavigationStarting)
 								{
@@ -675,7 +675,6 @@ public:
 	void SetDiffOptions(const DiffOptions& diffOptions) override
 	{
 		m_diffOptions = diffOptions;
-		Recompare(nullptr);
 	}
 
 	bool GetSyncEvents() const
@@ -714,6 +713,18 @@ public:
 	CompareState GetCompareState() const
 	{
 		return m_compareState;
+	}
+
+	void SetCompareState(CompareState compareState)
+	{
+		CompareState oldCompareState = m_compareState;
+		m_compareState = compareState;
+		if (m_compareState != oldCompareState)
+		{
+			WebDiffEvent ev{ WebDiffEvent::CompareStateChanged, -1 };
+			for (const auto& listener : m_listeners)
+				listener->Invoke(ev);
+		}
 	}
 
 	int  GetDiffCount() const override
@@ -981,7 +992,7 @@ private:
 
 	HRESULT compare(IWebDiffCallback* callback)
 	{
-		m_compareState = COMPARING;
+		SetCompareState(COMPARING);
 		ComPtr<IWebDiffCallback> callback2(callback);
 		std::shared_ptr<std::vector<std::wstring>> jsons(new std::vector<std::wstring>());
 		HRESULT hr = getDocumentsLoop(jsons,
@@ -1034,27 +1045,27 @@ private:
 											Callback<IWebDiffCallback>([this, callback2](const WebDiffCallbackResult& result) -> HRESULT
 												{
 													HRESULT hr = result.errorCode;
-													m_compareState = FAILED(hr) ? NOT_COMPARED : COMPARED;
+													SetCompareState(FAILED(hr) ? NOT_COMPARED : COMPARED);
 													if (callback2)
 														return callback2->Invoke({ hr, nullptr });
 													return S_OK;
 												}).Get());
 									}
 									if (FAILED(hr))
-										m_compareState = NOT_COMPARED;
+										SetCompareState(NOT_COMPARED);
 									if (FAILED(hr) && callback2)
 										return callback2->Invoke({ hr, nullptr });
 									return S_OK;
 								}).Get());
 					}
 					if (FAILED(hr))
-						m_compareState = NOT_COMPARED;
+						SetCompareState(NOT_COMPARED);
 					if (FAILED(hr) && callback2)
 						return callback2->Invoke({ hr, nullptr });
 					return S_OK;
 				}).Get());
 		if (FAILED(hr))
-			m_compareState = NOT_COMPARED;
+			SetCompareState(NOT_COMPARED);
 		return hr;
 	}
 
