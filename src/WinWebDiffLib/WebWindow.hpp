@@ -151,8 +151,6 @@ class CWebWindow
 								return m_parent->OnWebMessageReceived(sender, args);
 							}).Get(), nullptr);
 
-					//m_webview->AddScriptToExecuteOnDocumentCreated(m_scriptOnLoad.c_str(), nullptr);
-
 					m_webview->CallDevToolsProtocolMethod(L"Page.enable", L"{}", nullptr);
 					m_webview->CallDevToolsProtocolMethod(L"DOM.enable", L"{}", nullptr);
 					m_webview->CallDevToolsProtocolMethod(L"CSS.enable", L"{}", nullptr);
