@@ -795,7 +795,7 @@ public:
 	{
 		int oldDiffIndex = m_currentDiffIndex;
 		++m_currentDiffIndex;
-		if (m_currentDiffIndex >= m_diffInfos.size())
+		if (static_cast<size_t>(m_currentDiffIndex) >= m_diffInfos.size())
 			m_currentDiffIndex = static_cast<int>(m_diffInfos.size()) - 1;
 		if (oldDiffIndex == m_currentDiffIndex)
 			return false;
@@ -879,7 +879,7 @@ public:
 
 	bool SelectDiff(int diffIndex) override
 	{
-		if (diffIndex < 0 || diffIndex >= m_diffInfos.size())
+		if (diffIndex < 0 || static_cast<size_t>(diffIndex) >= m_diffInfos.size())
 			return false;
 		m_currentDiffIndex = diffIndex;
 		return SUCCEEDED(selectDiff(diffIndex, nullptr));
@@ -887,7 +887,7 @@ public:
 
 	int  GetNextDiffIndex() const override
 	{
-		if (m_diffInfos.size() == 0 || m_currentDiffIndex >= m_diffInfos.size() - 1)
+		if (m_diffInfos.size() == 0 || m_currentDiffIndex >= static_cast<int>(m_diffInfos.size() - 1))
 			return -1;
 		return m_currentDiffIndex + 1;
 	}
@@ -1042,7 +1042,7 @@ private:
 						}
 						m_diffInfos = Comparer::compare(m_diffOptions, textSegments);
 						Comparer::setNodeIdInDiffInfoList(m_diffInfos, textSegments);
-						if (m_currentDiffIndex != -1 && m_currentDiffIndex >= m_diffInfos.size())
+						if (m_currentDiffIndex != -1 && static_cast<size_t>(m_currentDiffIndex) >= m_diffInfos.size())
 							m_currentDiffIndex = static_cast<int>(m_diffInfos.size() - 1);
 						if (m_bShowDifferences)
 						{
@@ -1311,7 +1311,7 @@ private:
 
 	HRESULT selectDiff(int diffIndex, IWebDiffCallback* callback)
 	{
-		if (diffIndex < 0 || diffIndex >= m_diffInfos.size())
+		if (diffIndex < 0 || static_cast<size_t>(diffIndex) >= m_diffInfos.size())
 			return false;
 		ComPtr<IWebDiffCallback> callback2(callback);
 		std::shared_ptr<std::vector<std::wstring>> jsons(new std::vector<std::wstring>());
