@@ -709,6 +709,9 @@ public:
 
 	void highlightNodes()
 	{
+		std::unordered_map<int, WValue*> map[3];
+		for (size_t pane = 0; pane < m_documents.size(); ++pane)
+			map[pane] = domutils::makeNodeIdToNodeMap(m_documents[pane][L"root"]);
 		for (size_t i = 0; i < m_diffInfoList.size(); ++i)
 		{
 			const auto& diffInfo = m_diffInfoList[i];
@@ -717,8 +720,7 @@ public:
 			std::vector<DiffInfo> wordDiffInfoList;
 			for (size_t pane = 0; pane < m_documents.size(); ++pane)
 			{
-				std::pair<WValue*, WValue*> pair = domutils::findNodeId(m_documents[pane][L"root"], diffInfo.nodeIds[pane]);
-				pvalues[pane] = pair.first;
+				pvalues[pane] = map[pane][diffInfo.nodeIds[pane]];
 				if (diffInfo.nodePos[pane] == 0 && pvalues[pane])
 					textSegments[pane].Make((*pvalues[pane])[L"nodeValue"].GetString(), m_diffOptions.ignoreNumbers);
 				else

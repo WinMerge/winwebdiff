@@ -7,6 +7,7 @@
 #include <rapidjson/prettywriter.h>
 #include <rapidjson/stringbuffer.h>
 #include <string>
+#include <unordered_map>
 
 using WDocument = rapidjson::GenericDocument<rapidjson::UTF16<>>;
 using WValue = rapidjson::GenericValue<rapidjson::UTF16<>>;
@@ -90,6 +91,32 @@ namespace domutils
 			for (auto& frame : tree[L"childFrames"].GetArray())
 				getFrameIdList(frame, frameIdList);
 		}
+	}
+
+	void makeNodeIdToNodeMap(WValue& nodeTree, std::unordered_map<int, WValue*>& map)
+	{
+		map.insert_or_assign(nodeTree[L"nodeId"].GetInt(), &nodeTree);
+		if (nodeTree.HasMember(L"children") && nodeTree[L"children"].IsArray())
+		{
+			for (auto& child : nodeTree[L"children"].GetArray())
+			{
+				map.insert_or_assign(child[L"nodeId"].GetInt(), &child);
+				makeNodeIdToNodeMap(child, map);
+			}
+		}
+		if (nodeTree.HasMember(L"contentDocument"))
+		{
+			auto& contentDocument = nodeTree[L"contentDocument"];
+			map.insert_or_assign(contentDocument[L"nodeId"].GetInt(), &contentDocument);
+			makeNodeIdToNodeMap(contentDocument, map);
+		}
+	}
+
+	std::unordered_map<int, WValue*> makeNodeIdToNodeMap(WValue& nodeTree)
+	{
+		std::unordered_map<int, WValue*> map;
+		makeNodeIdToNodeMap(nodeTree, map);
+		return map;
 	}
 
 	std::pair<WValue*, WValue*> findNodeId(WValue& nodeTree, int nodeId)
