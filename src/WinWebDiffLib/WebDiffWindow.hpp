@@ -18,7 +18,11 @@ LR"(
       clearTimeout(wdw.timeout);
       wdw.timeout = setTimeout(function() {
         if (el.scroll)
+        {
+          window.removeEventListener('scroll', onScroll, true);
           el.scroll(sleft, stop);
+          setTimeout(function() { window.addEventListener('scroll', onScroll, true); }, 10);
+        }
       }, 100);
     }
   }
@@ -116,45 +120,7 @@ LR"(
     }
     return selectorList.join(' > ');
   }
-  window.addEventListener('click', function(e) {
-    if (wdw.inClick)
-      return;
-    var sel = getElementSelector(e.target);
-    var msg = { "event": "click", "window": getWindowLocation(), "selector": sel };
-    window.chrome.webview.postMessage(JSON.stringify(msg));
-  }, true);
-  window.addEventListener('input', function(e) {
-    var sel = getElementSelector(e.target);
-    var msg = { "event": "input", "window": getWindowLocation(), "selector": sel, "value": e.target.value };
-    window.chrome.webview.postMessage(JSON.stringify(msg));
-  }, true);
-/*
-  var forms = document.querySelectorAll('form');
-  forms.forEach(function(form) {
-    form.addEventListener('submit', function(e) {
-      if (wdw.inSubmit)
-        return;
-      var sel = getElementSelector(e.target);
-      var msg = { "event": "submit", "window": getWindowLocation(), "selector": sel };
-      window.chrome.webview.postMessage(JSON.stringify(msg));
-    });
-  }, true);
-  window.addEventListener('keydown', function(e) {
-    if (wdw.inKeydown)
-      return;
-    var sel = getElementSelector(e.target);
-    var msg = { "event": "keydown", "window": getWindowLocation(), "selector": sel, "altKey": e.altKey, "code": e.code, "ctrlKey": e.ctrlKey, "isComposing": e.isComposing, "key": e.key, "locale": e.locale, "location": e.location, "metaKey": e.metaKey, "repeat": e.repeat, "shiftKey": e.shiftKey };
-    window.chrome.webview.postMessage(JSON.stringify(msg));
-  }, true);
-*/
-  window.addEventListener('dblclick', function(e) {
-    var el = e.target;
-    var sel = getElementSelector(el);
-    var wwdid = ('wwdid' in el.dataset) ? el.dataset['wwdid'] : (('wwdid' in el.parentElement.dataset) ? el.parentElement.dataset['wwdid'] : -1);
-    var msg = { "event": "dblclick", "window": getWindowLocation(), "selector": sel, "wwdid": parseInt(wwdid) };
-    window.chrome.webview.postMessage(JSON.stringify(msg));
-  }, true);
-  window.addEventListener('scroll', function(e) {
+  function onScroll(e) {
       var el = ('scrollingElement' in e.target) ? e.target.scrollingElement : e.target;
       var sel = getElementSelector(el);
       var msg = {
@@ -165,8 +131,27 @@ LR"(
         "top":  ((el.scrollHeight == el.clientHeight) ? 0 : (el.scrollTop / (el.scrollHeight - el.clientHeight)))
       };
       window.chrome.webview.postMessage(JSON.stringify(msg));
-  }, true);
-  window.chrome.webview.addEventListener('message', function(arg) {
+  }
+  function onClick(e) {
+    if (wdw.inClick)
+      return;
+    var sel = getElementSelector(e.target);
+    var msg = { "event": "click", "window": getWindowLocation(), "selector": sel };
+    window.chrome.webview.postMessage(JSON.stringify(msg));
+  }
+  function onInput(e) {
+    var sel = getElementSelector(e.target);
+    var msg = { "event": "input", "window": getWindowLocation(), "selector": sel, "value": e.target.value };
+    window.chrome.webview.postMessage(JSON.stringify(msg));
+  }
+  function onDblClick(e) {
+    var el = e.target;
+    var sel = getElementSelector(el);
+    var wwdid = ('wwdid' in el.dataset) ? el.dataset['wwdid'] : (('wwdid' in el.parentElement.dataset) ? el.parentElement.dataset['wwdid'] : -1);
+    var msg = { "event": "dblclick", "window": getWindowLocation(), "selector": sel, "wwdid": parseInt(wwdid) };
+    window.chrome.webview.postMessage(JSON.stringify(msg));
+  }
+  function onMessage(arg) {
     var data = arg.data;
     switch (data.event) {
     case "scroll":
@@ -186,8 +171,32 @@ LR"(
       syncKeydown(data);
       break;
 */
-   }
-  });
+    }
+  }
+  window.addEventListener('click', onClick, true);
+  window.addEventListener('input', onInput, true);
+  window.addEventListener('dblclick', onDblClick, true);
+  window.addEventListener('scroll', onScroll, true);
+  window.chrome.webview.addEventListener('message', onMessage);
+/*
+  var forms = document.querySelectorAll('form');
+  forms.forEach(function(form) {
+    form.addEventListener('submit', function(e) {
+      if (wdw.inSubmit)
+        return;
+      var sel = getElementSelector(e.target);
+      var msg = { "event": "submit", "window": getWindowLocation(), "selector": sel };
+      window.chrome.webview.postMessage(JSON.stringify(msg));
+    });
+  }, true);
+  window.addEventListener('keydown', function(e) {
+    if (wdw.inKeydown)
+      return;
+    var sel = getElementSelector(e.target);
+    var msg = { "event": "keydown", "window": getWindowLocation(), "selector": sel, "altKey": e.altKey, "code": e.code, "ctrlKey": e.ctrlKey, "isComposing": e.isComposing, "key": e.key, "locale": e.locale, "location": e.location, "metaKey": e.metaKey, "repeat": e.repeat, "shiftKey": e.shiftKey };
+    window.chrome.webview.postMessage(JSON.stringify(msg));
+  }, true);
+*/
 })();
 )";
 
@@ -1164,7 +1173,6 @@ private:
 				if (*count == m_nPanes && callback2)
 					callback2->Invoke({ hr, nullptr });
 			}
-			
 		}
 		return S_OK;
 	}
