@@ -1117,34 +1117,29 @@ private:
 	HRESULT applyHTMLLoop(
 		int pane,
 		std::shared_ptr<const std::list<ModifiedNode>> nodes,
-		IWebDiffCallback* callback,
-		std::list<ModifiedNode>::reverse_iterator it)
+		IWebDiffCallback* callback)
 	{
-		if (it == nodes->rend())
-		{
-			if (callback)
-				callback->Invoke({ S_OK, nullptr });
-			return S_OK;
-		}
 		ComPtr<IWebDiffCallback> callback2(callback);
-		HRESULT hr = m_webWindow[pane].SetOuterHTML(it->nodeId, it->outerHTML,
-			Callback<IWebDiffCallback>([this, pane, nodes, it, callback2](const WebDiffCallbackResult& result) -> HRESULT
+		size_t size = nodes->size();
+		auto count = std::make_shared<size_t>();
+		for (auto it = nodes->rbegin(); it != nodes->rend(); ++it)
+		{
+			HRESULT hr = m_webWindow[pane].SetOuterHTML(it->nodeId, it->outerHTML,
+				Callback<IWebDiffCallback>([this, count, size, callback2](const WebDiffCallbackResult& result)->HRESULT
 				{
-					HRESULT hr = S_OK; // result.errorCode;
-					if (SUCCEEDED(hr))
-					{
-						std::list<ModifiedNode>::reverse_iterator it2(it);
-						++it2;
-						if (it2 != nodes->rend())
-							hr = applyHTMLLoop(pane, nodes, callback2.Get(), it2);
-						else if (callback2)
-							return callback2->Invoke({ hr, nullptr });
-					}
-					if (FAILED(hr) && callback2)
-						return callback2->Invoke({ hr, nullptr });
+					(*count)++;
+					if (*count == size && callback2)
+						callback2->Invoke({ result.errorCode, nullptr });
 					return S_OK;
 				}).Get());
-		return hr;
+			if (FAILED(hr))
+			{
+				(*count)++;
+				if (*count == size && callback2)
+					callback2->Invoke({ hr, nullptr });
+			}
+		}
+		return S_OK;
 	}
 
 	HRESULT applyDOMLoop(std::shared_ptr<std::vector<WDocument>> documents, IWebDiffCallback* callback, int pane = 0)
@@ -1166,7 +1161,7 @@ private:
 					if (FAILED(hr) && callback2)
 						return callback2->Invoke({ hr, nullptr });
 					return hr;
-				}).Get(), nodes->rbegin());
+				}).Get());
 		return hr;
 	}
 
@@ -1237,7 +1232,7 @@ private:
 									if (FAILED(hr) && callback2)
 										return callback2->Invoke({ hr, nullptr });
 									return S_OK;
-								}).Get(), nodes->rbegin());
+								}).Get());
 					}
 					if (FAILED(hr) && callback2)
 						return callback2->Invoke({ hr, nullptr });
