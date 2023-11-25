@@ -1142,27 +1142,31 @@ private:
 		return S_OK;
 	}
 
-	HRESULT applyDOMLoop(std::shared_ptr<std::vector<WDocument>> documents, IWebDiffCallback* callback, int pane = 0)
+	HRESULT applyDOMLoop(std::shared_ptr<std::vector<WDocument>> documents, IWebDiffCallback* callback)
 	{
 		ComPtr<IWebDiffCallback> callback2(callback);
-		auto nodes = std::make_shared<std::list<ModifiedNode>>();
-		Highlighter::modifiedNodesToHTMLs((*documents)[pane][L"root"], *nodes);
-		HRESULT hr = applyHTMLLoop(pane, nodes,
-			Callback<IWebDiffCallback>([this, documents, callback2, pane](const WebDiffCallbackResult& result) -> HRESULT
-				{
-					HRESULT hr = result.errorCode;
-					if (SUCCEEDED(hr))
+		auto count = std::make_shared<int>();
+		for (int pane = 0; pane < m_nPanes; ++pane)
+		{
+			auto nodes = std::make_shared<std::list<ModifiedNode>>();
+			Highlighter::modifiedNodesToHTMLs((*documents)[pane][L"root"], *nodes);
+			HRESULT hr = applyHTMLLoop(pane, nodes,
+				Callback<IWebDiffCallback>([this, callback2, count](const WebDiffCallbackResult& result) -> HRESULT
 					{
-						if (pane + 1 < m_nPanes)
-							hr = applyDOMLoop(documents, callback2.Get(), pane + 1);
-						else if (callback2)
-							return callback2->Invoke({ hr, nullptr });
-					}
-					if (FAILED(hr) && callback2)
-						return callback2->Invoke({ hr, nullptr });
-					return hr;
-				}).Get());
-		return hr;
+						(*count)++;
+						if (*count == m_nPanes && callback2)
+							callback2->Invoke({ result.errorCode, nullptr });
+						return S_OK;
+					}).Get());
+			if (FAILED(hr))
+			{
+				(*count)++;
+				if (*count == m_nPanes && callback2)
+					callback2->Invoke({ hr, nullptr });
+			}
+			
+		}
+		return S_OK;
 	}
 
 	HRESULT setStyleSheetLoop(const std::wstring& styles, IWebDiffCallback* callback, int pane = 0)
