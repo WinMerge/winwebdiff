@@ -1128,8 +1128,14 @@ private:
 		std::shared_ptr<const std::list<ModifiedNode>> nodes,
 		IWebDiffCallback* callback)
 	{
-		ComPtr<IWebDiffCallback> callback2(callback);
 		size_t size = nodes->size();
+		if (size == 0)
+		{
+			if (callback)
+				callback->Invoke({ S_OK, nullptr });
+			return S_OK;
+		}
+		ComPtr<IWebDiffCallback> callback2(callback);
 		auto count = std::make_shared<size_t>();
 		for (auto it = nodes->rbegin(); it != nodes->rend(); ++it)
 		{
