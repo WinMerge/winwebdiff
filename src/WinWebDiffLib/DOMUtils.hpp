@@ -141,4 +141,49 @@ namespace domutils
 		}
 		return { nullptr, nullptr };
 	}
+
+	struct NodePosInfo
+	{
+		int frameId;
+		int nodeId;
+		double left;
+		double top;
+		double width;
+		double height;
+	};
+
+	std::unordered_map<int, NodePosInfo> makeNodeIdToNodePosInfoMap(WValue& nodeTree)
+	{
+		std::unordered_map<int, NodePosInfo> map;
+		for (const auto& item : nodeTree.GetArray())
+		{
+			const int frameId = item[L"frameId"].GetInt();
+			const auto& nodeAry = item[L"layout"][L"nodeIndex"].GetArray();
+			const auto& boundsAry = item[L"layout"][L"bounds"].GetArray();
+			for (auto it1 = nodeAry.begin(), it2 = boundsAry.begin(); it1 != nodeAry.end(); ++it1, ++it2)
+			{
+				const int nodeId = it1->GetInt();
+				NodePosInfo ni;
+				ni.nodeId = nodeId;
+				ni.frameId = frameId;
+				auto bounds = it2->GetArray();
+				if (bounds.Size() == 4)
+				{
+					ni.left = bounds[0].GetDouble();
+					ni.top = bounds[1].GetDouble();
+					ni.width = bounds[2].GetDouble();
+					ni.height = bounds[3].GetDouble();
+				}
+				else
+				{
+					ni.left = 0;
+					ni.top = 0;
+					ni.width = 0;
+					ni.height = 0;
+				}
+				map.insert_or_assign(nodeId, ni);
+			}
+		}
+		return map;
+	}
 }
