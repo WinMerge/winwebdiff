@@ -60,7 +60,7 @@
       <Filter>Source Files</Filter>
     </None>
     <None Include="WinWebDiffLib.js">
-      <Filter>Header Files</Filter>
+      <Filter>Resource Files</Filter>
     </None>
   </ItemGroup>
   <ItemGroup>

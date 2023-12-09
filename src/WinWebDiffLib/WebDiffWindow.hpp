@@ -1447,7 +1447,7 @@ private:
 				FreeResource(hLoadedResource);
 			}
 		}
-		return reinterpret_cast<wchar_t*>(pData);
+		return reinterpret_cast<wchar_t*>(pData) + 1/*bom*/;
 	}
 
 	int m_nPanes = 0;
