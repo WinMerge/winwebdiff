@@ -883,15 +883,10 @@ private:
 										hr = setStyleSheetLoop(Highlighter::getStyleSheetText(m_currentDiffIndex, m_colorSettings).c_str(),
 											Callback<IWebDiffCallback>([this, callback2](const WebDiffCallbackResult& result) -> HRESULT
 												{
-													HRESULT hr = makeNodeIdToNodePosInfoMapLoop(
-														Callback<IWebDiffCallback>([this, callback2](const WebDiffCallbackResult& result)->HRESULT
-															{
-																HRESULT hr = result.errorCode;
-																SetCompareState(FAILED(hr) ? NOT_COMPARED : COMPARED);
-																if (callback2)
-																	return callback2->Invoke({ hr, nullptr });
-																return S_OK;
-															}).Get());
+													HRESULT hr = result.errorCode;
+													SetCompareState(FAILED(hr) ? NOT_COMPARED : COMPARED);
+													if (callback2)
+														return callback2->Invoke({ hr, nullptr });
 													return S_OK;
 												}).Get());
 									}
@@ -1105,39 +1100,6 @@ private:
 					}
 					if (FAILED(hr) && callback2)
 						return callback2->Invoke({ hr, nullptr });
-					return S_OK;
-				}).Get());
-		return hr;
-	}
-
-	HRESULT makeNodeIdToNodePosInfoMapLoop(IWebDiffCallback* callback, int pane = 0)
-	{
-		static const wchar_t* method = L"DOMSnapshot.captureSnapshot";
-		static const wchar_t* params = L"{ \"computedStyles\": [], \"includePaintOrder\": false, \"includeDOMRects\": true, \"includeBlendedBackgroundColors\": false, \"includeTextColorOpacities\": false }";
-		ComPtr<IWebDiffCallback> callback2(callback);
-		HRESULT hr = m_webWindow[pane].CallDevToolsProtocolMethod(method, params,
-			Callback<IWebDiffCallback>([this, pane, callback2](const WebDiffCallbackResult& result) -> HRESULT
-				{
-					WDocument doc;
-					doc.Parse(result.returnObjectAsJson);
-					m_nodePosInfoMap[pane] = domutils::makeNodeIdToNodePosInfoMap(doc[L"documents"]);
-#ifdef _DEBUG
-					WStringBuffer buffer;
-					WPrettyWriter writer(buffer);
-					doc.Accept(writer);
-					WriteToTextFile((L"c:\\tmp\\snapshot" + std::to_wstring(pane) + L".json"),
-						buffer.GetString());
-#endif
-					HRESULT hr = result.errorCode;
-					if (SUCCEEDED(hr))
-					{
-						if (pane + 1 < m_nPanes)
-							hr = makeNodeIdToNodePosInfoMapLoop(callback2.Get(), pane + 1);
-						else if (callback2)
-							return callback2->Invoke({ hr, nullptr });
-					}
-					if (FAILED(hr) && callback2)
-						return callback2->Invoke(result);
 					return S_OK;
 				}).Get());
 		return hr;
@@ -1506,9 +1468,6 @@ private:
 	std::vector<ComPtr<IWebDiffEventHandler>> m_listeners;
 	int m_currentDiffIndex = -1;
 	std::vector<DiffInfo> m_diffInfos;
-	std::vector<double> m_diffPosX;
-	std::vector<double> m_diffPosY;
-	std::unordered_map<int, domutils::NodePosInfo> m_nodePosInfoMap[3];
 	DiffOptions m_diffOptions{};
 	bool m_bShowDifferences = true;
 	bool m_bShowWordDifferences = true;
