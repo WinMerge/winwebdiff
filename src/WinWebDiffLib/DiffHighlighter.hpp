@@ -1148,10 +1148,10 @@ private:
 	{
 		wchar_t styleValue[256];
 		if (color == 0xFFFFFFFF)
-			swprintf_s(styleValue, L"background-color: #%02x%02x%02x;",
+			swprintf_s(styleValue, L"background-color: #%02x%02x%02x !important;",
 				GetRValue(backcolor), GetGValue(backcolor), GetBValue(backcolor));
 		else
-			swprintf_s(styleValue, L"color: #%02x%02x%02x; background-color: #%02x%02x%02x;",
+			swprintf_s(styleValue, L"color: #%02x%02x%02x; background-color: #%02x%02x%02x !important;",
 				GetRValue(color), GetGValue(color), GetBValue(color),
 				GetRValue(backcolor), GetGValue(backcolor), GetBValue(backcolor));
 		return styleValue;
