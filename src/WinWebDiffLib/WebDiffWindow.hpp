@@ -165,6 +165,11 @@ public:
 								else if (event == WebDiffEvent::WebMessageReceived || event == WebDiffEvent::FrameWebMessageReceived)
 								{
 									std::wstring msg = m_webWindow[i].GetWebMessage();
+#ifdef _DEBUG
+									wchar_t buf[4096];
+									wsprintfW(buf, L"WebMessageReceived: %s\n", msg.c_str());
+									OutputDebugString(buf);
+#endif
 									WDocument doc;
 									doc.Parse(msg.c_str());
 									std::wstring event = doc.HasMember(L"event") ? doc[L"event"].GetString() : L"";
