@@ -6,200 +6,6 @@
 #include <shellapi.h>
 #include <wil/win32_helpers.h>
 
-const wchar_t* scriptOnLoad =
-LR"(
-(function() {
-  window.wdw = { "inClick": false/*, "inSubmit": false, "inKeydown": false*/ };
-  function syncScroll(e) {
-    var el = document.querySelector(e.selector);
-    if (el && getWindowLocation() === e.window) {
-      var sleft = Math.round((el.scrollWidth  - el.clientWidth)  * e.left);
-      var stop  = Math.round((el.scrollHeight - el.clientHeight) * e.top);
-      clearTimeout(wdw.timeout);
-      wdw.timeout = setTimeout(function() {
-        if (el.scroll)
-        {
-          window.removeEventListener('scroll', onScroll, true);
-          el.scroll(sleft, stop);
-          setTimeout(function() { window.addEventListener('scroll', onScroll, true); }, 10);
-        }
-      }, 100);
-    }
-  }
-  function syncClick(e) {
-    var el = document.querySelector(e.selector);
-    if (el && getWindowLocation() === e.window) {
-      wdw.inClick = true;
-      if (el.click)
-        el.click();
-      wdw.inClick = false;
-    }
-  }
-  function syncInput(e) {
-    var el = document.querySelector(e.selector);
-    if (el && getWindowLocation() === e.window) {
-      el.value = e.value;
-    }
-  }
-/*
-  function syncSubmit(e) {
-    var el = document.querySelector(e.selector);
-    if (el && getWindowLocation() === e.window) {
-      wdw.inSubmit = true;
-      if (el.submit)
-        el.submit();
-      wdw.inSubmit = false;
-    }
-  }
-  function syncKeydown(e) {
-    var el = document.querySelector(e.selector);
-    if (el && getWindowLocation() === e.window) {
-      wdw.inKeydown = true;
-      var ev = new KeyboardEvent("keydown", e);
-      if (el.dispatchEvent)
-        el.dispatchEvent(ev);
-      wdw.inKeydown = false;
-    }
-  }
-*/
-  function getWindowLocation() {
-    let locationString = '';
-    let currentWindow = window;
-
-    while (currentWindow !== window.top) {
-        const frames = currentWindow.parent.frames;
-        let index = -1;
-        for (let i = 0; i < frames.length; i++) {
-            if (frames[i] === currentWindow) {
-                index = i;
-                break;
-            }
-        }
-        if (index !== -1) {
-            locationString = `[${index}]` + locationString;
-        } else {
-            locationString = 'top' + locationString;
-        }
-        currentWindow = currentWindow.parent;
-    }
-
-    return locationString;
-  }
-  function getElementSelector(element) {
-    if (!(element instanceof Element)) {
-        return null;
-    }
-
-    const selectorList = [];
-    while (element.parentNode) {
-        let nodeName = element.nodeName.toLowerCase();
-        if (element.id) {
-            selectorList.unshift(`#${element.id}`);
-            break;
-        } else {
-            let sibCount = 0;
-            let sibIndex = 0;
-            const siblings = element.parentNode.childNodes;
-            for (let i = 0; i < siblings.length; i++) {
-                const sibling = siblings[i];
-                if (sibling.nodeType === 1) {
-                    if (sibling === element) {
-                        sibIndex = sibCount;
-                    }
-                    if (sibling.nodeName.toLowerCase() === nodeName) {
-                        sibCount++;
-                    }
-                }
-            }
-            if (sibIndex > 0) {
-                nodeName += `:nth-of-type(${sibIndex + 1})`;
-            }
-            selectorList.unshift(nodeName);
-            element = element.parentNode;
-        }
-    }
-    return selectorList.join(' > ');
-  }
-  function onScroll(e) {
-      var el = ('scrollingElement' in e.target) ? e.target.scrollingElement : e.target;
-      var sel = getElementSelector(el);
-      var msg = {
-        "event": "scroll",
-        "window": getWindowLocation(),
-        "selector": sel,
-        "left": ((el.scrollWidth  == el.clientWidth)  ? 0 : (el.scrollLeft / (el.scrollWidth - el.clientWidth))),
-        "top":  ((el.scrollHeight == el.clientHeight) ? 0 : (el.scrollTop / (el.scrollHeight - el.clientHeight)))
-      };
-      window.chrome.webview.postMessage(JSON.stringify(msg));
-  }
-  function onClick(e) {
-    if (wdw.inClick)
-      return;
-    var sel = getElementSelector(e.target);
-    var msg = { "event": "click", "window": getWindowLocation(), "selector": sel };
-    window.chrome.webview.postMessage(JSON.stringify(msg));
-  }
-  function onInput(e) {
-    var sel = getElementSelector(e.target);
-    var msg = { "event": "input", "window": getWindowLocation(), "selector": sel, "value": e.target.value };
-    window.chrome.webview.postMessage(JSON.stringify(msg));
-  }
-  function onDblClick(e) {
-    var el = e.target;
-    var sel = getElementSelector(el);
-    var wwdid = ('wwdid' in el.dataset) ? el.dataset['wwdid'] : (('wwdid' in el.parentElement.dataset) ? el.parentElement.dataset['wwdid'] : -1);
-    var msg = { "event": "dblclick", "window": getWindowLocation(), "selector": sel, "wwdid": parseInt(wwdid) };
-    window.chrome.webview.postMessage(JSON.stringify(msg));
-  }
-  function onMessage(arg) {
-    var data = arg.data;
-    switch (data.event) {
-    case "scroll":
-      syncScroll(data);
-      break;
-    case "click":
-      syncClick(data);
-      break;
-    case "input":
-      syncInput(data);
-      break;
-/*
-    case "submit":
-      syncSubmit(data);
-      break;
-    case "keydown":
-      syncKeydown(data);
-      break;
-*/
-    }
-  }
-  window.addEventListener('click', onClick, true);
-  window.addEventListener('input', onInput, true);
-  window.addEventListener('dblclick', onDblClick, true);
-  window.addEventListener('scroll', onScroll, true);
-  window.chrome.webview.addEventListener('message', onMessage);
-/*
-  var forms = document.querySelectorAll('form');
-  forms.forEach(function(form) {
-    form.addEventListener('submit', function(e) {
-      if (wdw.inSubmit)
-        return;
-      var sel = getElementSelector(e.target);
-      var msg = { "event": "submit", "window": getWindowLocation(), "selector": sel };
-      window.chrome.webview.postMessage(JSON.stringify(msg));
-    });
-  }, true);
-  window.addEventListener('keydown', function(e) {
-    if (wdw.inKeydown)
-      return;
-    var sel = getElementSelector(e.target);
-    var msg = { "event": "keydown", "window": getWindowLocation(), "selector": sel, "altKey": e.altKey, "code": e.code, "ctrlKey": e.ctrlKey, "isComposing": e.isComposing, "key": e.key, "locale": e.locale, "location": e.location, "metaKey": e.metaKey, "repeat": e.repeat, "shiftKey": e.shiftKey };
-    window.chrome.webview.postMessage(JSON.stringify(msg));
-  }, true);
-*/
-})();
-)";
-
 class CWebDiffWindow : public IWebDiffWindow
 {
 public:
@@ -359,6 +165,11 @@ public:
 								else if (event == WebDiffEvent::WebMessageReceived || event == WebDiffEvent::FrameWebMessageReceived)
 								{
 									std::wstring msg = m_webWindow[i].GetWebMessage();
+#ifdef _DEBUG
+									wchar_t buf[4096];
+									wsprintfW(buf, L"WebMessageReceived(pane:%d): %s\n", ev.pane, msg.c_str());
+									OutputDebugString(buf);
+#endif
 									WDocument doc;
 									doc.Parse(msg.c_str());
 									std::wstring event = doc.HasMember(L"event") ? doc[L"event"].GetString() : L"";
@@ -1009,7 +820,7 @@ private:
 
 	HRESULT addEventListener(IUnknown* sender, int pane, IWebDiffCallback* callback)
 	{
-		return m_webWindow[pane].ExecuteScript(sender, scriptOnLoad, callback);
+		return m_webWindow[pane].ExecuteScript(sender, GetScriptOnLoad(), callback);
 	}
 
 	HRESULT syncEvent(int srcPane, const std::wstring& json)
@@ -1629,6 +1440,21 @@ private:
 		return fp != nullptr ? S_OK : (GetLastError() == 0 ? E_FAIL : HRESULT_FROM_WIN32(GetLastError()));
 	}
 
+	static wchar_t* GetScriptOnLoad()
+	{
+		LPVOID pData = nullptr;
+		HMODULE hModule = GetModuleHandle(L"WinWebDiffLib.dll");
+		HRSRC hResource = FindResource(hModule, MAKEINTRESOURCE(IDR_SCRIPT), RT_RCDATA);
+		if (hResource) {
+			HGLOBAL hLoadedResource = LoadResource(hModule, hResource);
+			if (hLoadedResource) {
+				pData = LockResource(hLoadedResource);
+				FreeResource(hLoadedResource);
+			}
+		}
+		return reinterpret_cast<wchar_t*>(pData) + 1/*bom*/;
+	}
+
 	int m_nPanes = 0;
 	HWND m_hWnd = nullptr;
 	HINSTANCE m_hInstance = nullptr;
@@ -1651,7 +1477,6 @@ private:
 	bool m_bShowDifferences = true;
 	bool m_bShowWordDifferences = true;
 	bool m_bSynchronizeEvents = true;
-	bool m_bCompareCompleted = false;
 	unsigned m_eventSyncFlags = EVENT_SCROLL | EVENT_CLICK | EVENT_INPUT | EVENT_GOBACKFORWARD;
 	CompareState m_compareState = NOT_COMPARED;
 	IWebDiffWindow::ColorSettings m_colorSettings = {

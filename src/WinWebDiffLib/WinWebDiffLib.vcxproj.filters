@@ -59,6 +59,9 @@
     <None Include="WinWebDiffLib.def">
       <Filter>Source Files</Filter>
     </None>
+    <None Include="WinWebDiffLib.js">
+      <Filter>Resource Files</Filter>
+    </None>
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="WinWebDiffLib.rc">

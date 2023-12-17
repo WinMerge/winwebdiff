@@ -288,6 +288,7 @@
   </ItemGroup>
   <ItemGroup>
     <None Include="packages.config" />
+    <None Include="WinWebDiffLib.js" />
     <None Include="WinWebDiffLib.def" />
   </ItemGroup>
   <ItemGroup>
