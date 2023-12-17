@@ -167,7 +167,7 @@ public:
 									std::wstring msg = m_webWindow[i].GetWebMessage();
 #ifdef _DEBUG
 									wchar_t buf[4096];
-									wsprintfW(buf, L"WebMessageReceived: %s\n", msg.c_str());
+									wsprintfW(buf, L"WebMessageReceived(pane:%d): %s\n", ev.pane, msg.c_str());
 									OutputDebugString(buf);
 #endif
 									WDocument doc;
