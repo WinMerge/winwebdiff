@@ -272,6 +272,7 @@
     <ClInclude Include="Resource.h" />
     <ClInclude Include="Utils.hpp" />
     <ClInclude Include="WebDiffWindow.hpp" />
+    <ClInclude Include="WebToolWindow.hpp" />
     <ClInclude Include="WebWindow.hpp" />
     <ClInclude Include="WinWebDiffLib.h" />
   </ItemGroup>

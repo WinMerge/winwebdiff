@@ -193,9 +193,18 @@ struct IWebDiffWindow
 	virtual CompareState GetCompareState() const = 0;
 };
 
+struct IWebToolWindow
+{
+	using TranslateCallback = void(*)(int id, const wchar_t *org, size_t dstbufsize, wchar_t *dst);
+	virtual HWND GetHWND() const = 0;
+	virtual void Sync() = 0;
+	virtual void Translate(TranslateCallback translateCallback) = 0;
+};
+
 extern "C"
 {
 	IWebDiffWindow* WinWebDiff_CreateWindow(HINSTANCE hInstance, HWND hWndParent, int nID = 0);
 	bool WinWebDiff_DestroyWindow(IWebDiffWindow* pWebDiffWindow);
+	IWebToolWindow * WinWebDiff_CreateToolWindow(HINSTANCE hInstance, HWND hWndParent, IWebDiffWindow *pWebDiffWindow);
+	bool WinWebDiff_DestroyToolWindow(IWebToolWindow *pWebToolWindow);
 };
-

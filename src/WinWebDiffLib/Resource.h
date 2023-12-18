@@ -9,10 +9,14 @@
 #define IDD_DIALOGBAR                   103
 #define IDC_DIFFMAP                     112
 #define IDR_SCRIPT                      130
-#define IDC_MENU                        1021
+#define IDC_COMPARE                     1021
 #define IDC_ZOOM                        1022
 #define IDC_WIDTH                       1023
 #define IDC_HEIGHT                      1024
+#define IDC_FITTOWINDOW                 1624
+#define IDC_USERAGENT                   1628
+#define IDC_SHOWDIFFERENCES             1631
+#define IDC_SYNC_EVENTS                 1632
 #define IDC_STATIC                      -1
 
 // Next default values for new objects
