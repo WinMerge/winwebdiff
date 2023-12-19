@@ -127,9 +127,11 @@ struct CmdLineInfo
 HINSTANCE m_hInstance;
 HINSTANCE hInstDLL;
 HWND m_hWnd;
+HWND m_hwndWebToolWindow;
 WCHAR m_szTitle[256] = L"WinWebDiff";
 WCHAR m_szWindowClass[256] = L"WINWEBDIFF";
 IWebDiffWindow* m_pWebDiffWindow = nullptr;
+IWebToolWindow *m_pWebToolWindow = nullptr;
 std::list<TempFile> m_tempFiles;
 std::list<TempFolder> m_tempFolders;
 
@@ -380,13 +382,18 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 	{
 	case WM_CREATE:
 		m_pWebDiffWindow = WinWebDiff_CreateWindow(hInstDLL, hWnd);
+		m_pWebToolWindow = WinWebDiff_CreateToolWindow(hInstDLL, hWnd, m_pWebDiffWindow);
+		m_hwndWebToolWindow = m_pWebToolWindow->GetHWND();
 		UpdateMenuState(hWnd);
 		break;
 	case WM_SIZE:
 	{
-		RECT rc;
+		RECT rc, rcToolWindow;
 		GetClientRect(hWnd, &rc);
+		GetClientRect(m_hwndWebToolWindow, &rcToolWindow);
+		rc.right -= rcToolWindow.right;
 		m_pWebDiffWindow->SetWindowRect(rc);
+		MoveWindow(m_hwndWebToolWindow, rc.right, 0, rcToolWindow.right, rc.bottom, TRUE);
 		break;
 	}
 	case WM_COMMAND:

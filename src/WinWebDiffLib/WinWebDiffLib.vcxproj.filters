@@ -50,10 +50,10 @@
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="dllmain.cpp">
+    <ClCompile Include="pch.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="pch.cpp">
+    <ClCompile Include="WinWebDiffLib.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>

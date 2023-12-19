@@ -1,3 +1,5 @@
 EXPORTS
 	WinWebDiff_CreateWindow
 	WinWebDiff_DestroyWindow
+	WinWebDiff_CreateToolWindow
+	WinWebDiff_DestroyToolWindow
