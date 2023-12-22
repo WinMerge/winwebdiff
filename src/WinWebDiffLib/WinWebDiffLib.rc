@@ -149,6 +149,37 @@ END
 
 IDR_SCRIPT              RCDATA                  "WinWebDiffLib.js"
 
+
+/////////////////////////////////////////////////////////////////////////////
+//
+// Menu
+//
+
+IDR_POPUP_WEBPAGE_COMPARE MENU
+BEGIN
+    POPUP "_POPUP_"
+    BEGIN
+        MENUITEM "&Screenshots", ID_WEB_COMPARE_SCREENSHOTS
+        MENUITEM "&Full Size Screenshots", ID_WEB_COMPARE_FULLSIZE_SCREENSHOTS
+        MENUITEM "&HTMLs", ID_WEB_COMPARE_HTMLS
+        MENUITEM "&Texts", ID_WEB_COMPARE_TEXTS
+        MENUITEM "&Resource Trees", ID_WEB_COMPARE_RESOURCETREES
+    END
+END
+
+IDR_POPUP_WEBPAGE_SYNC_EVENTS MENU
+BEGIN
+    POPUP "_POPUP_"
+    BEGIN
+        MENUITEM "&Enabled", ID_WEB_SYNC_ENABLED
+        MENUITEM SEPARATOR
+        MENUITEM "&Scroll", ID_WEB_SYNC_SCROLL
+        MENUITEM "&Click", ID_WEB_SYNC_CLICK
+        MENUITEM "&Input", ID_WEB_SYNC_INPUT
+        MENUITEM "&GoBack/Forward", ID_WEB_SYNC_GOBACKFORWARD
+    END
+END
+
 #endif    // English (United States) resources
 /////////////////////////////////////////////////////////////////////////////
 

@@ -48,19 +48,15 @@ public:
 
 		m_bInSync = true;
 
-		/*
-		TCHAR buf[256];
-		wsprintf(buf, _T("(%d)"), m_pWebDiffWindow->GetDiffBlockSize());
-		SetDlgItemText(m_hWnd, IDC_DIFF_BLOCKSIZE_STATIC, buf);
-		wsprintf(buf, _T("(%d)"), static_cast<int>(m_pWebDiffWindow->GetDiffColorAlpha() * 100));
-		SetDlgItemText(m_hWnd, IDC_DIFF_BLOCKALPHA_STATIC, buf);
-		wsprintf(buf, _T("(%d)"), static_cast<int>(m_pWebDiffWindow->GetColorDistanceThreshold()));
-		SetDlgItemText(m_hWnd, IDC_DIFF_CDTHRESHOLD_STATIC, buf);
-		wsprintf(buf, _T("(%d)"), static_cast<int>(m_pWebDiffWindow->GetOverlayAlpha() * 100));
-		SetDlgItemText(m_hWnd, IDC_OVERLAY_ALPHA_STATIC, buf);
-		wsprintf(buf, _T("(%d%%)"), static_cast<int>(100 * m_pWebDiffWindow->GetZoom()));
-		SetDlgItemText(m_hWnd, IDC_ZOOM_STATIC, buf);
+		SIZE size = m_pWebDiffWindow->GetSize();
+		SendDlgItemMessage(m_hWnd, IDC_SHOWDIFFERENCES, BM_SETCHECK, m_pWebDiffWindow->GetShowDifferences() ? BST_CHECKED : BST_UNCHECKED, 0);
+		SendDlgItemMessage(m_hWnd, IDC_FITTOWINDOW, BM_SETCHECK, m_pWebDiffWindow->GetFitToWindow() ? BST_CHECKED : BST_UNCHECKED, 0);
+		SetDlgItemText(m_hWnd, IDC_USERAGENT, m_pWebDiffWindow->GetUserAgent());
+		SetDlgItemInt(m_hWnd, IDC_WIDTH, size.cx, false);
+		SetDlgItemInt(m_hWnd, IDC_HEIGHT, size.cy, false);
+		SetDlgItemInt(m_hWnd, IDC_ZOOM, static_cast<int>(m_pWebDiffWindow->GetZoom() * 100), false);
 
+		/*
 		SendDlgItemMessage(m_hWnd, IDC_DIFF_HIGHLIGHT, BM_SETCHECK, m_pWebDiffWindow->GetShowDifferences() ? BST_CHECKED : BST_UNCHECKED, 0);
 		SendDlgItemMessage(m_hWnd, IDC_DIFF_BLOCKSIZE_SLIDER, TBM_SETPOS, TRUE, m_pWebDiffWindow->GetDiffBlockSize());
 		SendDlgItemMessage(m_hWnd, IDC_DIFF_BLOCKALPHA_SLIDER, TBM_SETPOS, TRUE, static_cast<LPARAM>(m_pWebDiffWindow->GetDiffColorAlpha() * 100));
@@ -106,6 +102,7 @@ public:
 
 	void SetWebDiffWindow(IWebDiffWindow *pWebDiffWindow)
 	{
+		m_pWebDiffWindow = pWebDiffWindow;
 	}
 
 	void Translate(TranslateCallback translateCallback) override
@@ -129,10 +126,64 @@ private:
 		return TRUE;
 	}
 
+	void ShowComparePopupMenu()
+	{
+		RECT rc;
+		GetWindowRect(GetDlgItem(m_hWnd, IDC_COMPARE), &rc);
+		POINT point{ rc.left, rc.bottom };
+		HMENU hPopup = LoadMenu(GetModuleHandle(L"WinWebDiffLib.dll"), MAKEINTRESOURCE(IDR_POPUP_WEBPAGE_COMPARE));
+		HMENU hSubMenu = GetSubMenu(hPopup, 0);
+		TrackPopupMenu(hSubMenu, TPM_LEFTALIGN | TPM_RIGHTBUTTON, point.x, point.y, 0, m_hWnd, nullptr);
+	}
+
+	void ShowSyncEventsPopupMenu()
+	{
+		RECT rc;
+		GetWindowRect(GetDlgItem(m_hWnd, IDC_SYNC_EVENTS), &rc);
+		POINT point{ rc.left, rc.bottom };
+		HMENU hPopup = LoadMenu(GetModuleHandle(L"WinWebDiffLib.dll"), MAKEINTRESOURCE(IDR_POPUP_WEBPAGE_SYNC_EVENTS));
+		HMENU hSubMenu = GetSubMenu(hPopup, 0);
+		TrackPopupMenu(hSubMenu, TPM_LEFTALIGN | TPM_RIGHTBUTTON, point.x, point.y, 0, m_hWnd, nullptr);
+	}
+
 	void OnCommand(HWND hwnd, int id, HWND hwndCtl, UINT codeNotify)
 	{
 		if (m_bInSync)
 			return;
+
+		switch (id)
+		{
+		case IDC_SHOWDIFFERENCES:
+			if (codeNotify == BN_CLICKED)
+				m_pWebDiffWindow->SetShowDifferences(Button_GetCheck(hwndCtl) == BST_CHECKED);
+			break;
+		case IDC_FITTOWINDOW:
+			if (codeNotify == BN_CLICKED)
+				m_pWebDiffWindow->SetFitToWindow(Button_GetCheck(hwndCtl) == BST_CHECKED);
+			break;
+		case IDC_COMPARE:
+			break;
+		case IDC_SYNC_EVENTS:
+			if (codeNotify == BN_CLICKED)
+				ShowSyncEventsPopupMenu();
+			break;
+		}
+	}
+
+	void OnNotify(HWND hwnd, WPARAM idControl, NMHDR *pNMHDR)
+	{
+		if (pNMHDR->code == BCN_DROPDOWN)
+		{
+			switch (pNMHDR->idFrom)
+			{
+			case IDC_COMPARE:
+				ShowComparePopupMenu();
+				break;
+			case IDC_SYNC_EVENTS:
+				ShowSyncEventsPopupMenu();
+				break;
+			}
+		}
 	}
 
 	void OnHScroll(HWND hwnd, HWND hwndCtl, UINT code, int pos)
@@ -194,6 +245,9 @@ private:
 			return HANDLE_WM_INITDIALOG(hwnd, wParam, lParam, OnInitDialog);
 		case WM_COMMAND:
 			HANDLE_WM_COMMAND(hwnd, wParam, lParam, OnCommand);
+			break;
+		case WM_NOTIFY:
+			HANDLE_WM_NOTIFY(hwnd, wParam, lParam, OnNotify);
 			break;
 		case WM_HSCROLL:
 			HANDLE_WM_HSCROLL(hwnd, wParam, lParam, OnHScroll);
