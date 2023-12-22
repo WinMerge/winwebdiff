@@ -162,6 +162,8 @@ private:
 				m_pWebDiffWindow->SetFitToWindow(Button_GetCheck(hwndCtl) == BST_CHECKED);
 			break;
 		case IDC_COMPARE:
+			if (codeNotify == BN_CLICKED)
+				m_pWebDiffWindow->Recompare(nullptr);
 			break;
 		case IDC_SYNC_EVENTS:
 			if (codeNotify == BN_CLICKED)
