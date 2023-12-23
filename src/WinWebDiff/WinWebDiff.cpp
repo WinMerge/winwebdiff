@@ -374,6 +374,7 @@ void UpdateMenuState(HWND hWnd)
 	CheckMenuItem(hMenu, IDM_SYNC_CLICK,  m_pWebDiffWindow->GetSyncEventFlag(IWebDiffWindow::EVENT_CLICK) ? MF_CHECKED : MF_UNCHECKED);
 	CheckMenuItem(hMenu, IDM_SYNC_INPUT,  m_pWebDiffWindow->GetSyncEventFlag(IWebDiffWindow::EVENT_INPUT) ? MF_CHECKED : MF_UNCHECKED);
 	CheckMenuItem(hMenu, IDM_SYNC_GOBACKFORWARD,  m_pWebDiffWindow->GetSyncEventFlag(IWebDiffWindow::EVENT_GOBACKFORWARD) ? MF_CHECKED : MF_UNCHECKED);
+	m_pWebToolWindow->Sync();
 }
 
 LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
@@ -454,26 +455,32 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 			break;
 		case IDM_VIEW_SIZE_FIT_TO_WINDOW:
 			m_pWebDiffWindow->SetFitToWindow(true);
+			m_pWebToolWindow->Sync();
 			break;
 		case IDM_VIEW_SIZE_320x512:
 			m_pWebDiffWindow->SetFitToWindow(false);
 			m_pWebDiffWindow->SetSize({ 320, 512 });
+			m_pWebToolWindow->Sync();
 			break;
 		case IDM_VIEW_SIZE_375x600:
 			m_pWebDiffWindow->SetFitToWindow(false);
 			m_pWebDiffWindow->SetSize({ 375, 600 });
+			m_pWebToolWindow->Sync();
 			break;
 		case IDM_VIEW_SIZE_1024x640:
 			m_pWebDiffWindow->SetFitToWindow(false);
 			m_pWebDiffWindow->SetSize({ 1024, 640 });
+			m_pWebToolWindow->Sync();
 			break;
 		case IDM_VIEW_SIZE_1280x800:
 			m_pWebDiffWindow->SetFitToWindow(false);
 			m_pWebDiffWindow->SetSize({ 1280, 800 });
+			m_pWebToolWindow->Sync();
 			break;
 		case IDM_VIEW_SIZE_1440x900:
 			m_pWebDiffWindow->SetFitToWindow(false);
 			m_pWebDiffWindow->SetSize({ 1440, 900});
+			m_pWebToolWindow->Sync();
 			break;
 		case IDM_VIEW_SPLITHORIZONTALLY:
 			m_pWebDiffWindow->SetHorizontalSplit(!m_pWebDiffWindow->GetHorizontalSplit());

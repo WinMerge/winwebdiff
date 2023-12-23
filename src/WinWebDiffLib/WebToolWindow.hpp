@@ -143,6 +143,11 @@ private:
 		POINT point{ rc.left, rc.bottom };
 		HMENU hPopup = LoadMenu(GetModuleHandle(L"WinWebDiffLib.dll"), MAKEINTRESOURCE(IDR_POPUP_WEBPAGE_SYNC_EVENTS));
 		HMENU hSubMenu = GetSubMenu(hPopup, 0);
+		CheckMenuItem(hSubMenu, ID_WEB_SYNC_ENABLED, m_pWebDiffWindow->GetSyncEvents() ? MF_CHECKED : MF_UNCHECKED);
+		CheckMenuItem(hSubMenu, ID_WEB_SYNC_SCROLL, m_pWebDiffWindow->GetSyncEventFlag(IWebDiffWindow::EVENT_SCROLL) ? MF_CHECKED : MF_UNCHECKED);
+		CheckMenuItem(hSubMenu, ID_WEB_SYNC_CLICK, m_pWebDiffWindow->GetSyncEventFlag(IWebDiffWindow::EVENT_CLICK) ? MF_CHECKED : MF_UNCHECKED);
+		CheckMenuItem(hSubMenu, ID_WEB_SYNC_INPUT, m_pWebDiffWindow->GetSyncEventFlag(IWebDiffWindow::EVENT_INPUT) ? MF_CHECKED : MF_UNCHECKED);
+		CheckMenuItem(hSubMenu, ID_WEB_SYNC_GOBACKFORWARD, m_pWebDiffWindow->GetSyncEventFlag(IWebDiffWindow::EVENT_GOBACKFORWARD) ? MF_CHECKED : MF_UNCHECKED);
 		TrackPopupMenu(hSubMenu, TPM_LEFTALIGN | TPM_RIGHTBUTTON, point.x, point.y, 0, m_hWnd, nullptr);
 	}
 
