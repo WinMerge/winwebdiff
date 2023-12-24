@@ -54,7 +54,11 @@ public:
 		SetDlgItemText(m_hWnd, IDC_USERAGENT, m_pWebDiffWindow->GetUserAgent());
 		SetDlgItemInt(m_hWnd, IDC_WIDTH, size.cx, false);
 		SetDlgItemInt(m_hWnd, IDC_HEIGHT, size.cy, false);
-		SetDlgItemInt(m_hWnd, IDC_ZOOM, static_cast<int>(m_pWebDiffWindow->GetZoom() * 100), false);
+		wchar_t zoomstr[256];
+		swprintf_s(zoomstr, L"%.1f%%", m_pWebDiffWindow->GetZoom() * 100.0);
+		SetDlgItemText(m_hWnd, IDC_ZOOM, zoomstr);
+		EnableWindow(GetDlgItem(m_hWnd, IDC_WIDTH), !m_pWebDiffWindow->GetFitToWindow());
+		EnableWindow(GetDlgItem(m_hWnd, IDC_HEIGHT), !m_pWebDiffWindow->GetFitToWindow());
 
 		/*
 		SendDlgItemMessage(m_hWnd, IDC_DIFF_HIGHLIGHT, BM_SETCHECK, m_pWebDiffWindow->GetShowDifferences() ? BST_CHECKED : BST_UNCHECKED, 0);
@@ -164,7 +168,39 @@ private:
 			break;
 		case IDC_FITTOWINDOW:
 			if (codeNotify == BN_CLICKED)
+			{
 				m_pWebDiffWindow->SetFitToWindow(Button_GetCheck(hwndCtl) == BST_CHECKED);
+				Sync();
+			}
+			break;
+		case IDC_WIDTH:
+			if (codeNotify == EN_CHANGE)
+				m_pWebDiffWindow->SetSize(
+					{ static_cast<long>(GetDlgItemInt(m_hWnd, IDC_WIDTH, nullptr, false)),
+					  m_pWebDiffWindow->GetSize().cy });
+			break;
+		case IDC_HEIGHT:
+			if (codeNotify == EN_CHANGE)
+				m_pWebDiffWindow->SetSize(
+					{ m_pWebDiffWindow->GetSize().cx,
+					  static_cast<long>(GetDlgItemInt(m_hWnd, IDC_HEIGHT, nullptr, false)) });
+			break;
+		case IDC_ZOOM:
+			if (codeNotify == CBN_EDITCHANGE)
+			{
+				wchar_t zoom[256];
+				GetDlgItemText(m_hWnd, IDC_ZOOM, zoom, sizeof(zoom)/sizeof(zoom[0]));
+				float zoomf = wcstof(zoom, nullptr);
+				m_pWebDiffWindow->SetZoom(zoomf / 100.0f);
+			}
+			break;
+		case IDC_USERAGENT:
+			if (codeNotify == EN_CHANGE)
+			{
+				wchar_t ua[256];
+				GetDlgItemText(m_hWnd, IDC_USERAGENT, ua, sizeof(ua)/sizeof(ua[0]));
+				m_pWebDiffWindow->SetUserAgent(ua);
+			}
 			break;
 		case IDC_COMPARE:
 			if (codeNotify == BN_CLICKED)
@@ -173,6 +209,20 @@ private:
 		case IDC_SYNC_EVENTS:
 			if (codeNotify == BN_CLICKED)
 				ShowSyncEventsPopupMenu();
+		case ID_WEB_SYNC_ENABLED:
+			m_pWebDiffWindow->SetSyncEvents(!m_pWebDiffWindow->GetSyncEvents());
+			break;
+		case ID_WEB_SYNC_SCROLL:
+			m_pWebDiffWindow->SetSyncEventFlag(IWebDiffWindow::EVENT_SCROLL, !m_pWebDiffWindow->GetSyncEventFlag(IWebDiffWindow::EVENT_SCROLL));
+			break;
+		case ID_WEB_SYNC_CLICK:
+			m_pWebDiffWindow->SetSyncEventFlag(IWebDiffWindow::EVENT_CLICK, !m_pWebDiffWindow->GetSyncEventFlag(IWebDiffWindow::EVENT_CLICK));
+			break;
+		case ID_WEB_SYNC_INPUT:
+			m_pWebDiffWindow->SetSyncEventFlag(IWebDiffWindow::EVENT_INPUT, !m_pWebDiffWindow->GetSyncEventFlag(IWebDiffWindow::EVENT_INPUT));
+			break;
+		case ID_WEB_SYNC_GOBACKFORWARD:
+			m_pWebDiffWindow->SetSyncEventFlag(IWebDiffWindow::EVENT_GOBACKFORWARD, !m_pWebDiffWindow->GetSyncEventFlag(IWebDiffWindow::EVENT_GOBACKFORWARD));
 			break;
 		}
 	}
@@ -201,7 +251,8 @@ private:
 	void OnSize(HWND hwnd, UINT nType, int cx, int cy)
 	{
 		static const int nIDs[] = {
-			IDC_ZOOM,
+			0
+//			IDC_ZOOM,
 		};
 		HDWP hdwp = BeginDeferWindowPos(static_cast<int>(std::size(nIDs)));
 		RECT rc;
