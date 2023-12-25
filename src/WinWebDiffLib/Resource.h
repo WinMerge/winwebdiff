@@ -15,11 +15,12 @@
 #define IDC_COMPARE                     1021
 #define IDC_ZOOM                        1022
 #define IDC_WIDTH                       1023
-#define IDC_HEIGHT                      1024
-#define IDC_FITTOWINDOW                 1624
-#define IDC_USERAGENT                   1628
-#define IDC_SHOWDIFFERENCES             1631
-#define IDC_SYNC_EVENTS                 1632
+#define IDC_BY                          1024
+#define IDC_HEIGHT                      1025
+#define IDC_FITTOWINDOW                 1026
+#define IDC_USERAGENT                   1027
+#define IDC_SHOWDIFFERENCES             1028
+#define IDC_SYNC_EVENTS                 1029
 #define ID_WEB_COMPARE_SCREENSHOTS      1633
 #define ID_WEB_COMPARE_FULLSIZE_SCREENSHOTS 1634
 #define ID_WEB_COMPARE_HTMLS            1635

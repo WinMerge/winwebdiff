@@ -281,8 +281,11 @@ private:
 	void OnSize(HWND hwnd, UINT nType, int cx, int cy)
 	{
 		static const int nIDs[] = {
-			0
-//			IDC_ZOOM,
+			IDC_COMPARE,
+			IDC_ZOOM,
+			IDC_USERAGENT,
+			IDC_SYNC_EVENTS,
+			IDC_SHOWDIFFERENCES,
 		};
 		HDWP hdwp = BeginDeferWindowPos(static_cast<int>(std::size(nIDs)));
 		RECT rc;
@@ -294,8 +297,23 @@ private:
 			GetWindowRect(hwndCtrl, &rcCtrl);
 			POINT pt = { rcCtrl.left, rcCtrl.top };
 			ScreenToClient(m_hWnd, &pt);
-			DeferWindowPos(hdwp, hwndCtrl, nullptr, pt.x, pt.y, rc.right - pt.x * 2, rcCtrl.bottom - rcCtrl.top, SWP_NOMOVE | SWP_NOZORDER);
+			DeferWindowPos(hdwp, hwndCtrl, nullptr, pt.x, pt.y, rc.right - pt.x - 2, rcCtrl.bottom - rcCtrl.top, SWP_NOMOVE | SWP_NOZORDER);
 		}
+		RECT rcWidth, rcHeight, rcBy;
+		HWND hwndWidth = GetDlgItem(m_hWnd, IDC_WIDTH);
+		HWND hwndBy = GetDlgItem(m_hWnd, IDC_BY);
+		HWND hwndHeight = GetDlgItem(m_hWnd, IDC_HEIGHT);
+		GetWindowRect(hwndWidth, &rcWidth);
+		GetWindowRect(hwndBy, &rcBy);
+		GetWindowRect(hwndHeight, &rcHeight);
+		POINT ptWidth = { rcWidth.left, rcWidth.top };
+		ScreenToClient(m_hWnd, &ptWidth);
+		int wby = rcBy.right - rcBy.left;
+		int w = (rc.right - 2 - ptWidth.x - wby - 4) / 2;
+		int h = rcWidth.bottom - rcWidth.top;
+		DeferWindowPos(hdwp, hwndWidth,  nullptr, ptWidth.x, ptWidth.y, w, h, SWP_NOMOVE | SWP_NOZORDER);
+		DeferWindowPos(hdwp, hwndBy,     nullptr, ptWidth.x + w + 2, ptWidth.y, rcBy.right - rcBy.left, h, SWP_NOZORDER);
+		DeferWindowPos(hdwp, hwndHeight, nullptr, ptWidth.x + w + 2 + wby + 2 , ptWidth.y, w, h, SWP_NOZORDER);
 		EndDeferWindowPos(hdwp);
 
 		Sync();
