@@ -7,7 +7,7 @@
 
 #pragma once
 
-class CWebToolWindow : public IWebToolWindow
+class CWebToolWindow : public IWebToolWindow, IWebDiffEventHandler
 {
 public:
 	CWebToolWindow() :
@@ -107,6 +107,7 @@ public:
 	void SetWebDiffWindow(IWebDiffWindow *pWebDiffWindow)
 	{
 		m_pWebDiffWindow = pWebDiffWindow;
+		m_pWebDiffWindow->AddEventListener(this);
 	}
 
 	void Translate(TranslateCallback translateCallback) override
@@ -127,6 +128,11 @@ public:
 private:
 	BOOL OnInitDialog(HWND hwnd, HWND hwndFocus, LPARAM lParam)
 	{
+		HWND hwndZoom = GetDlgItem(hwnd, IDC_ZOOM);
+		for (const auto v :
+			{L"25%", L"33.3%", L"50%", L"66.7%", L"75%", L"80%", L"90%", L"100%",
+			 L"110%", L"125%", L"150%", L"175%", L"200%", L"250%", L"300%"})
+			ComboBox_AddString(hwndZoom, v);
 		return TRUE;
 	}
 
@@ -188,8 +194,17 @@ private:
 		case IDC_ZOOM:
 			if (codeNotify == CBN_EDITCHANGE)
 			{
-				wchar_t zoom[256];
+				wchar_t zoom[256]{};
 				GetDlgItemText(m_hWnd, IDC_ZOOM, zoom, sizeof(zoom)/sizeof(zoom[0]));
+				float zoomf = wcstof(zoom, nullptr);
+				m_pWebDiffWindow->SetZoom(zoomf / 100.0f);
+			}
+			else if (codeNotify == CBN_SELCHANGE)
+			{
+				HWND hZoom = GetDlgItem(m_hWnd, IDC_ZOOM);
+				int cursel = ComboBox_GetCurSel(hZoom);
+				wchar_t zoom[256]{};
+				ComboBox_GetLBText(hZoom, cursel, zoom);
 				float zoomf = wcstof(zoom, nullptr);
 				m_pWebDiffWindow->SetZoom(zoomf / 100.0f);
 			}
@@ -223,6 +238,21 @@ private:
 			break;
 		case ID_WEB_SYNC_GOBACKFORWARD:
 			m_pWebDiffWindow->SetSyncEventFlag(IWebDiffWindow::EVENT_GOBACKFORWARD, !m_pWebDiffWindow->GetSyncEventFlag(IWebDiffWindow::EVENT_GOBACKFORWARD));
+			break;
+		case ID_WEB_COMPARE_SCREENSHOTS:
+			m_pWebDiffWindow->RaiseEvent({ WebDiffEvent::CompareScreenshotsSelected, -1 });
+			break;
+		case ID_WEB_COMPARE_FULLSIZE_SCREENSHOTS:
+			m_pWebDiffWindow->RaiseEvent({ WebDiffEvent::CompareFullsizeScreenshotsSelected, -1 });
+			break;
+		case ID_WEB_COMPARE_HTMLS:
+			m_pWebDiffWindow->RaiseEvent({ WebDiffEvent::CompareHTMLsSelected, -1 });
+			break;
+		case ID_WEB_COMPARE_TEXTS:
+			m_pWebDiffWindow->RaiseEvent({ WebDiffEvent::CompareTextsSelected, -1 });
+			break;
+		case ID_WEB_COMPARE_RESOURCETREES:
+			m_pWebDiffWindow->RaiseEvent({ WebDiffEvent::CompareResourceTreesSelected, -1 });
 			break;
 		}
 	}
@@ -331,12 +361,25 @@ private:
 			return FALSE;
 	}
 
-	static void OnEvent(const WebDiffEvent& evt)
+	HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void** ppvObject) override { return E_NOTIMPL; }
+	ULONG STDMETHODCALLTYPE AddRef(void) override { return ++m_nRef; }
+	ULONG STDMETHODCALLTYPE Release(void) override { if (--m_nRef == 0) { delete this; return 0; } return m_nRef; }
+
+	HRESULT Invoke(const WebDiffEvent& event)
 	{
+		switch (event.type)
+		{
+		case WebDiffEvent::ZoomFactorChanged:
+			Sync();
+			break;
+		}
+		return S_OK;
 	}
 
 	HWND m_hWnd;
 	HINSTANCE m_hInstance;
 	IWebDiffWindow *m_pWebDiffWindow;
 	bool m_bInSync;
+	int m_nRef = 0;
+	
 };

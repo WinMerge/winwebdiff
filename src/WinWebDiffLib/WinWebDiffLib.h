@@ -6,7 +6,7 @@
 
 struct WebDiffEvent
 {
-	enum EVENT_TYPE { ZoomFactorChanged, NewWindowRequested, WindowCloseRequested, NavigationStarting, FrameNavigationStarting, HistoryChanged, SourceChanged, DocumentTitleChanged, NavigationCompleted, FrameNavigationCompleted, WebMessageReceived, FrameWebMessageReceived, GoBacked, GoForwarded, TabChanged, HSCROLL, VSCROLL, CompareStateChanged };
+	enum EVENT_TYPE { ZoomFactorChanged, NewWindowRequested, WindowCloseRequested, NavigationStarting, FrameNavigationStarting, HistoryChanged, SourceChanged, DocumentTitleChanged, NavigationCompleted, FrameNavigationCompleted, WebMessageReceived, FrameWebMessageReceived, GoBacked, GoForwarded, TabChanged, HSCROLL, VSCROLL, CompareStateChanged, CompareScreenshotsSelected, CompareFullsizeScreenshotsSelected, CompareHTMLsSelected, CompareTextsSelected, CompareResourceTreesSelected };
 	EVENT_TYPE type;
 	int pane;
 };
@@ -191,6 +191,7 @@ struct IWebDiffWindow
 	virtual bool GetSyncEventFlag(EventType event) const = 0;
 	virtual void SetSyncEventFlag(EventType event, bool flag) = 0;
 	virtual CompareState GetCompareState() const = 0;
+	virtual void RaiseEvent(const WebDiffEvent& e) = 0;
 };
 
 struct IWebToolWindow

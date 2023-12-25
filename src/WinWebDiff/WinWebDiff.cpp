@@ -124,6 +124,17 @@ struct CmdLineInfo
 	int nUrls;
 };
 
+static HRESULT OnWebDiffEvent(const WebDiffEvent& e);
+
+struct CallbackImpl: public IWebDiffEventHandler
+{
+	HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void** ppvObject) override { return E_NOTIMPL; }
+	ULONG STDMETHODCALLTYPE AddRef(void) override { return ++m_nRef; }
+	ULONG STDMETHODCALLTYPE Release(void) override { if (--m_nRef == 0) { delete this; return 0; } return m_nRef; }
+	HRESULT STDMETHODCALLTYPE Invoke(const WebDiffEvent& event) { return OnWebDiffEvent(event); }
+	int m_nRef = 0;
+};
+
 HINSTANCE m_hInstance;
 HINSTANCE hInstDLL;
 HWND m_hWnd;
@@ -134,6 +145,7 @@ IWebDiffWindow* m_pWebDiffWindow = nullptr;
 IWebToolWindow *m_pWebToolWindow = nullptr;
 std::list<TempFile> m_tempFiles;
 std::list<TempFolder> m_tempFolders;
+CallbackImpl m_callback;
 
 ATOM				MyRegisterClass(HINSTANCE hInstance);
 BOOL				InitInstance(HINSTANCE, int);
@@ -187,7 +199,7 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
 	MSG msg;
 	while (GetMessage(&msg, nullptr, 0, 0))
 	{
-		if (!TranslateAccelerator(msg.hwnd, hAccelTable, &msg))
+		if (!TranslateAccelerator(msg.hwnd, hAccelTable, &msg) && m_hwndWebToolWindow == 0 || !IsDialogMessage(m_hwndWebToolWindow, &msg))
 		{
 			TranslateMessage(&msg);
 			DispatchMessage(&msg);
@@ -377,6 +389,13 @@ void UpdateMenuState(HWND hWnd)
 	m_pWebToolWindow->Sync();
 }
 
+HRESULT OnWebDiffEvent(const WebDiffEvent& e)
+{
+	if (WebDiffEvent::CompareScreenshotsSelected <= e.type && e.type <= WebDiffEvent::CompareResourceTreesSelected)
+		PostMessage(m_hWnd, WM_COMMAND, IDM_COMPARE_SCREENSHOTS + e.type - WebDiffEvent::CompareScreenshotsSelected, 0);
+	return S_OK;
+}
+
 LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 {
 	switch (message)
@@ -385,6 +404,8 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 		m_pWebDiffWindow = WinWebDiff_CreateWindow(hInstDLL, hWnd);
 		m_pWebToolWindow = WinWebDiff_CreateToolWindow(hInstDLL, hWnd, m_pWebDiffWindow);
 		m_hwndWebToolWindow = m_pWebToolWindow->GetHWND();
+		m_callback.AddRef();
+		m_pWebDiffWindow->AddEventListener(&m_callback);
 		UpdateMenuState(hWnd);
 		break;
 	case WM_SIZE:

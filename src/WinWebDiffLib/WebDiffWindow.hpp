@@ -792,6 +792,12 @@ public:
 		return true;
 	}
 
+	void RaiseEvent(const WebDiffEvent& e) override
+	{
+		for (const auto& listener : m_listeners)
+			listener->Invoke(e);
+	}
+
 private:
 
 	HRESULT getDocumentsLoop(std::shared_ptr<std::vector<std::wstring>> jsons, IWebDiffCallback* callback, int pane = 0)
