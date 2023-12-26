@@ -194,6 +194,10 @@ public:
 										if (m_bSynchronizeEvents && GetSyncEventFlag(EVENT_INPUT))
 											syncEvent(ev.pane, msg);
 									}
+									else if (event == L"diffPositions")
+									{
+										int a = 0;
+									}
 /*
 									else if (event == L"submit")
 									{
