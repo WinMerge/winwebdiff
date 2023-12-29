@@ -79,14 +79,13 @@ public:
 		if (m_hWnd)
 		{
 			Close();
-			std::shared_ptr<int> counter(new int{ nPanes });
 			for (int i = 0; i < nPanes; ++i)
 			{
 				std::wstring userDataFolder = GetUserDataFolderPath(i);
 				ComPtr<IWebDiffCallback> callback2(callback);
 				hr = m_webWindow[i].Create(m_hInstance, m_hWnd, urls[i], userDataFolder.c_str(),
 						m_size, m_fitToWindow, m_zoom, m_userAgent, nullptr,
-						[this, i, counter, callback2](WebDiffEvent::EVENT_TYPE event, IUnknown* sender, IUnknown* args)
+						[this, i, callback2](WebDiffEvent::EVENT_TYPE event, IUnknown* sender, IUnknown* args)
 							{
 								WebDiffEvent ev{};
 								ev.type = event;
@@ -122,6 +121,8 @@ public:
 								}
 								else if (event == WebDiffEvent::NavigationStarting)
 								{
+									m_documentLoaded[ev.pane] = false;
+									m_urlChanged[ev.pane] = true;
 									SetCompareState(NOT_COMPARED);
 								}
 								else if (event == WebDiffEvent::FrameNavigationStarting)
@@ -130,9 +131,13 @@ public:
 								else if (event == WebDiffEvent::NavigationCompleted)
 								{
 									addEventListener(sender, ev.pane, nullptr);
-									*counter = *counter - 1;
-									if (*counter == 0)
+									m_documentLoaded[ev.pane] = true;
+									if ((std::count(m_documentLoaded, m_documentLoaded + m_nPanes, true) == m_nPanes) &&
+									    (std::count(m_urlChanged, m_urlChanged + m_nPanes, true) == m_nPanes))
+									{
+										std::fill_n(m_urlChanged, m_nPanes, false);
 										Recompare(callback2.Get());
+									}
 								}
 								else if (event == WebDiffEvent::FrameNavigationCompleted)
 								{
@@ -1487,6 +1492,8 @@ private:
 	bool m_bShowDifferences = true;
 	bool m_bShowWordDifferences = true;
 	bool m_bSynchronizeEvents = true;
+	bool m_documentLoaded[3] = { false, false, false };
+	bool m_urlChanged[3] = { false, false, false };
 	unsigned m_eventSyncFlags = EVENT_SCROLL | EVENT_CLICK | EVENT_INPUT | EVENT_GOBACKFORWARD;
 	CompareState m_compareState = NOT_COMPARED;
 	IWebDiffWindow::ColorSettings m_colorSettings = {
