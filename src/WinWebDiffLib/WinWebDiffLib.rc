@@ -132,7 +132,7 @@ BEGIN
     EDITTEXT        IDC_WIDTH,16,16,24,12,ES_AUTOHSCROLL | WS_TABSTOP
     LTEXT           "x",IDC_BY,40,20,6,8
     EDITTEXT        IDC_HEIGHT,46,16,24,12,ES_AUTOHSCROLL | WS_TABSTOP
-    LTEXT           "Zoom:",IDC_STATIC,2,30,34,10
+    LTEXT           "Zoom:",IDC_ZOOM_LABEL,2,30,34,10
     COMBOBOX        IDC_ZOOM,36,30,34,88,CBS_DROPDOWN | WS_VSCROLL | WS_TABSTOP
     LTEXT           "UA:",IDC_STATIC,2,44,16,10
     EDITTEXT        IDC_USERAGENT,18,44,52,14,ES_AUTOHSCROLL | WS_TABSTOP
@@ -159,11 +159,11 @@ IDR_POPUP_WEBPAGE_COMPARE MENU
 BEGIN
     POPUP "_POPUP_"
     BEGIN
-        MENUITEM "&Screenshots", ID_WEB_COMPARE_SCREENSHOTS
-        MENUITEM "&Full Size Screenshots", ID_WEB_COMPARE_FULLSIZE_SCREENSHOTS
-        MENUITEM "&HTMLs", ID_WEB_COMPARE_HTMLS
-        MENUITEM "&Texts", ID_WEB_COMPARE_TEXTS
-        MENUITEM "&Resource Trees", ID_WEB_COMPARE_RESOURCETREES
+        MENUITEM "&Screenshots",                ID_WEB_COMPARE_SCREENSHOTS
+        MENUITEM "&Full Size Screenshots",      ID_WEB_COMPARE_FULLSIZE_SCREENSHOTS
+        MENUITEM "&HTMLs",                      ID_WEB_COMPARE_HTMLS
+        MENUITEM "&Texts",                      ID_WEB_COMPARE_TEXTS
+        MENUITEM "&Resource Trees",             ID_WEB_COMPARE_RESOURCETREES
     END
 END
 
@@ -171,13 +171,37 @@ IDR_POPUP_WEBPAGE_SYNC_EVENTS MENU
 BEGIN
     POPUP "_POPUP_"
     BEGIN
-        MENUITEM "&Enabled", ID_WEB_SYNC_ENABLED
+        MENUITEM "&Enabled",                    ID_WEB_SYNC_ENABLED
         MENUITEM SEPARATOR
-        MENUITEM "&Scroll", ID_WEB_SYNC_SCROLL
-        MENUITEM "&Click", ID_WEB_SYNC_CLICK
-        MENUITEM "&Input", ID_WEB_SYNC_INPUT
-        MENUITEM "&GoBack/Forward", ID_WEB_SYNC_GOBACKFORWARD
+        MENUITEM "&Scroll",                     ID_WEB_SYNC_SCROLL
+        MENUITEM "&Click",                      ID_WEB_SYNC_CLICK
+        MENUITEM "&Input",                      ID_WEB_SYNC_INPUT
+        MENUITEM "&GoBack/Forward",             ID_WEB_SYNC_GOBACKFORWARD
     END
+END
+
+
+/////////////////////////////////////////////////////////////////////////////
+//
+// String Table
+//
+
+STRINGTABLE
+BEGIN
+    IDS_COMPARE             "Compare"
+    IDS_ZOOM                "Zoom:"
+    IDS_SYNC_EVENTS         "&Event Sync"
+    IDS_SHOWDIFFERENCES     "View &Differences"
+    IDS_WEB_COMPARE_SCREENSHOTS "&Screenshots"
+    IDS_WEB_COMPARE_FULLSIZE_SCREENSHOTS "&Full Size Screenshots"
+    IDS_WEB_COMPARE_HTMLS    "&HTMLs"
+    IDS_WEB_COMPARE_TEXTS    "&Texts"
+    IDS_WEB_COMPARE_RESOURCETREES "&Resource Trees"
+    IDS_WEB_SYNC_ENABLED     "&Enabled"
+    IDS_WEB_SYNC_SCROLL      "&Scroll"
+    IDS_WEB_SYNC_CLICK       "&Click"
+    IDS_WEB_SYNC_INPUT       "&Input"
+    IDS_WEB_SYNC_GOBACKFORWARD "&GoBack/Forward"
 END
 
 #endif    // English (United States) resources

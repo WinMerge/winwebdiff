@@ -11,10 +11,13 @@ class CWebToolWindow : public IWebToolWindow, IWebDiffEventHandler
 {
 public:
 	CWebToolWindow() :
-		  m_hWnd(NULL)
-		, m_hInstance(NULL)
-		, m_pWebDiffWindow(NULL)
+		  m_hWnd(nullptr)
+		, m_hInstance(nullptr)
+		, m_hComparePopup(nullptr)
+		, m_hEventSyncPopup(nullptr)
+		, m_pWebDiffWindow(nullptr)
 		, m_bInSync(false)
+		, m_nRef(0)
 	{
 	}
 
@@ -26,13 +29,19 @@ public:
 	{
 		m_hInstance = hInstance;
 		m_hWnd = CreateDialogParam(hInstance, MAKEINTRESOURCE(IDD_DIALOGBAR), hWndParent, DlgProc, reinterpret_cast<LPARAM>(this));
+		m_hComparePopup = LoadMenu(hInstance, MAKEINTRESOURCE(IDR_POPUP_WEBPAGE_COMPARE));
+		m_hEventSyncPopup = LoadMenu(hInstance, MAKEINTRESOURCE(IDR_POPUP_WEBPAGE_SYNC_EVENTS));
 		return m_hWnd ? true : false;
 	}
 
 	bool Destroy()
 	{
 		BOOL bSucceeded = DestroyWindow(m_hWnd);
-		m_hWnd = NULL;
+		m_hWnd = nullptr;
+		DestroyMenu(m_hComparePopup);
+		m_hComparePopup = nullptr;
+		DestroyMenu(m_hEventSyncPopup);
+		m_hEventSyncPopup = nullptr;
 		return !!bSucceeded;
 	}
 
@@ -61,17 +70,6 @@ public:
 		EnableWindow(GetDlgItem(m_hWnd, IDC_HEIGHT), !m_pWebDiffWindow->GetFitToWindow());
 
 		/*
-		SendDlgItemMessage(m_hWnd, IDC_DIFF_HIGHLIGHT, BM_SETCHECK, m_pWebDiffWindow->GetShowDifferences() ? BST_CHECKED : BST_UNCHECKED, 0);
-		SendDlgItemMessage(m_hWnd, IDC_DIFF_BLOCKSIZE_SLIDER, TBM_SETPOS, TRUE, m_pWebDiffWindow->GetDiffBlockSize());
-		SendDlgItemMessage(m_hWnd, IDC_DIFF_BLOCKALPHA_SLIDER, TBM_SETPOS, TRUE, static_cast<LPARAM>(m_pWebDiffWindow->GetDiffColorAlpha() * 100));
-		SendDlgItemMessage(m_hWnd, IDC_DIFF_CDTHRESHOLD_SLIDER, TBM_SETPOS, TRUE, static_cast<LPARAM>(m_pWebDiffWindow->GetColorDistanceThreshold()));
-		SendDlgItemMessage(m_hWnd, IDC_OVERLAY_ALPHA_SLIDER, TBM_SETPOS, TRUE, static_cast<LPARAM>(m_pWebDiffWindow->GetOverlayAlpha() * 100));
-		SendDlgItemMessage(m_hWnd, IDC_ZOOM_SLIDER, TBM_SETPOS, TRUE, static_cast<LPARAM>(m_pWebDiffWindow->GetZoom() * 8 - 8));
-		SendDlgItemMessage(m_hWnd, IDC_DIFF_INSERTION_DELETION_DETECTION_MODE, CB_SETCURSEL, m_pWebDiffWindow->GetInsertionDeletionDetectionMode(), 0);
-		SendDlgItemMessage(m_hWnd, IDC_OVERLAY_MODE, CB_SETCURSEL, m_pWebDiffWindow->GetOverlayMode(), 0);
-		SendDlgItemMessage(m_hWnd, IDC_PAGE_SPIN, UDM_SETRANGE, 0, MAKELONG(1, m_pWebDiffWindow->GetMaxPageCount()));
-		SendDlgItemMessage(m_hWnd, IDC_PAGE_SPIN, UDM_SETPOS, 0, MAKELONG(m_pWebDiffWindow->GetCurrentMaxPage() + 1, 0));
-
 		int w = static_cast<CWebDiffWindow *>(m_pWebDiffWindow)->GetDiffImageWidth();
 		int h = static_cast<CWebDiffWindow *>(m_pWebDiffWindow)->GetDiffImageHeight();
 
@@ -123,6 +121,51 @@ public:
 				wcscpy_s(translated, org);
 			return std::wstring(translated);
 		};
+
+		struct StringIdControlId
+		{
+			int stringId;
+			int controlId;
+		};
+		static const StringIdControlId stringIdControlId[] = {
+			{IDS_COMPARE, IDC_COMPARE},
+			{IDS_ZOOM, IDC_ZOOM_LABEL},
+			{IDS_SYNC_EVENTS, IDC_SYNC_EVENTS},
+			{IDS_SHOWDIFFERENCES, IDC_SHOWDIFFERENCES},
+		};
+		for (auto& e: stringIdControlId)
+			::SetDlgItemText(m_hWnd, e.controlId, translateString(e.stringId).c_str());
+
+		static const StringIdControlId stringIdControlId1[] = {
+			{IDS_WEB_COMPARE_SCREENSHOTS, ID_WEB_COMPARE_SCREENSHOTS},
+			{IDS_WEB_COMPARE_FULLSIZE_SCREENSHOTS, ID_WEB_COMPARE_FULLSIZE_SCREENSHOTS},
+			{IDS_WEB_COMPARE_HTMLS, ID_WEB_COMPARE_HTMLS},
+			{IDS_WEB_COMPARE_TEXTS, ID_WEB_COMPARE_TEXTS},
+			{IDS_WEB_COMPARE_RESOURCETREES, ID_WEB_COMPARE_RESOURCETREES},
+		};
+		for (auto& e : stringIdControlId1)
+		{
+			std::wstring str = translateString(e.stringId);
+			MENUITEMINFO mii = { sizeof(MENUITEMINFO) };
+			mii.fMask = MIIM_STRING;
+			mii.dwTypeData = const_cast<LPWSTR>(str.c_str());
+			::SetMenuItemInfo(m_hComparePopup, e.controlId, FALSE, &mii);
+		}
+		static const StringIdControlId stringIdControlId2[] = {
+			{IDS_WEB_SYNC_ENABLED, ID_WEB_SYNC_ENABLED},
+			{IDS_WEB_SYNC_SCROLL, ID_WEB_SYNC_SCROLL},
+			{IDS_WEB_SYNC_CLICK, ID_WEB_SYNC_CLICK},
+			{IDS_WEB_SYNC_INPUT, ID_WEB_SYNC_INPUT},
+			{IDS_WEB_SYNC_GOBACKFORWARD, ID_WEB_SYNC_GOBACKFORWARD},
+		};
+		for (auto& e : stringIdControlId2)
+		{
+			std::wstring str = translateString(e.stringId);
+			MENUITEMINFO mii = { sizeof(MENUITEMINFO) };
+			mii.fMask = MIIM_STRING;
+			mii.dwTypeData = const_cast<LPWSTR>(str.c_str());
+			::SetMenuItemInfo(m_hEventSyncPopup, e.controlId, FALSE, &mii);
+		}
 	}
 
 private:
@@ -141,8 +184,7 @@ private:
 		RECT rc;
 		GetWindowRect(GetDlgItem(m_hWnd, IDC_COMPARE), &rc);
 		POINT point{ rc.left, rc.bottom };
-		HMENU hPopup = LoadMenu(GetModuleHandle(L"WinWebDiffLib.dll"), MAKEINTRESOURCE(IDR_POPUP_WEBPAGE_COMPARE));
-		HMENU hSubMenu = GetSubMenu(hPopup, 0);
+		HMENU hSubMenu = GetSubMenu(m_hComparePopup, 0);
 		TrackPopupMenu(hSubMenu, TPM_LEFTALIGN | TPM_RIGHTBUTTON, point.x, point.y, 0, m_hWnd, nullptr);
 	}
 
@@ -151,8 +193,7 @@ private:
 		RECT rc;
 		GetWindowRect(GetDlgItem(m_hWnd, IDC_SYNC_EVENTS), &rc);
 		POINT point{ rc.left, rc.bottom };
-		HMENU hPopup = LoadMenu(GetModuleHandle(L"WinWebDiffLib.dll"), MAKEINTRESOURCE(IDR_POPUP_WEBPAGE_SYNC_EVENTS));
-		HMENU hSubMenu = GetSubMenu(hPopup, 0);
+		HMENU hSubMenu = GetSubMenu(m_hEventSyncPopup, 0);
 		CheckMenuItem(hSubMenu, ID_WEB_SYNC_ENABLED, m_pWebDiffWindow->GetSyncEvents() ? MF_CHECKED : MF_UNCHECKED);
 		CheckMenuItem(hSubMenu, ID_WEB_SYNC_SCROLL, m_pWebDiffWindow->GetSyncEventFlag(IWebDiffWindow::EVENT_SCROLL) ? MF_CHECKED : MF_UNCHECKED);
 		CheckMenuItem(hSubMenu, ID_WEB_SYNC_CLICK, m_pWebDiffWindow->GetSyncEventFlag(IWebDiffWindow::EVENT_CLICK) ? MF_CHECKED : MF_UNCHECKED);
@@ -224,6 +265,7 @@ private:
 		case IDC_SYNC_EVENTS:
 			if (codeNotify == BN_CLICKED)
 				ShowSyncEventsPopupMenu();
+			break;
 		case ID_WEB_SYNC_ENABLED:
 			m_pWebDiffWindow->SetSyncEvents(!m_pWebDiffWindow->GetSyncEvents());
 			break;
@@ -381,7 +423,7 @@ private:
 
 	HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void** ppvObject) override { return E_NOTIMPL; }
 	ULONG STDMETHODCALLTYPE AddRef(void) override { return ++m_nRef; }
-	ULONG STDMETHODCALLTYPE Release(void) override { if (--m_nRef == 0) { delete this; return 0; } return m_nRef; }
+	ULONG STDMETHODCALLTYPE Release(void) override { if (--m_nRef == 0) { return 0; } return m_nRef; }
 
 	HRESULT Invoke(const WebDiffEvent& event)
 	{
@@ -396,8 +438,10 @@ private:
 
 	HWND m_hWnd;
 	HINSTANCE m_hInstance;
+	HMENU m_hComparePopup;
+	HMENU m_hEventSyncPopup;
 	IWebDiffWindow *m_pWebDiffWindow;
 	bool m_bInSync;
-	int m_nRef = 0;
+	int m_nRef;
 	
 };
