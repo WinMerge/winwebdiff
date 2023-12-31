@@ -115,6 +115,22 @@ struct IWebDiffWindow
 		COLORREF	clrSelWordDiffText;	/**< Selected word difference text color */
 	};
 
+	struct Rect
+	{
+		int id;
+		float left;
+		float top;
+		float width;
+		float height;
+	};
+	struct ContainerRect : public Rect
+	{
+	};
+	struct DiffRect : public Rect
+	{
+		int containerId;
+	};
+
 	virtual bool IsWebView2Installed() const = 0;
 	virtual bool DownloadWebView2() const = 0;
 	virtual void AddEventListener(IWebDiffEventHandler *handler) = 0;
@@ -192,6 +208,8 @@ struct IWebDiffWindow
 	virtual void SetSyncEventFlag(EventType event, bool flag) = 0;
 	virtual CompareState GetCompareState() const = 0;
 	virtual void RaiseEvent(const WebDiffEvent& e) = 0;
+	virtual const DiffRect* GetDiffRectArray(int& count) = 0;
+	virtual const ContainerRect* GetContainerRectArray(int& count) = 0;
 };
 
 struct IWebToolWindow

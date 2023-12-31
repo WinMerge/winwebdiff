@@ -199,9 +199,11 @@ public:
 										if (m_bSynchronizeEvents && GetSyncEventFlag(EVENT_INPUT))
 											syncEvent(ev.pane, msg);
 									}
-									else if (event == L"diffPositions")
+									else if (event == L"diffRects")
 									{
-										int a = 0;
+										auto result = Highlighter::readDiffRects(doc);
+										m_containerRects[ev.pane] = result.first;
+										m_diffRects[ev.pane] = result.second;
 									}
 /*
 									else if (event == L"submit")
@@ -805,6 +807,16 @@ public:
 	{
 		for (const auto& listener : m_listeners)
 			listener->Invoke(e);
+	}
+
+	const DiffRect* GetDiffRectArray(int& count) override
+	{
+		return nullptr;
+	}
+
+	const ContainerRect* GetContainerRectArray(int& count) override
+	{
+		return nullptr;
 	}
 
 private:
@@ -1488,6 +1500,8 @@ private:
 	std::vector<ComPtr<IWebDiffEventHandler>> m_listeners;
 	int m_currentDiffIndex = -1;
 	std::vector<DiffInfo> m_diffInfos;
+	std::vector<DiffRect> m_diffRects[3];
+	std::vector<ContainerRect> m_containerRects[3];
 	DiffOptions m_diffOptions{};
 	bool m_bShowDifferences = true;
 	bool m_bShowWordDifferences = true;

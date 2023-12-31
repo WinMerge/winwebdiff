@@ -1050,6 +1050,34 @@ public:
 		return styles;
 	}
 
+	static std::pair<std::vector<IWebDiffWindow::ContainerRect>, std::vector<IWebDiffWindow::DiffRect>>
+		readDiffRects(const WDocument& doc)
+	{
+		std::vector<IWebDiffWindow::ContainerRect> containerRects;
+		std::vector<IWebDiffWindow::DiffRect> diffRects;
+		for (const auto& value : doc[L"diffRects"].GetArray())
+		{
+			IWebDiffWindow::DiffRect rect;
+			rect.id = value[L"id"].GetInt();
+			rect.left = value[L"left"].GetFloat();
+			rect.top = value[L"top"].GetFloat();
+			rect.width = value[L"width"].GetFloat();
+			rect.height = value[L"height"].GetFloat();
+			diffRects.push_back(rect);
+		}
+		for (const auto& value : doc[L"containerRects"].GetArray())
+		{
+			IWebDiffWindow::ContainerRect rect;
+			rect.id = value[L"id"].GetInt();
+			rect.left = value[L"left"].GetFloat();
+			rect.top = value[L"top"].GetFloat();
+			rect.width = value[L"width"].GetFloat();
+			rect.height = value[L"height"].GetFloat();
+			containerRects.push_back(rect);
+		}
+		return std::make_pair(containerRects, diffRects);
+	}
+
 private:
 	static void appendAttributes(WValue& attributes, const std::wstring& className, size_t diffIndex, WDocument::AllocatorType& allocator)
 	{
