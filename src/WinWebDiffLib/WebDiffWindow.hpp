@@ -3,6 +3,7 @@
 #include "WinWebDiffLib.h"
 #include "WebWindow.hpp"
 #include "DiffHighlighter.hpp"
+#include "DiffLocation.hpp"
 #include <shellapi.h>
 #include <wil/win32_helpers.h>
 
@@ -178,6 +179,7 @@ public:
 									WDocument doc;
 									doc.Parse(msg.c_str());
 									std::wstring event = doc.HasMember(L"event") ? doc[L"event"].GetString() : L"";
+									std::wstring window = doc.HasMember(L"window") ? doc[L"window"].GetString() : L"";
 									if (event == L"dblclick")
 									{
 										const int diffIndex = doc[L"wwdid"].GetInt();
@@ -201,22 +203,8 @@ public:
 									}
 									else if (event == L"diffRects")
 									{
-										auto result = Highlighter::readDiffRects(doc);
-										m_containerRects[ev.pane] = result.first;
-										m_diffRects[ev.pane] = result.second;
+										m_diffLocation.read(ev.pane, doc);
 									}
-/*
-									else if (event == L"submit")
-									{
-										if (m_bSynchronizeEvents && GetSyncEventFlag(EVENT_CLICK))
-											syncEvent(ev.pane, msg);
-									}
-									else if (event == L"keydown")
-									{
-										if (m_bSynchronizeEvents && GetSyncEventFlag(EVENT_INPUT))
-											syncEvent(ev.pane, msg);
-									}
-*/
 								}
 								for (const auto& listener : m_listeners)
 									listener->Invoke(ev);
@@ -579,6 +567,15 @@ public:
 			WebDiffEvent ev{ WebDiffEvent::CompareStateChanged, -1 };
 			for (const auto& listener : m_listeners)
 				listener->Invoke(ev);
+			if (compareState == CompareState::COMPARED || compareState == CompareState::NOT_COMPARED)
+			{
+				m_diffLocation.clear();
+			}
+			if (compareState == CompareState::COMPARED)
+			{
+				for (int pane = 0; pane < m_nPanes; ++pane)
+					m_webWindow[pane].PostWebMessageAsJsonInAllFrames(L"{\"event\": \"diffRects\"}");
+			}
 		}
 	}
 
@@ -809,12 +806,12 @@ public:
 			listener->Invoke(e);
 	}
 
-	const DiffRect* GetDiffRectArray(int& count) override
+	const DiffRect* GetDiffRectArray(int pane, int& count) override
 	{
-		return nullptr;
+		return m_diffLocation.GetDiffRectArray(pane, count);;
 	}
 
-	const ContainerRect* GetContainerRectArray(int& count) override
+	const ContainerRect* GetContainerRectArray(int pane, int& count) override
 	{
 		return nullptr;
 	}
@@ -1500,8 +1497,7 @@ private:
 	std::vector<ComPtr<IWebDiffEventHandler>> m_listeners;
 	int m_currentDiffIndex = -1;
 	std::vector<DiffInfo> m_diffInfos;
-	std::vector<DiffRect> m_diffRects[3];
-	std::vector<ContainerRect> m_containerRects[3];
+	DiffLocation m_diffLocation;
 	DiffOptions m_diffOptions{};
 	bool m_bShowDifferences = true;
 	bool m_bShowWordDifferences = true;
