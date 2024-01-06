@@ -57,11 +57,61 @@ public:
 
 	IWebDiffWindow::DiffRect* GetDiffRectArray(int pane, int& count)
 	{
+		m_diffRectsSerialized[pane].clear();
+		for (const auto& pair: m_diffRects[pane])
+		{
+			const auto& key = pair.first;
+			for (const auto& diffRect : pair.second)
+			{
+				const auto& containerRect = m_containerRects[pane][key][diffRect.containerId];
+				IWebDiffWindow::DiffRect rect;
+				rect.id = diffRect.id;
+				rect.containerId = diffRect.containerId;
+				rect.left = diffRect.left + containerRect.scrollLeft;
+				rect.top = diffRect.top + containerRect.scrollTop; 
+				rect.width = diffRect.width;
+				rect.height = diffRect.height;
+				m_diffRectsSerialized[pane].push_back(rect);
+			}
+		}
 		count = static_cast<int>(m_diffRectsSerialized[pane].size());
 		return m_diffRectsSerialized[pane].data();
+	}
+
+	IWebDiffWindow::ContainerRect* GetContainerRectArray(int pane, int& count)
+	{
+		m_containerRectsSerialized[pane].clear();
+		for (const auto& pair: m_containerRects[pane])
+		{
+			const auto& key = pair.first;
+			for (const auto& containerRect : pair.second)
+			{
+				IWebDiffWindow::ContainerRect rect;
+				rect.id = containerRect.id;
+				rect.containerId = containerRect.containerId;
+				rect.left = containerRect.left;
+				rect.top = containerRect.top;
+				if (containerRect.containerId != -1)
+				{
+					const auto& containerContainerRect = m_containerRects[pane][key][containerRect.containerId];
+					rect.left += containerContainerRect.scrollLeft;
+					rect.top += containerContainerRect.scrollTop;
+				}
+				rect.width = containerRect.width;
+				rect.height = containerRect.height;
+				rect.scrollLeft = containerRect.scrollLeft;
+				rect.scrollTop = containerRect.scrollTop;
+				rect.scrollWidth = containerRect.scrollWidth;
+				rect.scrollHeight = containerRect.scrollHeight;
+				m_containerRectsSerialized[pane].push_back(rect);
+			}
+		}
+		count = static_cast<int>(m_containerRectsSerialized[pane].size());
+		return m_containerRectsSerialized[pane].data();
 	}
 
 	std::map<std::wstring, std::vector<IWebDiffWindow::DiffRect>> m_diffRects[3];
 	std::map<std::wstring, std::vector<IWebDiffWindow::ContainerRect>> m_containerRects[3];
 	std::vector<IWebDiffWindow::DiffRect> m_diffRectsSerialized[3];
+	std::vector<IWebDiffWindow::ContainerRect> m_containerRectsSerialized[3];
 };

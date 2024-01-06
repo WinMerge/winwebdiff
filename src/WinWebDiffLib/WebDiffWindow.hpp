@@ -808,12 +808,12 @@ public:
 
 	const DiffRect* GetDiffRectArray(int pane, int& count) override
 	{
-		return m_diffLocation.GetDiffRectArray(pane, count);;
+		return m_diffLocation.GetDiffRectArray(pane, count);
 	}
 
 	const ContainerRect* GetContainerRectArray(int pane, int& count) override
 	{
-		return nullptr;
+		return m_diffLocation.GetContainerRectArray(pane, count);
 	}
 
 private:
