@@ -39,6 +39,8 @@ public:
 			rect.scrollTop = value[L"scrollTop"].GetFloat();
 			rect.scrollWidth = value[L"scrollWidth"].GetFloat();
 			rect.scrollHeight = value[L"scrollHeight"].GetFloat();
+			rect.clientWidth = value[L"clientWidth"].GetFloat();
+			rect.clientHeight = value[L"clientHeight"].GetFloat();
 			containerRects.push_back(rect);
 		}
 		m_diffRects[pane].insert_or_assign(window, diffRects);
@@ -103,6 +105,8 @@ public:
 				rect.scrollTop = containerRect.scrollTop;
 				rect.scrollWidth = containerRect.scrollWidth;
 				rect.scrollHeight = containerRect.scrollHeight;
+				rect.clientWidth = containerRect.clientWidth;
+				rect.clientHeight = containerRect.clientHeight;
 				m_containerRectsSerialized[pane].push_back(rect);
 			}
 		}

@@ -301,6 +301,22 @@ private:
 		case ID_WEB_COMPARE_RESOURCETREES:
 			m_pWebDiffWindow->RaiseEvent({ WebDiffEvent::CompareResourceTreesSelected, -1 });
 			break;
+		case IDC_DIFFMAP:
+			if (codeNotify == STN_CLICKED)
+			{
+				POINT pt;
+				GetCursorPos(&pt);
+				ScreenToClient(hwndCtl, &pt);
+				RECT rc;
+				GetClientRect(hwndCtl, &rc);
+				/*
+				m_pWebDiffWindow->ScrollTo(
+					pt.x * pImgMergeWindow->GetDiffImageWidth() / rc.right,
+					pt.y * pImgMergeWindow->GetDiffImageHeight() / rc.bottom,
+					true);
+					*/
+			}
+			break;
 		}
 	}
 
@@ -414,16 +430,16 @@ private:
 			}
 		}
 		const int margin = 2;
-		double ratiox = static_cast<double>(width - margin * paneCount) / (maxPaneWidth * paneCount);
-		double ratioy = static_cast<double>(height) / maxPaneHeight;
+		double ratiox = static_cast<double>(width - margin * (paneCount * 2)) / (maxPaneWidth * paneCount);
+		double ratioy = static_cast<double>(height - margin * 2) / maxPaneHeight;
 		auto getContainerRect = [&](int pane, int i) -> RECT {
 			RECT rc;
 			if (i == 0)
 			{
 				rc.left = left + margin + width * pane / paneCount;
 				rc.top = top + margin;
-				rc.right = rc.left - margin + static_cast<int>(containerRects[pane][i].scrollWidth * ratiox);
-				rc.bottom = rc.top - margin + static_cast<int>(containerRects[pane][i].scrollHeight * ratioy);
+				rc.right = rc.left + static_cast<int>(containerRects[pane][i].scrollWidth * ratiox);
+				rc.bottom = rc.top + static_cast<int>(containerRects[pane][i].scrollHeight * ratioy);
 			}
 			else
 			{
@@ -453,6 +469,17 @@ private:
 				const RECT rcContainer = getContainerRect(pane, i);
 				Rectangle(pDrawItem->hDC, rcContainer.left, rcContainer.top, rcContainer.right, rcContainer.bottom);
 			}
+
+			if (containerCounts[pane] > 0)
+			{
+				RECT rcContainer = getContainerRect(pane, 0);
+				rcContainer.left += static_cast<int>(containerRects[pane][0].scrollLeft * ratiox);
+				rcContainer.right = static_cast<int>(rcContainer.left + containerRects[pane][0].clientWidth * ratiox);
+				rcContainer.top += static_cast<int>(containerRects[pane][0].scrollTop * ratioy);
+				rcContainer.bottom = static_cast<int>(rcContainer.top + containerRects[pane][0].clientHeight * ratioy);
+				Rectangle(pDrawItem->hDC, rcContainer.left, rcContainer.top, rcContainer.right, rcContainer.bottom);
+			}
+
 			SelectBrush(pDrawItem->hDC, hOldBrush);
 		}
 	}

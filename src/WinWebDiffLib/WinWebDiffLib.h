@@ -130,6 +130,8 @@ struct IWebDiffWindow
 		float scrollTop;
 		float scrollWidth;
 		float scrollHeight;
+		float clientWidth;
+		float clientHeight;
 	};
 	struct DiffRect : public Rect
 	{

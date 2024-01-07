@@ -190,6 +190,8 @@ public:
 									{
 										if (m_bSynchronizeEvents && GetSyncEventFlag(EVENT_SCROLL))
 											syncEvent(ev.pane, msg);
+										for (int pane = 0; pane < m_nPanes; ++pane)
+											m_webWindow[pane].PostWebMessageAsJsonInAllFrames(L"{\"event\": \"diffRects\"}");
 									}
 									else if (event == L"click")
 									{
