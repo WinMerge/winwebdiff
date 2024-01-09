@@ -818,6 +818,11 @@ public:
 		return m_diffLocation.GetContainerRectArray(pane, count);
 	}
 
+	Rect GetVisibleAreaRect(int pane) override
+	{
+		return m_diffLocation.GetVisibleAreaRect(pane);
+	}
+
 private:
 
 	HRESULT getDocumentsLoop(std::shared_ptr<std::vector<std::wstring>> jsons, IWebDiffCallback* callback, int pane = 0)

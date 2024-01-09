@@ -45,6 +45,13 @@ public:
 		}
 		m_diffRects[pane].insert_or_assign(window, diffRects);
 		m_containerRects[pane].insert_or_assign(window, containerRects);
+		if (window == L"")
+		{
+			m_scrollX[pane] = doc[L"scrollX"].GetFloat();
+			m_scrollY[pane] = doc[L"scrollY"].GetFloat();
+			m_innerWidth[pane] = doc[L"innerWidth"].GetFloat();
+			m_innerHeight[pane] = doc[L"innerHeight"].GetFloat();
+		}
 	}
 
 	void clear()
@@ -54,6 +61,11 @@ public:
 			m_diffRects[pane].clear();
 			m_containerRects[pane].clear();
 			m_diffRectsSerialized[pane].clear();
+			m_containerRectsSerialized[pane].clear();
+			m_scrollX[pane] = 0.0f;
+			m_scrollY[pane] = 0.0f;
+			m_innerWidth[pane] = 0.0f;
+			m_innerHeight[pane] = 0.0f;
 		}
 	}
 
@@ -65,12 +77,11 @@ public:
 			const auto& key = pair.first;
 			for (const auto& diffRect : pair.second)
 			{
-				const auto& containerRect = m_containerRects[pane][key][diffRect.containerId];
 				IWebDiffWindow::DiffRect rect;
 				rect.id = diffRect.id;
 				rect.containerId = diffRect.containerId;
-				rect.left = diffRect.left + containerRect.scrollLeft;
-				rect.top = diffRect.top + containerRect.scrollTop; 
+				rect.left = diffRect.left + m_scrollX[pane];
+				rect.top = diffRect.top + m_scrollY[pane]; 
 				rect.width = diffRect.width;
 				rect.height = diffRect.height;
 				m_diffRectsSerialized[pane].push_back(rect);
@@ -91,14 +102,8 @@ public:
 				IWebDiffWindow::ContainerRect rect;
 				rect.id = containerRect.id;
 				rect.containerId = containerRect.containerId;
-				rect.left = containerRect.left;
-				rect.top = containerRect.top;
-				if (containerRect.containerId != -1)
-				{
-					const auto& containerContainerRect = m_containerRects[pane][key][containerRect.containerId];
-					rect.left += containerContainerRect.scrollLeft;
-					rect.top += containerContainerRect.scrollTop;
-				}
+				rect.left = containerRect.left + m_scrollX[pane];
+				rect.top = containerRect.top + m_scrollY[pane];
 				rect.width = containerRect.width;
 				rect.height = containerRect.height;
 				rect.scrollLeft = containerRect.scrollLeft;
@@ -114,8 +119,17 @@ public:
 		return m_containerRectsSerialized[pane].data();
 	}
 
+	IWebDiffWindow::Rect GetVisibleAreaRect(int pane)
+	{
+		return { m_scrollX[pane], m_scrollY[pane], m_innerWidth[pane], m_innerHeight[pane] };
+	}
+
 	std::map<std::wstring, std::vector<IWebDiffWindow::DiffRect>> m_diffRects[3];
 	std::map<std::wstring, std::vector<IWebDiffWindow::ContainerRect>> m_containerRects[3];
 	std::vector<IWebDiffWindow::DiffRect> m_diffRectsSerialized[3];
 	std::vector<IWebDiffWindow::ContainerRect> m_containerRectsSerialized[3];
+	float m_scrollX[3] = { 0.0f, 0.0f, 0.0f };
+	float m_scrollY[3] = { 0.0f, 0.0f, 0.0f };
+	float m_innerWidth[3] = { 0.0f, 0.0f, 0.0f };
+	float m_innerHeight[3] = { 0.0f, 0.0f, 0.0f };
 };

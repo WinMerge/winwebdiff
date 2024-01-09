@@ -473,10 +473,12 @@ private:
 			if (containerCounts[pane] > 0)
 			{
 				RECT rcContainer = getContainerRect(pane, 0);
-				rcContainer.left += static_cast<int>(containerRects[pane][0].scrollLeft * ratiox);
-				rcContainer.right = static_cast<int>(rcContainer.left + containerRects[pane][0].clientWidth * ratiox);
-				rcContainer.top += static_cast<int>(containerRects[pane][0].scrollTop * ratioy);
-				rcContainer.bottom = static_cast<int>(rcContainer.top + containerRects[pane][0].clientHeight * ratioy);
+				auto visibleArea = m_pWebDiffWindow->GetVisibleAreaRect(pane);
+
+				rcContainer.left += static_cast<int>(visibleArea.left * ratiox);
+				rcContainer.right = static_cast<int>(rcContainer.left + visibleArea.width * ratiox);
+				rcContainer.top += static_cast<int>(visibleArea.top * ratioy);
+				rcContainer.bottom = static_cast<int>(rcContainer.top + visibleArea.height * ratioy);
 				Rectangle(pDrawItem->hDC, rcContainer.left, rcContainer.top, rcContainer.right, rcContainer.bottom);
 			}
 

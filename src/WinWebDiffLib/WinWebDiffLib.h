@@ -117,8 +117,6 @@ struct IWebDiffWindow
 
 	struct Rect
 	{
-		int id;
-		int containerId;
 		float left;
 		float top;
 		float width;
@@ -126,6 +124,8 @@ struct IWebDiffWindow
 	};
 	struct ContainerRect : public Rect
 	{
+		int id;
+		int containerId;
 		float scrollLeft;
 		float scrollTop;
 		float scrollWidth;
@@ -135,6 +135,8 @@ struct IWebDiffWindow
 	};
 	struct DiffRect : public Rect
 	{
+		int id;
+		int containerId;
 	};
 
 	virtual bool IsWebView2Installed() const = 0;
@@ -216,6 +218,7 @@ struct IWebDiffWindow
 	virtual void RaiseEvent(const WebDiffEvent& e) = 0;
 	virtual const DiffRect* GetDiffRectArray(int pane, int& count) = 0;
 	virtual const ContainerRect* GetContainerRectArray(int pane, int& count) = 0;
+	virtual Rect GetVisibleAreaRect(int pane) = 0;
 };
 
 struct IWebToolWindow
