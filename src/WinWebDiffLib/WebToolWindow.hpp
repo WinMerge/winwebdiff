@@ -455,7 +455,7 @@ private:
 		{
 			for (int i = 0; i < counts[pane]; ++i)
 			{
-				const RECT rcContainer = getContainerRect(pane, rects[pane][i].containerId);
+				const RECT rcContainer = getContainerRect(pane, 0);
 				const int diffLeft = rcContainer.left + static_cast<int>(rects[pane][i].left * ratiox);
 				const int diffTop = rcContainer.top + static_cast<int>(rects[pane][i].top * ratioy);
 				const int diffRight = rcContainer.left + static_cast<int>((rects[pane][i].left + rects[pane][i].width) * ratiox);

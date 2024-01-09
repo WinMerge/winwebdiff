@@ -810,17 +810,17 @@ public:
 
 	const DiffRect* GetDiffRectArray(int pane, int& count) override
 	{
-		return m_diffLocation.GetDiffRectArray(pane, count);
+		return m_diffLocation.getDiffRectArray(pane, count);
 	}
 
 	const ContainerRect* GetContainerRectArray(int pane, int& count) override
 	{
-		return m_diffLocation.GetContainerRectArray(pane, count);
+		return m_diffLocation.getContainerRectArray(pane, count);
 	}
 
 	Rect GetVisibleAreaRect(int pane) override
 	{
-		return m_diffLocation.GetVisibleAreaRect(pane);
+		return m_diffLocation.getVisibleAreaRect(pane);
 	}
 
 private:
