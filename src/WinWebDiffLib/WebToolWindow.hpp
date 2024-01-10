@@ -6,6 +6,7 @@
 #include "resource.h"
 
 #pragma once
+#pragma comment(lib, "msimg32.lib")
 
 class CWebToolWindow : public IWebToolWindow, IWebDiffEventHandler
 {
@@ -394,8 +395,28 @@ private:
 
 	void FillSolidRect(HDC hdc, const RECT& rc, COLORREF clr)
 	{
-		::SetBkColor(hdc, clr);
-		::ExtTextOut(hdc, 0, 0, ETO_OPAQUE, &rc, nullptr, 0, nullptr);
+		SetBkColor(hdc, clr);
+		ExtTextOut(hdc, 0, 0, ETO_OPAQUE, &rc, nullptr, 0, nullptr);
+	}
+
+	void DrawTransparentRectangle(HDC hdc, int left, int top, int right, int bottom, COLORREF clr, BYTE alpha) {
+		int width = right - left;
+		int height = bottom - top;
+		HDC hdcMem = CreateCompatibleDC(hdc);
+		HBITMAP hBitmap = CreateCompatibleBitmap(hdc, width, height);
+		SelectObject(hdcMem, hBitmap);
+
+		RECT rect = { 0, 0, width, height };
+		FillSolidRect(hdcMem, rect, clr);
+
+		BLENDFUNCTION blendFunc{};
+		blendFunc.BlendOp = AC_SRC_OVER;
+		blendFunc.SourceConstantAlpha = alpha;
+
+		AlphaBlend(hdc, left, top, width, height, hdcMem, 0, 0, width, height, blendFunc);
+
+		DeleteDC(hdcMem);
+		DeleteObject(hBitmap);
 	}
 
 	void OnDrawItem(HWND hwnd, const DRAWITEMSTRUCT *pDrawItem)
@@ -479,7 +500,9 @@ private:
 				rcContainer.right = static_cast<int>(rcContainer.left + visibleArea.width * ratiox);
 				rcContainer.top += static_cast<int>(visibleArea.top * ratioy);
 				rcContainer.bottom = static_cast<int>(rcContainer.top + visibleArea.height * ratioy);
-				Rectangle(pDrawItem->hDC, rcContainer.left, rcContainer.top, rcContainer.right, rcContainer.bottom);
+				DrawTransparentRectangle(pDrawItem->hDC, 
+					rcContainer.left, rcContainer.top, rcContainer.right, rcContainer.bottom,
+					RGB(96, 96, 255), 64);
 			}
 
 			SelectBrush(pDrawItem->hDC, hOldBrush);
