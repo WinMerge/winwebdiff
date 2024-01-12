@@ -11,6 +11,8 @@
 class CWebToolWindow : public IWebToolWindow, IWebDiffEventHandler
 {
 public:
+	const int MARGIN = 2;
+
 	CWebToolWindow() :
 		  m_hWnd(nullptr)
 		, m_hInstance(nullptr)
@@ -69,36 +71,6 @@ public:
 		SetDlgItemText(m_hWnd, IDC_ZOOM, zoomstr);
 		EnableWindow(GetDlgItem(m_hWnd, IDC_WIDTH), !m_pWebDiffWindow->GetFitToWindow());
 		EnableWindow(GetDlgItem(m_hWnd, IDC_HEIGHT), !m_pWebDiffWindow->GetFitToWindow());
-
-		/*
-		int w = static_cast<CWebDiffWindow *>(m_pWebDiffWindow)->GetDiffImageWidth();
-		int h = static_cast<CWebDiffWindow *>(m_pWebDiffWindow)->GetDiffImageHeight();
-
-		RECT rc;
-		GetClientRect(m_hWnd, &rc);
-		int cx = rc.right - rc.left;
-		int cy = rc.bottom - rc.top;
-
-		RECT rcTmp;
-		HWND hwndDiffMap = GetDlgItem(m_hWnd, IDC_DIFFMAP);
-		GetWindowRect(hwndDiffMap, &rcTmp);
-		POINT pt = { rcTmp.left, rcTmp.top };
-		ScreenToClient(m_hWnd, &pt);
-		int mw = 0;
-		int mh = 0;
-		if (w > 0 && h > 0)
-		{
-			mh = h * (cx - 8) / w;
-			if (mh + pt.y > cy - 8)
-				mh = cy - 8 - pt.y;
-			mw = mh * w / h;
-		}
-		RECT rcDiffMap = { (cx - mw) / 2, pt.y, (cx + mw) / 2, pt.y + mh };
-		SetWindowPos(hwndDiffMap, NULL, rcDiffMap.left, rcDiffMap.top, 
-			rcDiffMap.right - rcDiffMap.left, rcDiffMap.bottom - rcDiffMap.top, SWP_NOZORDER);
-
-		InvalidateRect(GetDlgItem(m_hWnd, IDC_DIFFMAP), NULL, TRUE);
-		*/
 
 		m_bInSync = false;
 	}
@@ -208,6 +180,30 @@ private:
 		TrackPopupMenu(hSubMenu, TPM_LEFTALIGN | TPM_RIGHTBUTTON, point.x, point.y, 0, m_hWnd, nullptr);
 	}
 
+	void OnClickDiffMap(HWND hwndDiffMap)
+	{
+		POINT pt;
+		GetCursorPos(&pt);
+		ScreenToClient(hwndDiffMap, &pt);
+		RECT rc;
+		GetClientRect(hwndDiffMap, &rc);
+		const int paneCount = m_pWebDiffWindow->GetPaneCount();
+
+		auto [scaleX, scaleY] = CalcScalingFactor(rc);
+		for (int pane = 0; pane < paneCount; ++pane)
+		{
+			RECT rcContainer = GetContainerRect(pane, 0, rc, scaleX, scaleY);
+			if (pt.x < rcContainer.right)
+			{
+				auto visibleArea = static_cast<CWebDiffWindow*>(m_pWebDiffWindow)->GetVisibleAreaRect(pane);
+				const float scrollX = std::clamp(static_cast<float>((pt.x - rcContainer.left) / scaleX - visibleArea.width / 2), 0.0f, FLT_MAX);
+				const float scrollY = std::clamp(static_cast<float>((pt.y - rcContainer.top) / scaleY - visibleArea.height / 2), 0.0f, FLT_MAX);
+				static_cast<CWebDiffWindow*>(m_pWebDiffWindow)->ScrollTo(pane, scrollX, scrollY);
+				break;
+			}
+		}
+	}
+
 	void OnCommand(HWND hwnd, int id, HWND hwndCtl, UINT codeNotify)
 	{
 		if (m_bInSync)
@@ -305,17 +301,7 @@ private:
 		case IDC_DIFFMAP:
 			if (codeNotify == STN_CLICKED)
 			{
-				POINT pt;
-				GetCursorPos(&pt);
-				ScreenToClient(hwndCtl, &pt);
-				RECT rc;
-				GetClientRect(hwndCtl, &rc);
-				/*
-				m_pWebDiffWindow->ScrollTo(
-					pt.x * pImgMergeWindow->GetDiffImageWidth() / rc.right,
-					pt.y * pImgMergeWindow->GetDiffImageHeight() / rc.bottom,
-					true);
-					*/
+				OnClickDiffMap(hwndCtl);
 			}
 			break;
 		}
@@ -419,91 +405,113 @@ private:
 		DeleteObject(hBitmap);
 	}
 
+	std::pair<double, double> CalcScalingFactor(const RECT& rc) const
+	{
+		float maxPaneWidth = 0, maxPaneHeight = 0;
+		const int width = rc.right - rc.left;
+		const int height = rc.bottom - rc.top;
+		const int paneCount = m_pWebDiffWindow->GetPaneCount(); 
+		for (int pane = 0; pane < paneCount; ++pane)
+		{
+			if (!m_containerRects[pane].empty())
+			{
+				if (maxPaneWidth < m_containerRects[pane][0].scrollWidth)
+					maxPaneWidth = m_containerRects[pane][0].scrollWidth;
+				if (maxPaneHeight < m_containerRects[pane][0].scrollHeight)
+					maxPaneHeight = m_containerRects[pane][0].scrollHeight;
+			}
+		}
+		double scaleX = static_cast<double>(width - MARGIN * (paneCount * 2)) / (maxPaneWidth * paneCount);
+		double scaleY = static_cast<double>(height - MARGIN * 2) / maxPaneHeight;
+		return { scaleX, scaleY };
+	}
+
+	RECT GetContainerRect(int pane, int i, const RECT& rcDiffMap, double scaleX, double scaleY) const
+	{
+		RECT rc{};
+		if (m_containerRects[pane].empty())
+			return rc;
+		const int left = rcDiffMap.left;
+		const int top = rcDiffMap.top;
+		const int width = rcDiffMap.right - rcDiffMap.left;
+		const int height = rcDiffMap.bottom - rcDiffMap.top;
+		const int paneCount = m_pWebDiffWindow->GetPaneCount(); 
+		if (i == 0)
+		{
+			rc.left = left + MARGIN + width * pane / paneCount;
+			rc.top = top + MARGIN;
+			rc.right = rc.left + static_cast<int>(m_containerRects[pane][i].scrollWidth * scaleX);
+			rc.bottom = rc.top + static_cast<int>(m_containerRects[pane][i].scrollHeight * scaleY);
+		}
+		else
+		{
+			rc.left = left + MARGIN + width * pane / paneCount + static_cast<int>(m_containerRects[pane][i].left * scaleX);
+			rc.top = top + MARGIN + static_cast<int>(m_containerRects[pane][i].top * scaleY);
+			rc.right = rc.left - MARGIN + static_cast<int>(m_containerRects[pane][i].width * scaleX);
+			rc.bottom = rc.top - MARGIN + static_cast<int>(m_containerRects[pane][i].height * scaleY);
+		}
+		return rc;
+	};
+
 	void OnDrawItem(HWND hwnd, const DRAWITEMSTRUCT *pDrawItem)
 	{
-		if (!m_pWebDiffWindow || m_pWebDiffWindow->GetPaneCount() == 0)
+		const int paneCount = m_pWebDiffWindow->GetPaneCount(); 
+		if (!m_pWebDiffWindow || paneCount == 0)
 			return;
+		for (int pane = 0; pane < paneCount; ++pane)
+		{
+			m_containerRects[pane] = static_cast<CWebDiffWindow*>(m_pWebDiffWindow)->GetContainerRectArray(pane);
+			m_rects[pane] = static_cast<CWebDiffWindow*>(m_pWebDiffWindow)->GetDiffRectArray(pane);
+		}
+		for (int pane = 0; pane < paneCount; ++pane)
+		{
+			if (m_containerRects[pane].size() == 0)
+				return;
+		}
+
 		IWebDiffWindow::ColorSettings colors;
 		m_pWebDiffWindow->GetDiffColorSettings(colors);
 		RECT rc;
 		GetClientRect(pDrawItem->hwndItem, &rc);
-		FillSolidRect(pDrawItem->hDC, { 0, 0, rc.right, rc.bottom }, RGB(255, 255, 255));
-		const int left = rc.left;
-		const int top = rc.top;
-		const int width = rc.right - rc.left;
-		const int height = rc.bottom - rc.top;
+		auto [scaleX, scaleY] = CalcScalingFactor(rc);
 
-		const IWebDiffWindow::ContainerRect* containerRects[3];
-		const IWebDiffWindow::DiffRect* rects[3];
-		int counts[3], containerCounts[3];
-		float maxPaneWidth = 0, maxPaneHeight = 0;
-		const int paneCount = m_pWebDiffWindow->GetPaneCount(); 
-		for (int pane = 0; pane < paneCount; ++pane)
-		{
-			containerRects[pane] = m_pWebDiffWindow->GetContainerRectArray(pane, containerCounts[pane]);
-			rects[pane] = m_pWebDiffWindow->GetDiffRectArray(pane, counts[pane]);
-			if (containerCounts[pane] > 0)
-			{
-				if (maxPaneWidth < containerRects[pane][0].scrollWidth)
-					maxPaneWidth = containerRects[pane][0].scrollWidth;
-				if (maxPaneHeight < containerRects[pane][0].scrollHeight)
-					maxPaneHeight = containerRects[pane][0].scrollHeight;
-			}
-		}
-		const int margin = 2;
-		double ratiox = static_cast<double>(width - margin * (paneCount * 2)) / (maxPaneWidth * paneCount);
-		double ratioy = static_cast<double>(height - margin * 2) / maxPaneHeight;
-		auto getContainerRect = [&](int pane, int i) -> RECT {
-			RECT rc;
-			if (i == 0)
-			{
-				rc.left = left + margin + width * pane / paneCount;
-				rc.top = top + margin;
-				rc.right = rc.left + static_cast<int>(containerRects[pane][i].scrollWidth * ratiox);
-				rc.bottom = rc.top + static_cast<int>(containerRects[pane][i].scrollHeight * ratioy);
-			}
-			else
-			{
-				rc.left = left + margin + width * pane / paneCount + static_cast<int>(containerRects[pane][i].left * ratiox);
-				rc.top = top + margin + static_cast<int>(containerRects[pane][i].top * ratioy);
-				rc.right = rc.left - margin + static_cast<int>(containerRects[pane][i].width * ratiox);
-				rc.bottom = rc.top - margin + static_cast<int>(containerRects[pane][i].height * ratioy);
-			}
-			return rc;
-		};
+		FillSolidRect(pDrawItem->hDC, { 0, 0, rc.right, rc.bottom }, RGB(255, 255, 255));
 		const int curDiff = m_pWebDiffWindow->GetCurrentDiffIndex();
 		for (int pane = 0; pane < paneCount; ++pane)
 		{
-			for (int i = 0; i < counts[pane]; ++i)
+			if (m_rects[pane].size() > 0)
 			{
-				const RECT rcContainer = getContainerRect(pane, 0);
-				const int diffLeft = rcContainer.left + static_cast<int>(rects[pane][i].left * ratiox);
-				const int diffTop = rcContainer.top + static_cast<int>(rects[pane][i].top * ratioy);
-				const int diffRight = rcContainer.left + static_cast<int>((rects[pane][i].left + rects[pane][i].width) * ratiox);
-				const int diffBottom = rcContainer.top + static_cast<int>((rects[pane][i].top + rects[pane][i].height) * ratioy);
-				const RECT rc = {diffLeft, diffTop, diffRight, diffBottom};
-				FillSolidRect(pDrawItem->hDC, rc, (curDiff == i) ? colors.clrSelDiff : colors.clrDiff);
+				const RECT rcContainer = GetContainerRect(pane, 0, rc, scaleX, scaleY);
+				for (int i = 0; i < m_rects[pane].size(); ++i)
+				{
+					if (m_rects[pane][i].left != -99999.9f || m_rects[pane][i].top != -99999.9f)
+					{
+						const int diffLeft = rcContainer.left + static_cast<int>(m_rects[pane][i].left * scaleX);
+						const int diffTop = rcContainer.top + static_cast<int>(m_rects[pane][i].top * scaleY);
+						const int diffRight = rcContainer.left + static_cast<int>((m_rects[pane][i].left + m_rects[pane][i].width) * scaleX);
+						const int diffBottom = rcContainer.top + static_cast<int>((m_rects[pane][i].top + m_rects[pane][i].height) * scaleY);
+						const RECT rc = { diffLeft, diffTop, diffRight, diffBottom };
+						FillSolidRect(pDrawItem->hDC, rc, (curDiff == i) ? colors.clrSelDiff : colors.clrDiff);
+					}
+				}
 			}
 			HBRUSH hOldBrush = SelectBrush(pDrawItem->hDC, GetStockBrush(NULL_BRUSH));
-			for (int i = 0; i < containerCounts[pane]; ++i)
+			for (int i = 0; i < m_containerRects[pane].size(); ++i)
 			{
-				const RECT rcContainer = getContainerRect(pane, i);
+				const RECT rcContainer = GetContainerRect(pane, i, rc, scaleX, scaleY);
 				Rectangle(pDrawItem->hDC, rcContainer.left, rcContainer.top, rcContainer.right, rcContainer.bottom);
 			}
 
-			if (containerCounts[pane] > 0)
-			{
-				RECT rcContainer = getContainerRect(pane, 0);
-				auto visibleArea = m_pWebDiffWindow->GetVisibleAreaRect(pane);
+			RECT rcContainer = GetContainerRect(pane, 0, rc, scaleX, scaleY);
+			auto visibleArea = static_cast<CWebDiffWindow*>(m_pWebDiffWindow)->GetVisibleAreaRect(pane);
 
-				rcContainer.left += static_cast<int>(visibleArea.left * ratiox);
-				rcContainer.right = static_cast<int>(rcContainer.left + visibleArea.width * ratiox);
-				rcContainer.top += static_cast<int>(visibleArea.top * ratioy);
-				rcContainer.bottom = static_cast<int>(rcContainer.top + visibleArea.height * ratioy);
-				DrawTransparentRectangle(pDrawItem->hDC, 
-					rcContainer.left, rcContainer.top, rcContainer.right, rcContainer.bottom,
-					RGB(96, 96, 255), 64);
-			}
+			rcContainer.left += static_cast<int>(visibleArea.left * scaleX);
+			rcContainer.right = static_cast<int>(rcContainer.left + visibleArea.width * scaleX);
+			rcContainer.top += static_cast<int>(visibleArea.top * scaleY);
+			rcContainer.bottom = static_cast<int>(rcContainer.top + visibleArea.height * scaleY);
+			DrawTransparentRectangle(pDrawItem->hDC, 
+				rcContainer.left, rcContainer.top, rcContainer.right, rcContainer.bottom,
+				RGB(96, 96, 255), 64);
 
 			SelectBrush(pDrawItem->hDC, hOldBrush);
 		}
@@ -568,6 +576,8 @@ private:
 	HMENU m_hComparePopup;
 	HMENU m_hEventSyncPopup;
 	IWebDiffWindow *m_pWebDiffWindow;
+	std::vector<DiffLocation::ContainerRect> m_containerRects[3];
+	std::vector<DiffLocation::DiffRect> m_rects[3];
 	bool m_bInSync;
 	int m_nRef;
 	

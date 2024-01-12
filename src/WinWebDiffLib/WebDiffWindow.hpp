@@ -205,7 +205,7 @@ public:
 									}
 									else if (event == L"diffRects")
 									{
-										m_diffLocation.read(ev.pane, doc);
+										m_diffLocation[ev.pane].read(doc);
 									}
 								}
 								for (const auto& listener : m_listeners)
@@ -571,7 +571,8 @@ public:
 				listener->Invoke(ev);
 			if (compareState == CompareState::COMPARED || compareState == CompareState::NOT_COMPARED)
 			{
-				m_diffLocation.clear();
+				if (ev.pane >= 0)
+					m_diffLocation[ev.pane].clear();
 			}
 			if (compareState == CompareState::COMPARED)
 			{
@@ -808,19 +809,25 @@ public:
 			listener->Invoke(e);
 	}
 
-	const DiffRect* GetDiffRectArray(int pane, int& count) override
+	std::vector<DiffLocation::DiffRect> GetDiffRectArray(int pane)
 	{
-		return m_diffLocation.getDiffRectArray(pane, count);
+		return m_diffLocation[pane].getDiffRectArray();
 	}
 
-	const ContainerRect* GetContainerRectArray(int pane, int& count) override
+	std::vector<DiffLocation::ContainerRect> GetContainerRectArray(int pane)
 	{
-		return m_diffLocation.getContainerRectArray(pane, count);
+		return m_diffLocation[pane].getContainerRectArray();
 	}
 
-	Rect GetVisibleAreaRect(int pane) override
+	DiffLocation::Rect GetVisibleAreaRect(int pane)
 	{
-		return m_diffLocation.getVisibleAreaRect(pane);
+		return m_diffLocation[pane].getVisibleAreaRect();
+	}
+
+	void ScrollTo(int pane, float scrollX, float scrollY)
+	{
+		std::wstring json = L"{\"event\": \"scrollTo\", \"window\": \"\", \"scrollX\": " + std::to_wstring(scrollX) + L", \"scrollY\": " + std::to_wstring(scrollY) + L"}";
+		m_webWindow[pane].PostWebMessageAsJsonInAllFrames(json.c_str());
 	}
 
 private:
@@ -1504,7 +1511,7 @@ private:
 	std::vector<ComPtr<IWebDiffEventHandler>> m_listeners;
 	int m_currentDiffIndex = -1;
 	std::vector<DiffInfo> m_diffInfos;
-	DiffLocation m_diffLocation;
+	DiffLocation m_diffLocation[3];
 	DiffOptions m_diffOptions{};
 	bool m_bShowDifferences = true;
 	bool m_bShowWordDifferences = true;
