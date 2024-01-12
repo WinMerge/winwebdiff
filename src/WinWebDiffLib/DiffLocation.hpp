@@ -66,6 +66,15 @@ public:
 			rect.clientHeight = value[L"clientHeight"].GetFloat();
 			containerRects.push_back(rect);
 		}
+		for (auto it = doc[L"frameRects"].MemberBegin(); it != doc[L"frameRects"].MemberEnd(); ++it)
+		{
+			Rect rect;
+			rect.left = it->value[L"left"].GetFloat();
+			rect.top = it->value[L"top"].GetFloat();
+			rect.width = it->value[L"width"].GetFloat();
+			rect.height = it->value[L"height"].GetFloat();
+			m_frameRects.insert_or_assign(it->name.GetString(), rect);
+		}
 		m_diffRects.insert_or_assign(window, diffRects);
 		m_containerRects.insert_or_assign(window, containerRects);
 		if (window == L"")
@@ -87,12 +96,25 @@ public:
 		m_clientHeight = 0.0f;
 	}
 
+	void calcGlobalPosition(Rect& rect, std::wstring window)
+	{
+		while (!window.empty())
+		{
+			rect.left += m_frameRects[window].left;
+			rect.top += m_frameRects[window].top;
+			size_t lastOpeningBracketPos = window.find_last_of('[');
+			if (lastOpeningBracketPos != std::string::npos) {
+				window = window.substr(0, lastOpeningBracketPos);
+			}
+		}
+	}
+
 	std::vector<DiffRect> getDiffRectArray()
 	{
 		std::vector<DiffRect> diffRectsSerialized;
 		for (const auto& pair: m_diffRects)
 		{
-			const auto& key = pair.first;
+			const auto& window = pair.first;
 			for (const auto& diffRect : pair.second)
 			{
 				DiffRect rect;
@@ -104,12 +126,14 @@ public:
 				rect.height = diffRect.height;
 				for (int containerId = diffRect.containerId; containerId != -1; )
 				{
-					const ContainerRect& containerRect = m_containerRects[key][containerId];
+					const ContainerRect& containerRect = m_containerRects[window][containerId];
 					clip(rect, containerRect);
 					containerId = containerRect.containerId;
 				}
 				rect.left += m_scrollX;
 				rect.top += m_scrollY; 
+				if (!window.empty())
+					calcGlobalPosition(rect, window);
 				diffRectsSerialized.push_back(rect);
 			}
 		}
@@ -121,7 +145,7 @@ public:
 		std::vector<ContainerRect> containerRectsSerialized;
 		for (const auto& pair: m_containerRects)
 		{
-			const auto& key = pair.first;
+			const auto& window = pair.first;
 			for (const auto& containerRect : pair.second)
 			{
 				ContainerRect rect;
@@ -137,6 +161,8 @@ public:
 				rect.scrollHeight = containerRect.scrollHeight;
 				rect.clientWidth = containerRect.clientWidth;
 				rect.clientHeight = containerRect.clientHeight;
+				if (!window.empty())
+					calcGlobalPosition(rect, window);
 				containerRectsSerialized.push_back(rect);
 			}
 		}
@@ -181,6 +207,7 @@ private:
 
 	std::map<std::wstring, std::vector<DiffRect>> m_diffRects;
 	std::map<std::wstring, std::vector<ContainerRect>> m_containerRects;
+	std::map<std::wstring, Rect> m_frameRects;
 	float m_scrollX = 0.0f;
 	float m_scrollY = 0.0f;
 	float m_clientWidth = 0.0f;
