@@ -453,8 +453,10 @@ private:
 		return rc;
 	};
 
-	void OnDrawItem(HWND hwnd, const DRAWITEMSTRUCT *pDrawItem)
+	void DrawDiffMap(HDC hdcMem, const RECT& rc)
 	{
+		FillSolidRect(hdcMem, { 0, 0, rc.right, rc.bottom }, RGB(255, 255, 255));
+
 		const int paneCount = m_pWebDiffWindow->GetPaneCount(); 
 		if (!m_pWebDiffWindow || paneCount == 0)
 			return;
@@ -471,15 +473,8 @@ private:
 
 		IWebDiffWindow::ColorSettings colors;
 		m_pWebDiffWindow->GetDiffColorSettings(colors);
-		RECT rc;
-		GetClientRect(pDrawItem->hwndItem, &rc);
 		auto [scaleX, scaleY] = CalcScalingFactor(rc);
 
-		HDC hdcMem = CreateCompatibleDC(pDrawItem->hDC);
-		HBITMAP hBitmap = CreateCompatibleBitmap(pDrawItem->hDC, rc.right, rc.bottom);
-		HBITMAP hOldBitmap = SelectBitmap(hdcMem, hBitmap);
-
-		FillSolidRect(hdcMem, { 0, 0, rc.right, rc.bottom }, RGB(255, 255, 255));
 		const int curDiff = m_pWebDiffWindow->GetCurrentDiffIndex();
 		for (int pane = 0; pane < paneCount; ++pane)
 		{
@@ -519,10 +514,22 @@ private:
 
 			SelectBrush(hdcMem, hOldBrush);
 		}
+	}
+
+	void OnDrawItem(HWND hwnd, const DRAWITEMSTRUCT *pDrawItem)
+	{
+		RECT rc;
+		GetClientRect(pDrawItem->hwndItem, &rc);
+
+		HDC hdcMem = CreateCompatibleDC(pDrawItem->hDC);
+		HBITMAP hBitmap = CreateCompatibleBitmap(pDrawItem->hDC, rc.right, rc.bottom);
+		HBITMAP hOldBitmap = SelectBitmap(hdcMem, hBitmap);
+
+		DrawDiffMap(hdcMem, rc);
 
 		BitBlt(pDrawItem->hDC, 0, 0, rc.right, rc.bottom, hdcMem, 0, 0, SRCCOPY);
 
-		SelectBrush(hdcMem, hOldBitmap);
+		SelectBitmap(hdcMem, hOldBitmap);
 		DeleteBitmap(hBitmap);
 		DeleteDC(hdcMem);
 	}
