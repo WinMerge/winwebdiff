@@ -208,8 +208,7 @@ public:
 										m_diffLocation[ev.pane].read(doc);
 									}
 								}
-								for (const auto& listener : m_listeners)
-									listener->Invoke(ev);
+								RaiseEvent(ev);
 							});
 			}
 			std::vector<RECT> rects = CalcChildWebWindowRect(m_hWnd, m_nPanes, m_bHorizontalSplit);
@@ -567,8 +566,7 @@ public:
 		if (m_compareState != oldCompareState)
 		{
 			WebDiffEvent ev{ WebDiffEvent::CompareStateChanged, -1 };
-			for (const auto& listener : m_listeners)
-				listener->Invoke(ev);
+			RaiseEvent(ev);
 			if (compareState == CompareState::COMPARED || compareState == CompareState::NOT_COMPARED)
 			{
 				if (ev.pane >= 0)
@@ -1182,7 +1180,21 @@ private:
 				{
 					HRESULT hr = result.errorCode;
 					if (SUCCEEDED(hr))
-						hr = scrollIntoViewIfNeededLoop(diffIndex, callback2.Get());
+					{
+						hr = scrollIntoViewIfNeededLoop(diffIndex,
+							Callback<IWebDiffCallback>([this, callback2](const WebDiffCallbackResult& result) -> HRESULT
+								{
+									HRESULT hr = result.errorCode;
+									if (SUCCEEDED(hr))
+									{
+										WebDiffEvent ev{ WebDiffEvent::DiffSelected, -1 };
+										RaiseEvent(ev);
+									}
+									if (FAILED(hr) && callback2)
+										return callback2->Invoke({ hr, nullptr });
+									return S_OK;
+								}).Get());
+					}
 					if (FAILED(hr) && callback2)
 						return callback2->Invoke({ hr, nullptr });
 					return S_OK;

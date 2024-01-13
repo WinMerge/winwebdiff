@@ -127,13 +127,21 @@ public:
 				for (int containerId = diffRect.containerId; containerId != -1; )
 				{
 					const ContainerRect& containerRect = m_containerRects[window][containerId];
+					if (containerRect.id == 0 && (containerRect.width == 0 || containerRect.height == 0))
+						break;
 					clip(rect, containerRect);
 					containerId = containerRect.containerId;
 				}
 				rect.left += m_scrollX;
 				rect.top += m_scrollY; 
 				if (!window.empty())
+				{
 					calcGlobalPosition(rect, window);
+					Rect rcFrame = m_frameRects[window];
+					rcFrame.left += m_scrollX;
+					rcFrame.top += m_scrollY;
+					clip(rect, rcFrame);
+				}
 				diffRectsSerialized.push_back(rect);
 			}
 		}
@@ -162,7 +170,13 @@ public:
 				rect.clientWidth = containerRect.clientWidth;
 				rect.clientHeight = containerRect.clientHeight;
 				if (!window.empty())
+				{
 					calcGlobalPosition(rect, window);
+					Rect rcFrame = m_frameRects[window];
+					rcFrame.left += m_scrollX;
+					rcFrame.top += m_scrollY;
+					clip(rect, rcFrame);
+				}
 				containerRectsSerialized.push_back(rect);
 			}
 		}
@@ -175,10 +189,8 @@ public:
 	}
 
 private:
-	bool clip(DiffRect& rect, const ContainerRect& containerRect)
+	bool clip(Rect& rect, const Rect& containerRect)
 	{
-		if (containerRect.id == 0 && (containerRect.width == 0 || containerRect.height == 0))
-			return true;
 		if (rect.left + rect.width < containerRect.left ||
 			rect.top + rect.height < containerRect.top ||
 			rect.left > containerRect.left + containerRect.width ||

@@ -475,7 +475,11 @@ private:
 		GetClientRect(pDrawItem->hwndItem, &rc);
 		auto [scaleX, scaleY] = CalcScalingFactor(rc);
 
-		FillSolidRect(pDrawItem->hDC, { 0, 0, rc.right, rc.bottom }, RGB(255, 255, 255));
+		HDC hdcMem = CreateCompatibleDC(pDrawItem->hDC);
+		HBITMAP hBitmap = CreateCompatibleBitmap(pDrawItem->hDC, rc.right, rc.bottom);
+		HBITMAP hOldBitmap = SelectBitmap(hdcMem, hBitmap);
+
+		FillSolidRect(hdcMem, { 0, 0, rc.right, rc.bottom }, RGB(255, 255, 255));
 		const int curDiff = m_pWebDiffWindow->GetCurrentDiffIndex();
 		for (int pane = 0; pane < paneCount; ++pane)
 		{
@@ -491,15 +495,15 @@ private:
 						const int diffRight = rcContainer.left + static_cast<int>((m_rects[pane][i].left + m_rects[pane][i].width) * scaleX);
 						const int diffBottom = rcContainer.top + static_cast<int>((m_rects[pane][i].top + m_rects[pane][i].height) * scaleY);
 						const RECT rc = { diffLeft, diffTop, diffRight, diffBottom };
-						FillSolidRect(pDrawItem->hDC, rc, (curDiff == i) ? colors.clrSelDiff : colors.clrDiff);
+						FillSolidRect(hdcMem, rc, (curDiff == m_rects[pane][i].id) ? colors.clrSelDiff : colors.clrDiff);
 					}
 				}
 			}
-			HBRUSH hOldBrush = SelectBrush(pDrawItem->hDC, GetStockBrush(NULL_BRUSH));
+			HBRUSH hOldBrush = SelectBrush(hdcMem, GetStockBrush(NULL_BRUSH));
 			for (int i = 0; i < m_containerRects[pane].size(); ++i)
 			{
 				const RECT rcContainer = GetContainerRect(pane, i, rc, scaleX, scaleY);
-				Rectangle(pDrawItem->hDC, rcContainer.left, rcContainer.top, rcContainer.right, rcContainer.bottom);
+				Rectangle(hdcMem, rcContainer.left, rcContainer.top, rcContainer.right, rcContainer.bottom);
 			}
 
 			RECT rcContainer = GetContainerRect(pane, 0, rc, scaleX, scaleY);
@@ -509,12 +513,18 @@ private:
 			rcContainer.right = static_cast<int>(rcContainer.left + visibleArea.width * scaleX);
 			rcContainer.top += static_cast<int>(visibleArea.top * scaleY);
 			rcContainer.bottom = static_cast<int>(rcContainer.top + visibleArea.height * scaleY);
-			DrawTransparentRectangle(pDrawItem->hDC, 
+			DrawTransparentRectangle(hdcMem, 
 				rcContainer.left, rcContainer.top, rcContainer.right, rcContainer.bottom,
 				RGB(96, 96, 255), 64);
 
-			SelectBrush(pDrawItem->hDC, hOldBrush);
+			SelectBrush(hdcMem, hOldBrush);
 		}
+
+		BitBlt(pDrawItem->hDC, 0, 0, rc.right, rc.bottom, hdcMem, 0, 0, SRCCOPY);
+
+		SelectBrush(hdcMem, hOldBitmap);
+		DeleteBitmap(hBitmap);
+		DeleteDC(hdcMem);
 	}
 
 	INT_PTR OnWndMsg(HWND hwnd, UINT iMsg, WPARAM wParam, LPARAM lParam)
@@ -565,6 +575,9 @@ private:
 			Sync();
 			break;
 		case WebDiffEvent::WebMessageReceived:
+			RedrawDiffMap();
+			break;
+		case WebDiffEvent::DiffSelected:
 			RedrawDiffMap();
 			break;
 		}
