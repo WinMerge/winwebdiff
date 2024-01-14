@@ -582,8 +582,7 @@ private:
 			Sync();
 			break;
 		case WebDiffEvent::WebMessageReceived:
-			RedrawDiffMap();
-			break;
+		case WebDiffEvent::FrameWebMessageReceived:
 		case WebDiffEvent::DiffSelected:
 			RedrawDiffMap();
 			break;

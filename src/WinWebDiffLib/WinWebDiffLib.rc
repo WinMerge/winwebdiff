@@ -105,7 +105,7 @@ BEGIN
             VALUE "FileDescription", "WinWebDiffLib"
             VALUE "FileVersion", STRFILEVER
             VALUE "InternalName", "WinWebDiffLib.dll"
-            VALUE "LegalCopyright", "Copyright (C) 2022-2023 sdottaka@users.sourceforge.net"
+            VALUE "LegalCopyright", "Copyright (C) 2022-2024 sdottaka@users.sourceforge.net"
             VALUE "OriginalFilename", "WinWebDiffLib.dll"
             VALUE "ProductName", "WinWebDiffLib"
             VALUE "ProductVersion", STRPRODUCTVER
