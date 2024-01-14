@@ -323,11 +323,6 @@ private:
 		}
 	}
 
-	void OnHScroll(HWND hwnd, HWND hwndCtl, UINT code, int pos)
-	{
-		Sync();
-	}
-
 	void OnSize(HWND hwnd, UINT nType, int cx, int cy)
 	{
 		static const int nIDs[] = {
@@ -447,8 +442,8 @@ private:
 		{
 			rc.left = left + MARGIN + width * pane / paneCount + static_cast<int>(m_containerRects[pane][i].left * scaleX);
 			rc.top = top + MARGIN + static_cast<int>(m_containerRects[pane][i].top * scaleY);
-			rc.right = rc.left - MARGIN + static_cast<int>(m_containerRects[pane][i].width * scaleX);
-			rc.bottom = rc.top - MARGIN + static_cast<int>(m_containerRects[pane][i].height * scaleY);
+			rc.right = rc.left + static_cast<int>(m_containerRects[pane][i].width * scaleX);
+			rc.bottom = rc.top + static_cast<int>(m_containerRects[pane][i].height * scaleY);
 		}
 		return rc;
 	};
@@ -546,9 +541,6 @@ private:
 		case WM_NOTIFY:
 			HANDLE_WM_NOTIFY(hwnd, wParam, lParam, OnNotify);
 			break;
-		case WM_HSCROLL:
-			HANDLE_WM_HSCROLL(hwnd, wParam, lParam, OnHScroll);
-			break;
 		case WM_SIZE:
 			HANDLE_WM_SIZE(hwnd, wParam, lParam, OnSize);
 			break;
@@ -580,6 +572,7 @@ private:
 		{
 		case WebDiffEvent::ZoomFactorChanged:
 			Sync();
+			RedrawDiffMap();
 			break;
 		case WebDiffEvent::WebMessageReceived:
 		case WebDiffEvent::FrameWebMessageReceived:
