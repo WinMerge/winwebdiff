@@ -100,6 +100,8 @@ class CWebWindow
 							settings2->put_UserAgent(userAgent.c_str());
 					}
 
+					m_webview->AddScriptToExecuteOnDocumentCreated(m_parent->GetScriptOnLoad(), nullptr);
+
 					m_webview->add_NewWindowRequested(
 						Callback<ICoreWebView2NewWindowRequestedEventHandler>(
 							[this](ICoreWebView2* sender, ICoreWebView2NewWindowRequestedEventArgs* args) {
@@ -268,9 +270,10 @@ public:
 	}
 
 	HRESULT Create(HINSTANCE hInstance, HWND hWndParent, const wchar_t* url, const wchar_t* userDataFolder,
-		const SIZE& size, bool fitToWindow, double zoom, std::wstring& userAgent,
+		const SIZE& size, bool fitToWindow, double zoom, std::wstring& userAgent, const wchar_t* scriptOnLoad,
 		IWebDiffCallback* callback, std::function<void(WebDiffEvent::EVENT_TYPE, IUnknown*, IUnknown*)> eventHandler)
 	{
+		m_scriptOnLoad = scriptOnLoad;
 		m_fitToWindow = fitToWindow;
 		m_size = size;
 		m_eventHandler = eventHandler;
@@ -421,6 +424,11 @@ public:
 		GetActiveWebView()->get_Source(&uri);
 		m_currentUrl = uri.get();
 		return m_currentUrl.c_str();
+	}
+
+	const wchar_t* GetScriptOnLoad() const
+	{
+		return m_scriptOnLoad;
 	}
 
 	void CloseActiveTab()
@@ -2084,6 +2092,7 @@ private:
 	std::wstring m_toolTipText = L"test";
 	bool m_showToolTip = false;
 	std::wstring m_webmessage;
+	const wchar_t* m_scriptOnLoad;
 	inline static const auto GetDpiForWindowFunc = []() {
 		HMODULE hUser32 = GetModuleHandle(L"user32.dll");
 		return reinterpret_cast<decltype(&::GetDpiForWindow)>(

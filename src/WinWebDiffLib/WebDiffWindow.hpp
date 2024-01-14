@@ -85,7 +85,7 @@ public:
 				std::wstring userDataFolder = GetUserDataFolderPath(i);
 				ComPtr<IWebDiffCallback> callback2(callback);
 				hr = m_webWindow[i].Create(m_hInstance, m_hWnd, urls[i], userDataFolder.c_str(),
-						m_size, m_fitToWindow, m_zoom, m_userAgent, nullptr,
+						m_size, m_fitToWindow, m_zoom, m_userAgent, GetScriptOnLoad(), nullptr,
 						[this, i, callback2](WebDiffEvent::EVENT_TYPE event, IUnknown* sender, IUnknown* args)
 							{
 								WebDiffEvent ev{};
@@ -131,7 +131,6 @@ public:
 								}
 								else if (event == WebDiffEvent::NavigationCompleted)
 								{
-									addEventListener(sender, ev.pane, nullptr);
 									m_documentLoaded[ev.pane] = true;
 									if ((std::count(m_documentLoaded, m_documentLoaded + m_nPanes, true) == m_nPanes) &&
 									    (std::count(m_urlChanged, m_urlChanged + m_nPanes, true) == m_nPanes))
@@ -142,7 +141,6 @@ public:
 								}
 								else if (event == WebDiffEvent::FrameNavigationCompleted)
 								{
-									addEventListener(sender,ev.pane, nullptr);
 								}
 								else if (event == WebDiffEvent::GoBacked)
 								{
@@ -852,11 +850,6 @@ private:
 					return S_OK;
 				}).Get());
 		return hr;
-	}
-
-	HRESULT addEventListener(IUnknown* sender, int pane, IWebDiffCallback* callback)
-	{
-		return m_webWindow[pane].ExecuteScript(sender, GetScriptOnLoad(), callback);
 	}
 
 	HRESULT syncEvent(int srcPane, const std::wstring& json)
