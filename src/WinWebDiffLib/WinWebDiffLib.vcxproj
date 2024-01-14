@@ -266,17 +266,18 @@
   <ItemGroup>
     <ClInclude Include="Diff.hpp" />
     <ClInclude Include="DiffHighlighter.hpp" />
+    <ClInclude Include="DiffLocation.hpp" />
     <ClInclude Include="DOMUtils.hpp" />
     <ClInclude Include="framework.h" />
     <ClInclude Include="pch.h" />
     <ClInclude Include="Resource.h" />
     <ClInclude Include="Utils.hpp" />
     <ClInclude Include="WebDiffWindow.hpp" />
+    <ClInclude Include="WebToolWindow.hpp" />
     <ClInclude Include="WebWindow.hpp" />
     <ClInclude Include="WinWebDiffLib.h" />
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="dllmain.cpp" />
     <ClCompile Include="pch.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Create</PrecompiledHeader>
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|ARM64'">Create</PrecompiledHeader>
@@ -285,6 +286,7 @@
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Create</PrecompiledHeader>
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|ARM64'">Create</PrecompiledHeader>
     </ClCompile>
+    <ClCompile Include="WinWebDiffLib.cpp" />
   </ItemGroup>
   <ItemGroup>
     <None Include="packages.config" />

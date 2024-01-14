@@ -124,14 +124,28 @@ struct CmdLineInfo
 	int nUrls;
 };
 
+static HRESULT OnWebDiffEvent(const WebDiffEvent& e);
+
+struct CallbackImpl: public IWebDiffEventHandler
+{
+	HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void** ppvObject) override { return E_NOTIMPL; }
+	ULONG STDMETHODCALLTYPE AddRef(void) override { return ++m_nRef; }
+	ULONG STDMETHODCALLTYPE Release(void) override { if (--m_nRef == 0) { delete this; return 0; } return m_nRef; }
+	HRESULT STDMETHODCALLTYPE Invoke(const WebDiffEvent& event) { return OnWebDiffEvent(event); }
+	int m_nRef = 0;
+};
+
 HINSTANCE m_hInstance;
 HINSTANCE hInstDLL;
 HWND m_hWnd;
+HWND m_hwndWebToolWindow;
 WCHAR m_szTitle[256] = L"WinWebDiff";
 WCHAR m_szWindowClass[256] = L"WINWEBDIFF";
 IWebDiffWindow* m_pWebDiffWindow = nullptr;
+IWebToolWindow *m_pWebToolWindow = nullptr;
 std::list<TempFile> m_tempFiles;
 std::list<TempFolder> m_tempFolders;
+CallbackImpl m_callback;
 
 ATOM				MyRegisterClass(HINSTANCE hInstance);
 BOOL				InitInstance(HINSTANCE, int);
@@ -185,7 +199,7 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
 	MSG msg;
 	while (GetMessage(&msg, nullptr, 0, 0))
 	{
-		if (!TranslateAccelerator(msg.hwnd, hAccelTable, &msg))
+		if (!TranslateAccelerator(msg.hwnd, hAccelTable, &msg) && m_hwndWebToolWindow == 0 || !IsDialogMessage(m_hwndWebToolWindow, &msg))
 		{
 			TranslateMessage(&msg);
 			DispatchMessage(&msg);
@@ -372,6 +386,14 @@ void UpdateMenuState(HWND hWnd)
 	CheckMenuItem(hMenu, IDM_SYNC_CLICK,  m_pWebDiffWindow->GetSyncEventFlag(IWebDiffWindow::EVENT_CLICK) ? MF_CHECKED : MF_UNCHECKED);
 	CheckMenuItem(hMenu, IDM_SYNC_INPUT,  m_pWebDiffWindow->GetSyncEventFlag(IWebDiffWindow::EVENT_INPUT) ? MF_CHECKED : MF_UNCHECKED);
 	CheckMenuItem(hMenu, IDM_SYNC_GOBACKFORWARD,  m_pWebDiffWindow->GetSyncEventFlag(IWebDiffWindow::EVENT_GOBACKFORWARD) ? MF_CHECKED : MF_UNCHECKED);
+	m_pWebToolWindow->Sync();
+}
+
+HRESULT OnWebDiffEvent(const WebDiffEvent& e)
+{
+	if (WebDiffEvent::CompareScreenshotsSelected <= e.type && e.type <= WebDiffEvent::CompareResourceTreesSelected)
+		PostMessage(m_hWnd, WM_COMMAND, IDM_COMPARE_SCREENSHOTS + e.type - WebDiffEvent::CompareScreenshotsSelected, 0);
+	return S_OK;
 }
 
 LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
@@ -380,13 +402,20 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 	{
 	case WM_CREATE:
 		m_pWebDiffWindow = WinWebDiff_CreateWindow(hInstDLL, hWnd);
+		m_pWebToolWindow = WinWebDiff_CreateToolWindow(hInstDLL, hWnd, m_pWebDiffWindow);
+		m_hwndWebToolWindow = m_pWebToolWindow->GetHWND();
+		m_callback.AddRef();
+		m_pWebDiffWindow->AddEventListener(&m_callback);
 		UpdateMenuState(hWnd);
 		break;
 	case WM_SIZE:
 	{
-		RECT rc;
+		RECT rc, rcToolWindow;
 		GetClientRect(hWnd, &rc);
+		GetClientRect(m_hwndWebToolWindow, &rcToolWindow);
+		rc.right -= rcToolWindow.right;
 		m_pWebDiffWindow->SetWindowRect(rc);
+		MoveWindow(m_hwndWebToolWindow, rc.right, 0, rcToolWindow.right, rc.bottom, TRUE);
 		break;
 	}
 	case WM_COMMAND:
@@ -447,26 +476,32 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 			break;
 		case IDM_VIEW_SIZE_FIT_TO_WINDOW:
 			m_pWebDiffWindow->SetFitToWindow(true);
+			m_pWebToolWindow->Sync();
 			break;
 		case IDM_VIEW_SIZE_320x512:
 			m_pWebDiffWindow->SetFitToWindow(false);
 			m_pWebDiffWindow->SetSize({ 320, 512 });
+			m_pWebToolWindow->Sync();
 			break;
 		case IDM_VIEW_SIZE_375x600:
 			m_pWebDiffWindow->SetFitToWindow(false);
 			m_pWebDiffWindow->SetSize({ 375, 600 });
+			m_pWebToolWindow->Sync();
 			break;
 		case IDM_VIEW_SIZE_1024x640:
 			m_pWebDiffWindow->SetFitToWindow(false);
 			m_pWebDiffWindow->SetSize({ 1024, 640 });
+			m_pWebToolWindow->Sync();
 			break;
 		case IDM_VIEW_SIZE_1280x800:
 			m_pWebDiffWindow->SetFitToWindow(false);
 			m_pWebDiffWindow->SetSize({ 1280, 800 });
+			m_pWebToolWindow->Sync();
 			break;
 		case IDM_VIEW_SIZE_1440x900:
 			m_pWebDiffWindow->SetFitToWindow(false);
 			m_pWebDiffWindow->SetSize({ 1440, 900});
+			m_pWebToolWindow->Sync();
 			break;
 		case IDM_VIEW_SPLITHORIZONTALLY:
 			m_pWebDiffWindow->SetHorizontalSplit(!m_pWebDiffWindow->GetHorizontalSplit());

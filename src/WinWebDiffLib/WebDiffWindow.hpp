@@ -3,6 +3,7 @@
 #include "WinWebDiffLib.h"
 #include "WebWindow.hpp"
 #include "DiffHighlighter.hpp"
+#include "DiffLocation.hpp"
 #include <shellapi.h>
 #include <wil/win32_helpers.h>
 
@@ -178,6 +179,7 @@ public:
 									WDocument doc;
 									doc.Parse(msg.c_str());
 									std::wstring event = doc.HasMember(L"event") ? doc[L"event"].GetString() : L"";
+									std::wstring window = doc.HasMember(L"window") ? doc[L"window"].GetString() : L"";
 									if (event == L"dblclick")
 									{
 										const int diffIndex = doc[L"wwdid"].GetInt();
@@ -188,6 +190,8 @@ public:
 									{
 										if (m_bSynchronizeEvents && GetSyncEventFlag(EVENT_SCROLL))
 											syncEvent(ev.pane, msg);
+										for (int pane = 0; pane < m_nPanes; ++pane)
+											m_webWindow[pane].PostWebMessageAsJsonInAllFrames(L"{\"event\": \"diffRects\"}");
 									}
 									else if (event == L"click")
 									{
@@ -199,21 +203,12 @@ public:
 										if (m_bSynchronizeEvents && GetSyncEventFlag(EVENT_INPUT))
 											syncEvent(ev.pane, msg);
 									}
-/*
-									else if (event == L"submit")
+									else if (event == L"diffRects")
 									{
-										if (m_bSynchronizeEvents && GetSyncEventFlag(EVENT_CLICK))
-											syncEvent(ev.pane, msg);
+										m_diffLocation[ev.pane].read(doc);
 									}
-									else if (event == L"keydown")
-									{
-										if (m_bSynchronizeEvents && GetSyncEventFlag(EVENT_INPUT))
-											syncEvent(ev.pane, msg);
-									}
-*/
 								}
-								for (const auto& listener : m_listeners)
-									listener->Invoke(ev);
+								RaiseEvent(ev);
 							});
 			}
 			std::vector<RECT> rects = CalcChildWebWindowRect(m_hWnd, m_nPanes, m_bHorizontalSplit);
@@ -571,8 +566,17 @@ public:
 		if (m_compareState != oldCompareState)
 		{
 			WebDiffEvent ev{ WebDiffEvent::CompareStateChanged, -1 };
-			for (const auto& listener : m_listeners)
-				listener->Invoke(ev);
+			RaiseEvent(ev);
+			if (compareState == CompareState::COMPARED || compareState == CompareState::NOT_COMPARED)
+			{
+				if (ev.pane >= 0)
+					m_diffLocation[ev.pane].clear();
+			}
+			if (compareState == CompareState::COMPARED)
+			{
+				for (int pane = 0; pane < m_nPanes; ++pane)
+					m_webWindow[pane].PostWebMessageAsJsonInAllFrames(L"{\"event\": \"diffRects\"}");
+			}
 		}
 	}
 
@@ -795,6 +799,33 @@ public:
 	bool CanRedo() override
 	{
 		return true;
+	}
+
+	void RaiseEvent(const WebDiffEvent& e) override
+	{
+		for (const auto& listener : m_listeners)
+			listener->Invoke(e);
+	}
+
+	std::vector<DiffLocation::DiffRect> GetDiffRectArray(int pane)
+	{
+		return m_diffLocation[pane].getDiffRectArray();
+	}
+
+	std::vector<DiffLocation::ContainerRect> GetContainerRectArray(int pane)
+	{
+		return m_diffLocation[pane].getContainerRectArray();
+	}
+
+	DiffLocation::Rect GetVisibleAreaRect(int pane)
+	{
+		return m_diffLocation[pane].getVisibleAreaRect();
+	}
+
+	void ScrollTo(int pane, float scrollX, float scrollY)
+	{
+		std::wstring json = L"{\"event\": \"scrollTo\", \"window\": \"\", \"scrollX\": " + std::to_wstring(scrollX) + L", \"scrollY\": " + std::to_wstring(scrollY) + L"}";
+		m_webWindow[pane].PostWebMessageAsJsonInAllFrames(json.c_str());
 	}
 
 private:
@@ -1149,7 +1180,21 @@ private:
 				{
 					HRESULT hr = result.errorCode;
 					if (SUCCEEDED(hr))
-						hr = scrollIntoViewIfNeededLoop(diffIndex, callback2.Get());
+					{
+						hr = scrollIntoViewIfNeededLoop(diffIndex,
+							Callback<IWebDiffCallback>([this, callback2](const WebDiffCallbackResult& result) -> HRESULT
+								{
+									HRESULT hr = result.errorCode;
+									if (SUCCEEDED(hr))
+									{
+										WebDiffEvent ev{ WebDiffEvent::DiffSelected, -1 };
+										RaiseEvent(ev);
+									}
+									if (FAILED(hr) && callback2)
+										return callback2->Invoke({ hr, nullptr });
+									return S_OK;
+								}).Get());
+					}
 					if (FAILED(hr) && callback2)
 						return callback2->Invoke({ hr, nullptr });
 					return S_OK;
@@ -1478,6 +1523,7 @@ private:
 	std::vector<ComPtr<IWebDiffEventHandler>> m_listeners;
 	int m_currentDiffIndex = -1;
 	std::vector<DiffInfo> m_diffInfos;
+	DiffLocation m_diffLocation[3];
 	DiffOptions m_diffOptions{};
 	bool m_bShowDifferences = true;
 	bool m_bShowWordDifferences = true;

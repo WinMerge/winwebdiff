@@ -6,15 +6,21 @@
 #include "resource.h"
 
 #pragma once
+#pragma comment(lib, "msimg32.lib")
 
-class CWebToolWindow : public IWebToolWindow
+class CWebToolWindow : public IWebToolWindow, IWebDiffEventHandler
 {
 public:
+	const int MARGIN = 2;
+
 	CWebToolWindow() :
-		  m_hWnd(NULL)
-		, m_hInstance(NULL)
-		, m_pWebDiffWindow(NULL)
+		  m_hWnd(nullptr)
+		, m_hInstance(nullptr)
+		, m_hComparePopup(nullptr)
+		, m_hEventSyncPopup(nullptr)
+		, m_pWebDiffWindow(nullptr)
 		, m_bInSync(false)
+		, m_nRef(0)
 	{
 	}
 
@@ -26,13 +32,19 @@ public:
 	{
 		m_hInstance = hInstance;
 		m_hWnd = CreateDialogParam(hInstance, MAKEINTRESOURCE(IDD_DIALOGBAR), hWndParent, DlgProc, reinterpret_cast<LPARAM>(this));
+		m_hComparePopup = LoadMenu(hInstance, MAKEINTRESOURCE(IDR_POPUP_WEBPAGE_COMPARE));
+		m_hEventSyncPopup = LoadMenu(hInstance, MAKEINTRESOURCE(IDR_POPUP_WEBPAGE_SYNC_EVENTS));
 		return m_hWnd ? true : false;
 	}
 
 	bool Destroy()
 	{
 		BOOL bSucceeded = DestroyWindow(m_hWnd);
-		m_hWnd = NULL;
+		m_hWnd = nullptr;
+		DestroyMenu(m_hComparePopup);
+		m_hComparePopup = nullptr;
+		DestroyMenu(m_hEventSyncPopup);
+		m_hEventSyncPopup = nullptr;
 		return !!bSucceeded;
 	}
 
@@ -48,64 +60,30 @@ public:
 
 		m_bInSync = true;
 
-		TCHAR buf[256];
-		wsprintf(buf, _T("(%d)"), m_pWebDiffWindow->GetDiffBlockSize());
-		SetDlgItemText(m_hWnd, IDC_DIFF_BLOCKSIZE_STATIC, buf);
-		wsprintf(buf, _T("(%d)"), static_cast<int>(m_pWebDiffWindow->GetDiffColorAlpha() * 100));
-		SetDlgItemText(m_hWnd, IDC_DIFF_BLOCKALPHA_STATIC, buf);
-		wsprintf(buf, _T("(%d)"), static_cast<int>(m_pWebDiffWindow->GetColorDistanceThreshold()));
-		SetDlgItemText(m_hWnd, IDC_DIFF_CDTHRESHOLD_STATIC, buf);
-		wsprintf(buf, _T("(%d)"), static_cast<int>(m_pWebDiffWindow->GetOverlayAlpha() * 100));
-		SetDlgItemText(m_hWnd, IDC_OVERLAY_ALPHA_STATIC, buf);
-		wsprintf(buf, _T("(%d%%)"), static_cast<int>(100 * m_pWebDiffWindow->GetZoom()));
-		SetDlgItemText(m_hWnd, IDC_ZOOM_STATIC, buf);
-
-		SendDlgItemMessage(m_hWnd, IDC_DIFF_HIGHLIGHT, BM_SETCHECK, m_pWebDiffWindow->GetShowDifferences() ? BST_CHECKED : BST_UNCHECKED, 0);
-		SendDlgItemMessage(m_hWnd, IDC_DIFF_BLOCKSIZE_SLIDER, TBM_SETPOS, TRUE, m_pWebDiffWindow->GetDiffBlockSize());
-		SendDlgItemMessage(m_hWnd, IDC_DIFF_BLOCKALPHA_SLIDER, TBM_SETPOS, TRUE, static_cast<LPARAM>(m_pWebDiffWindow->GetDiffColorAlpha() * 100));
-		SendDlgItemMessage(m_hWnd, IDC_DIFF_CDTHRESHOLD_SLIDER, TBM_SETPOS, TRUE, static_cast<LPARAM>(m_pWebDiffWindow->GetColorDistanceThreshold()));
-		SendDlgItemMessage(m_hWnd, IDC_OVERLAY_ALPHA_SLIDER, TBM_SETPOS, TRUE, static_cast<LPARAM>(m_pWebDiffWindow->GetOverlayAlpha() * 100));
-		SendDlgItemMessage(m_hWnd, IDC_ZOOM_SLIDER, TBM_SETPOS, TRUE, static_cast<LPARAM>(m_pWebDiffWindow->GetZoom() * 8 - 8));
-		SendDlgItemMessage(m_hWnd, IDC_DIFF_INSERTION_DELETION_DETECTION_MODE, CB_SETCURSEL, m_pWebDiffWindow->GetInsertionDeletionDetectionMode(), 0);
-		SendDlgItemMessage(m_hWnd, IDC_OVERLAY_MODE, CB_SETCURSEL, m_pWebDiffWindow->GetOverlayMode(), 0);
-		SendDlgItemMessage(m_hWnd, IDC_PAGE_SPIN, UDM_SETRANGE, 0, MAKELONG(1, m_pWebDiffWindow->GetMaxPageCount()));
-		SendDlgItemMessage(m_hWnd, IDC_PAGE_SPIN, UDM_SETPOS, 0, MAKELONG(m_pWebDiffWindow->GetCurrentMaxPage() + 1, 0));
-
-		int w = static_cast<CWebDiffWindow *>(m_pWebDiffWindow)->GetDiffImageWidth();
-		int h = static_cast<CWebDiffWindow *>(m_pWebDiffWindow)->GetDiffImageHeight();
-
-		RECT rc;
-		GetClientRect(m_hWnd, &rc);
-		int cx = rc.right - rc.left;
-		int cy = rc.bottom - rc.top;
-
-		RECT rcTmp;
-		HWND hwndDiffMap = GetDlgItem(m_hWnd, IDC_DIFFMAP);
-		GetWindowRect(hwndDiffMap, &rcTmp);
-		POINT pt = { rcTmp.left, rcTmp.top };
-		ScreenToClient(m_hWnd, &pt);
-		int mw = 0;
-		int mh = 0;
-		if (w > 0 && h > 0)
-		{
-			mh = h * (cx - 8) / w;
-			if (mh + pt.y > cy - 8)
-				mh = cy - 8 - pt.y;
-			mw = mh * w / h;
-		}
-		RECT rcDiffMap = { (cx - mw) / 2, pt.y, (cx + mw) / 2, pt.y + mh };
-		SetWindowPos(hwndDiffMap, NULL, rcDiffMap.left, rcDiffMap.top, 
-			rcDiffMap.right - rcDiffMap.left, rcDiffMap.bottom - rcDiffMap.top, SWP_NOZORDER);
-
-		InvalidateRect(GetDlgItem(m_hWnd, IDC_DIFFMAP), NULL, TRUE);
+		SIZE size = m_pWebDiffWindow->GetSize();
+		SendDlgItemMessage(m_hWnd, IDC_SHOWDIFFERENCES, BM_SETCHECK, m_pWebDiffWindow->GetShowDifferences() ? BST_CHECKED : BST_UNCHECKED, 0);
+		SendDlgItemMessage(m_hWnd, IDC_FITTOWINDOW, BM_SETCHECK, m_pWebDiffWindow->GetFitToWindow() ? BST_CHECKED : BST_UNCHECKED, 0);
+		SetDlgItemText(m_hWnd, IDC_USERAGENT, m_pWebDiffWindow->GetUserAgent());
+		SetDlgItemInt(m_hWnd, IDC_WIDTH, size.cx, false);
+		SetDlgItemInt(m_hWnd, IDC_HEIGHT, size.cy, false);
+		wchar_t zoomstr[256];
+		swprintf_s(zoomstr, L"%.1f%%", m_pWebDiffWindow->GetZoom() * 100.0);
+		SetDlgItemText(m_hWnd, IDC_ZOOM, zoomstr);
+		EnableWindow(GetDlgItem(m_hWnd, IDC_WIDTH), !m_pWebDiffWindow->GetFitToWindow());
+		EnableWindow(GetDlgItem(m_hWnd, IDC_HEIGHT), !m_pWebDiffWindow->GetFitToWindow());
 
 		m_bInSync = false;
+	}
+
+	void RedrawDiffMap()
+	{
+		InvalidateRect(GetDlgItem(m_hWnd, IDC_DIFFMAP), NULL, TRUE);
 	}
 
 	void SetWebDiffWindow(IWebDiffWindow *pWebDiffWindow)
 	{
 		m_pWebDiffWindow = pWebDiffWindow;
-		m_pWebDiffWindow->AddEventListener(OnEvent, this);
+		m_pWebDiffWindow->AddEventListener(this);
 	}
 
 	void Translate(TranslateCallback translateCallback) override
@@ -128,52 +106,102 @@ public:
 			int controlId;
 		};
 		static const StringIdControlId stringIdControlId[] = {
-			{IDS_DIFF_GROUP, IDC_DIFF_GROUP},
-			{IDS_DIFF_HIGHLIGHT, IDC_DIFF_HIGHLIGHT},
-			{IDS_DIFF_BLINK, IDC_DIFF_BLINK},
-			{IDS_DIFF_BLOCKSIZE, IDC_DIFF_BLOCKSIZE},
-			{IDS_DIFF_BLOCKALPHA, IDC_DIFF_BLOCKALPHA},
-			{IDS_DIFF_CDTHRESHOLD, IDC_DIFF_CDTHRESHOLD},
-			{IDS_DIFF_INSERTION_DELETION_DETECTION, IDC_DIFF_INSERTION_DELETION_DETECTION},
-			{IDS_OVERLAY_GROUP, IDC_OVERLAY_GROUP},
-			{IDS_OVERLAY_ALPHA, IDC_OVERLAY_ALPHA},
-			{IDS_ZOOM, IDC_ZOOM},
-			{IDS_PAGE, IDC_PAGE},
+			{IDS_COMPARE, IDC_COMPARE},
+			{IDS_ZOOM, IDC_ZOOM_LABEL},
+			{IDS_SYNC_EVENTS, IDC_SYNC_EVENTS},
+			{IDS_SHOWDIFFERENCES, IDC_SHOWDIFFERENCES},
 		};
 		for (auto& e: stringIdControlId)
 			::SetDlgItemText(m_hWnd, e.controlId, translateString(e.stringId).c_str());
 
-		// translate ComboBox list
-		static const StringIdControlId stringIdControlId2[] = {
-			{IDS_DIFF_INSERTION_DELETION_DETECTION_NONE, IDC_DIFF_INSERTION_DELETION_DETECTION_MODE},
-			{IDS_OVERLAY_MODE_NONE, IDC_OVERLAY_MODE},
+		static const StringIdControlId stringIdControlId1[] = {
+			{IDS_WEB_COMPARE_SCREENSHOTS, ID_WEB_COMPARE_SCREENSHOTS},
+			{IDS_WEB_COMPARE_FULLSIZE_SCREENSHOTS, ID_WEB_COMPARE_FULLSIZE_SCREENSHOTS},
+			{IDS_WEB_COMPARE_HTMLS, ID_WEB_COMPARE_HTMLS},
+			{IDS_WEB_COMPARE_TEXTS, ID_WEB_COMPARE_TEXTS},
+			{IDS_WEB_COMPARE_RESOURCETREES, ID_WEB_COMPARE_RESOURCETREES},
 		};
-		for (auto& e: stringIdControlId2)
+		for (auto& e : stringIdControlId1)
 		{
-			int cursel = static_cast<int>(::SendDlgItemMessage(m_hWnd, e.controlId, CB_GETCURSEL, 0, 0));
-			int count = static_cast<int>(::SendDlgItemMessage(m_hWnd, e.controlId, CB_GETCOUNT, 0, 0));
-			::SendDlgItemMessage(m_hWnd, e.controlId, CB_RESETCONTENT, 0, 0);
-			for (int i = 0; i < count; ++i)
-				::SendDlgItemMessage(m_hWnd, e.controlId, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(translateString(e.stringId + i).c_str()));
-			::SendDlgItemMessage(m_hWnd, e.controlId, CB_SETCURSEL, static_cast<WPARAM>(cursel), 0);
+			std::wstring str = translateString(e.stringId);
+			MENUITEMINFO mii = { sizeof(MENUITEMINFO) };
+			mii.fMask = MIIM_STRING;
+			mii.dwTypeData = const_cast<LPWSTR>(str.c_str());
+			::SetMenuItemInfo(m_hComparePopup, e.controlId, FALSE, &mii);
+		}
+		static const StringIdControlId stringIdControlId2[] = {
+			{IDS_WEB_SYNC_ENABLED, ID_WEB_SYNC_ENABLED},
+			{IDS_WEB_SYNC_SCROLL, ID_WEB_SYNC_SCROLL},
+			{IDS_WEB_SYNC_CLICK, ID_WEB_SYNC_CLICK},
+			{IDS_WEB_SYNC_INPUT, ID_WEB_SYNC_INPUT},
+			{IDS_WEB_SYNC_GOBACKFORWARD, ID_WEB_SYNC_GOBACKFORWARD},
+		};
+		for (auto& e : stringIdControlId2)
+		{
+			std::wstring str = translateString(e.stringId);
+			MENUITEMINFO mii = { sizeof(MENUITEMINFO) };
+			mii.fMask = MIIM_STRING;
+			mii.dwTypeData = const_cast<LPWSTR>(str.c_str());
+			::SetMenuItemInfo(m_hEventSyncPopup, e.controlId, FALSE, &mii);
 		}
 	}
 
 private:
 	BOOL OnInitDialog(HWND hwnd, HWND hwndFocus, LPARAM lParam)
 	{
-		SendDlgItemMessage(hwnd, IDC_DIFF_BLOCKSIZE_SLIDER, TBM_SETRANGE, TRUE, MAKELPARAM(1, 64));
-		SendDlgItemMessage(hwnd, IDC_DIFF_BLOCKALPHA_SLIDER, TBM_SETRANGE, TRUE, MAKELPARAM(0, 100));
-		SendDlgItemMessage(hwnd, IDC_OVERLAY_ALPHA_SLIDER, TBM_SETRANGE, TRUE, MAKELPARAM(0, 100));
-		SendDlgItemMessage(hwnd, IDC_ZOOM_SLIDER, TBM_SETRANGE, TRUE, MAKELPARAM(-7, 56));
-		SendDlgItemMessage(hwnd, IDC_DIFF_INSERTION_DELETION_DETECTION_MODE, CB_ADDSTRING, 0, (LPARAM)(_T("None")));
-		SendDlgItemMessage(hwnd, IDC_DIFF_INSERTION_DELETION_DETECTION_MODE, CB_ADDSTRING, 0, (LPARAM)(_T("Vertical")));
-		SendDlgItemMessage(hwnd, IDC_DIFF_INSERTION_DELETION_DETECTION_MODE, CB_ADDSTRING, 0, (LPARAM)(_T("Horizontal")));
-		SendDlgItemMessage(hwnd, IDC_OVERLAY_MODE, CB_ADDSTRING, 0, (LPARAM)(_T("None")));
-		SendDlgItemMessage(hwnd, IDC_OVERLAY_MODE, CB_ADDSTRING, 0, (LPARAM)(_T("XOR")));
-		SendDlgItemMessage(hwnd, IDC_OVERLAY_MODE, CB_ADDSTRING, 0, (LPARAM)(_T("Alpha Blend")));
-		SendDlgItemMessage(hwnd, IDC_OVERLAY_MODE, CB_ADDSTRING, 0, (LPARAM)(_T("Alpha Animation")));
+		HWND hwndZoom = GetDlgItem(hwnd, IDC_ZOOM);
+		for (const auto v :
+			{L"25%", L"33.3%", L"50%", L"66.7%", L"75%", L"80%", L"90%", L"100%",
+			 L"110%", L"125%", L"150%", L"175%", L"200%", L"250%", L"300%"})
+			ComboBox_AddString(hwndZoom, v);
 		return TRUE;
+	}
+
+	void ShowComparePopupMenu()
+	{
+		RECT rc;
+		GetWindowRect(GetDlgItem(m_hWnd, IDC_COMPARE), &rc);
+		POINT point{ rc.left, rc.bottom };
+		HMENU hSubMenu = GetSubMenu(m_hComparePopup, 0);
+		TrackPopupMenu(hSubMenu, TPM_LEFTALIGN | TPM_RIGHTBUTTON, point.x, point.y, 0, m_hWnd, nullptr);
+	}
+
+	void ShowSyncEventsPopupMenu()
+	{
+		RECT rc;
+		GetWindowRect(GetDlgItem(m_hWnd, IDC_SYNC_EVENTS), &rc);
+		POINT point{ rc.left, rc.bottom };
+		HMENU hSubMenu = GetSubMenu(m_hEventSyncPopup, 0);
+		CheckMenuItem(hSubMenu, ID_WEB_SYNC_ENABLED, m_pWebDiffWindow->GetSyncEvents() ? MF_CHECKED : MF_UNCHECKED);
+		CheckMenuItem(hSubMenu, ID_WEB_SYNC_SCROLL, m_pWebDiffWindow->GetSyncEventFlag(IWebDiffWindow::EVENT_SCROLL) ? MF_CHECKED : MF_UNCHECKED);
+		CheckMenuItem(hSubMenu, ID_WEB_SYNC_CLICK, m_pWebDiffWindow->GetSyncEventFlag(IWebDiffWindow::EVENT_CLICK) ? MF_CHECKED : MF_UNCHECKED);
+		CheckMenuItem(hSubMenu, ID_WEB_SYNC_INPUT, m_pWebDiffWindow->GetSyncEventFlag(IWebDiffWindow::EVENT_INPUT) ? MF_CHECKED : MF_UNCHECKED);
+		CheckMenuItem(hSubMenu, ID_WEB_SYNC_GOBACKFORWARD, m_pWebDiffWindow->GetSyncEventFlag(IWebDiffWindow::EVENT_GOBACKFORWARD) ? MF_CHECKED : MF_UNCHECKED);
+		TrackPopupMenu(hSubMenu, TPM_LEFTALIGN | TPM_RIGHTBUTTON, point.x, point.y, 0, m_hWnd, nullptr);
+	}
+
+	void OnClickDiffMap(HWND hwndDiffMap)
+	{
+		POINT pt;
+		GetCursorPos(&pt);
+		ScreenToClient(hwndDiffMap, &pt);
+		RECT rc;
+		GetClientRect(hwndDiffMap, &rc);
+		const int paneCount = m_pWebDiffWindow->GetPaneCount();
+
+		auto [scaleX, scaleY] = CalcScalingFactor(rc);
+		for (int pane = 0; pane < paneCount; ++pane)
+		{
+			RECT rcContainer = GetContainerRect(pane, 0, rc, scaleX, scaleY);
+			if (pt.x < rcContainer.right)
+			{
+				auto visibleArea = static_cast<CWebDiffWindow*>(m_pWebDiffWindow)->GetVisibleAreaRect(pane);
+				const float scrollX = std::clamp(static_cast<float>((pt.x - rcContainer.left) / scaleX - visibleArea.width / 2), 0.0f, FLT_MAX);
+				const float scrollY = std::clamp(static_cast<float>((pt.y - rcContainer.top) / scaleY - visibleArea.height / 2), 0.0f, FLT_MAX);
+				static_cast<CWebDiffWindow*>(m_pWebDiffWindow)->ScrollTo(pane, scrollX, scrollY);
+				break;
+			}
+		}
 	}
 
 	void OnCommand(HWND hwnd, int id, HWND hwndCtl, UINT codeNotify)
@@ -183,93 +211,126 @@ private:
 
 		switch (id)
 		{
-		case IDC_DIFF_HIGHLIGHT:
+		case IDC_SHOWDIFFERENCES:
 			if (codeNotify == BN_CLICKED)
 				m_pWebDiffWindow->SetShowDifferences(Button_GetCheck(hwndCtl) == BST_CHECKED);
 			break;
-		case IDC_DIFF_BLINK:
+		case IDC_FITTOWINDOW:
 			if (codeNotify == BN_CLICKED)
-				m_pWebDiffWindow->SetBlinkDifferences(Button_GetCheck(hwndCtl) == BST_CHECKED);
+			{
+				m_pWebDiffWindow->SetFitToWindow(Button_GetCheck(hwndCtl) == BST_CHECKED);
+				Sync();
+			}
 			break;
-		case IDC_DIFF_INSERTION_DELETION_DETECTION_MODE:
-			if (codeNotify == CBN_SELCHANGE)
-				m_pWebDiffWindow->SetInsertionDeletionDetectionMode(static_cast<IWebDiffWindow::INSERTION_DELETION_DETECTION_MODE>(ComboBox_GetCurSel(hwndCtl)));
+		case IDC_WIDTH:
+			if (codeNotify == EN_CHANGE)
+				m_pWebDiffWindow->SetSize(
+					{ static_cast<long>(GetDlgItemInt(m_hWnd, IDC_WIDTH, nullptr, false)),
+					  m_pWebDiffWindow->GetSize().cy });
 			break;
-		case IDC_OVERLAY_MODE:
-			if (codeNotify == CBN_SELCHANGE)
-				m_pWebDiffWindow->SetOverlayMode(static_cast<IWebDiffWindow::OVERLAY_MODE>(ComboBox_GetCurSel(hwndCtl)));
+		case IDC_HEIGHT:
+			if (codeNotify == EN_CHANGE)
+				m_pWebDiffWindow->SetSize(
+					{ m_pWebDiffWindow->GetSize().cx,
+					  static_cast<long>(GetDlgItemInt(m_hWnd, IDC_HEIGHT, nullptr, false)) });
 			break;
-		case IDC_PAGE_EDIT:
+		case IDC_ZOOM:
+			if (codeNotify == CBN_EDITCHANGE)
+			{
+				wchar_t zoom[256]{};
+				GetDlgItemText(m_hWnd, IDC_ZOOM, zoom, sizeof(zoom)/sizeof(zoom[0]));
+				float zoomf = wcstof(zoom, nullptr);
+				m_pWebDiffWindow->SetZoom(zoomf / 100.0f);
+			}
+			else if (codeNotify == CBN_SELCHANGE)
+			{
+				HWND hZoom = GetDlgItem(m_hWnd, IDC_ZOOM);
+				int cursel = ComboBox_GetCurSel(hZoom);
+				wchar_t zoom[256]{};
+				ComboBox_GetLBText(hZoom, cursel, zoom);
+				float zoomf = wcstof(zoom, nullptr);
+				m_pWebDiffWindow->SetZoom(zoomf / 100.0f);
+			}
+			break;
+		case IDC_USERAGENT:
 			if (codeNotify == EN_CHANGE)
 			{
-				int page = static_cast<int>(SendDlgItemMessage(hwnd, IDC_PAGE_SPIN, UDM_GETPOS, 0, 0));
-				m_pWebDiffWindow->SetCurrentPageAll(page - 1);
+				wchar_t ua[256];
+				GetDlgItemText(m_hWnd, IDC_USERAGENT, ua, sizeof(ua)/sizeof(ua[0]));
+				m_pWebDiffWindow->SetUserAgent(ua);
 			}
+			break;
+		case IDC_COMPARE:
+			if (codeNotify == BN_CLICKED)
+				m_pWebDiffWindow->Recompare(nullptr);
+			break;
+		case IDC_SYNC_EVENTS:
+			if (codeNotify == BN_CLICKED)
+				ShowSyncEventsPopupMenu();
+			break;
+		case ID_WEB_SYNC_ENABLED:
+			m_pWebDiffWindow->SetSyncEvents(!m_pWebDiffWindow->GetSyncEvents());
+			break;
+		case ID_WEB_SYNC_SCROLL:
+			m_pWebDiffWindow->SetSyncEventFlag(IWebDiffWindow::EVENT_SCROLL, !m_pWebDiffWindow->GetSyncEventFlag(IWebDiffWindow::EVENT_SCROLL));
+			break;
+		case ID_WEB_SYNC_CLICK:
+			m_pWebDiffWindow->SetSyncEventFlag(IWebDiffWindow::EVENT_CLICK, !m_pWebDiffWindow->GetSyncEventFlag(IWebDiffWindow::EVENT_CLICK));
+			break;
+		case ID_WEB_SYNC_INPUT:
+			m_pWebDiffWindow->SetSyncEventFlag(IWebDiffWindow::EVENT_INPUT, !m_pWebDiffWindow->GetSyncEventFlag(IWebDiffWindow::EVENT_INPUT));
+			break;
+		case ID_WEB_SYNC_GOBACKFORWARD:
+			m_pWebDiffWindow->SetSyncEventFlag(IWebDiffWindow::EVENT_GOBACKFORWARD, !m_pWebDiffWindow->GetSyncEventFlag(IWebDiffWindow::EVENT_GOBACKFORWARD));
+			break;
+		case ID_WEB_COMPARE_SCREENSHOTS:
+			m_pWebDiffWindow->RaiseEvent({ WebDiffEvent::CompareScreenshotsSelected, -1 });
+			break;
+		case ID_WEB_COMPARE_FULLSIZE_SCREENSHOTS:
+			m_pWebDiffWindow->RaiseEvent({ WebDiffEvent::CompareFullsizeScreenshotsSelected, -1 });
+			break;
+		case ID_WEB_COMPARE_HTMLS:
+			m_pWebDiffWindow->RaiseEvent({ WebDiffEvent::CompareHTMLsSelected, -1 });
+			break;
+		case ID_WEB_COMPARE_TEXTS:
+			m_pWebDiffWindow->RaiseEvent({ WebDiffEvent::CompareTextsSelected, -1 });
+			break;
+		case ID_WEB_COMPARE_RESOURCETREES:
+			m_pWebDiffWindow->RaiseEvent({ WebDiffEvent::CompareResourceTreesSelected, -1 });
 			break;
 		case IDC_DIFFMAP:
 			if (codeNotify == STN_CLICKED)
 			{
-				POINT pt;
-				GetCursorPos(&pt);
-				ScreenToClient(hwndCtl, &pt);
-				RECT rc;
-				GetClientRect(hwndCtl, &rc);
-				CWebDiffWindow *pWebDiffWindow = static_cast<CWebDiffWindow *>(m_pWebDiffWindow);
-				pWebDiffWindow->ScrollTo(
-					pt.x * pWebDiffWindow->GetDiffImageWidth() / rc.right,
-					pt.y * pWebDiffWindow->GetDiffImageHeight() / rc.bottom,
-					true);
+				OnClickDiffMap(hwndCtl);
 			}
 			break;
 		}
 	}
 
-	void OnHScroll(HWND hwnd, HWND hwndCtl, UINT code, int pos)
+	void OnNotify(HWND hwnd, WPARAM idControl, NMHDR *pNMHDR)
 	{
-		int val = static_cast<int>(SendMessage(hwndCtl, TBM_GETPOS, 0, 0));
-		switch (GetDlgCtrlID(hwndCtl))
+		if (pNMHDR->code == BCN_DROPDOWN)
 		{
-		case IDC_DIFF_BLOCKALPHA_SLIDER:
-			m_pWebDiffWindow->SetDiffColorAlpha(val / 100.0);
-			break;
-		case IDC_DIFF_BLOCKSIZE_SLIDER:
-			m_pWebDiffWindow->SetDiffBlockSize(val);
-			break;
-		case IDC_DIFF_CDTHRESHOLD_SLIDER:
-			m_pWebDiffWindow->SetColorDistanceThreshold(val);
-			break;
-		case IDC_OVERLAY_ALPHA_SLIDER:
-			m_pWebDiffWindow->SetOverlayAlpha(val / 100.0);
-			break;
-		case IDC_ZOOM_SLIDER:
-			m_pWebDiffWindow->SetZoom(1.0 + val * 0.125);
-			break;
+			switch (pNMHDR->idFrom)
+			{
+			case IDC_COMPARE:
+				ShowComparePopupMenu();
+				break;
+			case IDC_SYNC_EVENTS:
+				ShowSyncEventsPopupMenu();
+				break;
+			}
 		}
-		Sync();
 	}
 
 	void OnSize(HWND hwnd, UINT nType, int cx, int cy)
 	{
 		static const int nIDs[] = {
-			IDC_DIFF_GROUP,
-			IDC_DIFF_HIGHLIGHT,
-			IDC_DIFF_BLINK,
-			IDC_OVERLAY_GROUP,
-			IDC_VIEW_GROUP,
-			IDC_DIFF_BLOCKSIZE,
-			IDC_DIFF_BLOCKALPHA,
-			IDC_DIFF_BLOCKALPHA_SLIDER,
-			IDC_DIFF_BLOCKSIZE_SLIDER,
-			IDC_DIFF_CDTHRESHOLD,
-			IDC_DIFF_CDTHRESHOLD_SLIDER,
-			IDC_DIFF_INSERTION_DELETION_DETECTION,
-			IDC_DIFF_INSERTION_DELETION_DETECTION_MODE,
-			IDC_OVERLAY_ALPHA,
-			IDC_OVERLAY_ALPHA_SLIDER,
-			IDC_OVERLAY_MODE,
+			IDC_COMPARE,
 			IDC_ZOOM,
-			IDC_ZOOM_SLIDER,
-			IDC_PAGE,
+			IDC_USERAGENT,
+			IDC_SYNC_EVENTS,
+			IDC_SHOWDIFFERENCES,
 		};
 		HDWP hdwp = BeginDeferWindowPos(static_cast<int>(std::size(nIDs)));
 		RECT rc;
@@ -281,77 +342,191 @@ private:
 			GetWindowRect(hwndCtrl, &rcCtrl);
 			POINT pt = { rcCtrl.left, rcCtrl.top };
 			ScreenToClient(m_hWnd, &pt);
-			DeferWindowPos(hdwp, hwndCtrl, nullptr, pt.x, pt.y, rc.right - pt.x * 2, rcCtrl.bottom - rcCtrl.top, SWP_NOMOVE | SWP_NOZORDER);
+			DeferWindowPos(hdwp, hwndCtrl, nullptr, pt.x, pt.y, rc.right - pt.x - 2, rcCtrl.bottom - rcCtrl.top, SWP_NOMOVE | SWP_NOZORDER);
 		}
-		EndDeferWindowPos(hdwp);
+		RECT rcWidth, rcHeight, rcBy;
+		HWND hwndWidth = GetDlgItem(m_hWnd, IDC_WIDTH);
+		HWND hwndBy = GetDlgItem(m_hWnd, IDC_BY);
+		HWND hwndHeight = GetDlgItem(m_hWnd, IDC_HEIGHT);
+		GetWindowRect(hwndWidth, &rcWidth);
+		GetWindowRect(hwndBy, &rcBy);
+		GetWindowRect(hwndHeight, &rcHeight);
+		POINT ptWidth = { rcWidth.left, rcWidth.top };
+		ScreenToClient(m_hWnd, &ptWidth);
+		int wby = rcBy.right - rcBy.left;
+		int w = (rc.right - 2 - ptWidth.x - wby - 4) / 2;
+		int h = rcWidth.bottom - rcWidth.top;
+		DeferWindowPos(hdwp, hwndWidth,  nullptr, ptWidth.x, ptWidth.y, w, h, SWP_NOMOVE | SWP_NOZORDER);
+		DeferWindowPos(hdwp, hwndBy,     nullptr, ptWidth.x + w + 2, ptWidth.y, rcBy.right - rcBy.left, h, SWP_NOZORDER);
+		DeferWindowPos(hdwp, hwndHeight, nullptr, ptWidth.x + w + 2 + wby + 2 , ptWidth.y, w, h, SWP_NOZORDER);
 
-		static const int nID2s[] = {
-			IDC_DIFF_BLOCKSIZE_STATIC,
-			IDC_DIFF_BLOCKALPHA_STATIC,
-			IDC_DIFF_CDTHRESHOLD_STATIC,
-			IDC_OVERLAY_ALPHA_STATIC,
-			IDC_ZOOM_STATIC,
-			IDC_PAGE_SPIN,
-		};
-		hdwp = BeginDeferWindowPos(static_cast<int>(std::size(nID2s)));
-		RECT rcSlider;
-		GetWindowRect(GetDlgItem(m_hWnd, IDC_DIFF_BLOCKALPHA_SLIDER), &rcSlider);
-		for (int id: nID2s)
-		{
-			RECT rcCtrl;
-			HWND hwndCtrl = GetDlgItem(m_hWnd, id);
-			GetWindowRect(hwndCtrl, &rcCtrl);
-			POINT pt = { rcSlider.right - (rcCtrl.right - rcCtrl.left), rcCtrl.top };
-			ScreenToClient(m_hWnd, &pt);
-			DeferWindowPos(hdwp, hwndCtrl, nullptr, pt.x, pt.y, rcCtrl.right - rcCtrl.left, rcCtrl.bottom - rcCtrl.top, SWP_NOSIZE | SWP_NOZORDER);
-		}
-		EndDeferWindowPos(hdwp);
-
-		static const int nID3s[] = {
-			IDC_PAGE_EDIT,
-		};
-		hdwp = BeginDeferWindowPos(static_cast<int>(std::size(nID3s)));
-		RECT rcSpin;
-		GetWindowRect(GetDlgItem(m_hWnd, IDC_PAGE_SPIN), &rcSpin);
-		for (int id: nID3s)
-		{
-			RECT rcCtrl;
-			HWND hwndCtrl = GetDlgItem(m_hWnd, id);
-			GetWindowRect(hwndCtrl, &rcCtrl);
-			POINT pt = { rcSpin.left - (rcCtrl.right - rcCtrl.left), rcCtrl.top };
-			ScreenToClient(m_hWnd, &pt);
-			DeferWindowPos(hdwp, hwndCtrl, nullptr, pt.x, pt.y, rcCtrl.right - rcCtrl.left, rcCtrl.bottom - rcCtrl.top, SWP_NOSIZE | SWP_NOZORDER);
-		}
+		RECT rcTmp;
+		HWND hwndDiffMap = GetDlgItem(m_hWnd, IDC_DIFFMAP);
+		GetWindowRect(hwndDiffMap, &rcTmp);
+		POINT pt = { rcTmp.left, rcTmp.top };
+		ScreenToClient(m_hWnd, &pt);
+		const int margin = pt.x;
+		DeferWindowPos(hdwp, hwndDiffMap, nullptr,
+			pt.x, pt.y, rc.right - rc.left - margin * 2, rc.bottom - rc.top - pt.y - margin, SWP_NOZORDER);
+		InvalidateRect(hwndDiffMap, nullptr, TRUE);
 		EndDeferWindowPos(hdwp);
 
 		Sync();
 	}
 
+	void FillSolidRect(HDC hdc, const RECT& rc, COLORREF clr)
+	{
+		SetBkColor(hdc, clr);
+		ExtTextOut(hdc, 0, 0, ETO_OPAQUE, &rc, nullptr, 0, nullptr);
+	}
+
+	void DrawTransparentRectangle(HDC hdc, int left, int top, int right, int bottom, COLORREF clr, BYTE alpha) {
+		int width = right - left;
+		int height = bottom - top;
+		HDC hdcMem = CreateCompatibleDC(hdc);
+		HBITMAP hBitmap = CreateCompatibleBitmap(hdc, width, height);
+		SelectObject(hdcMem, hBitmap);
+
+		RECT rect = { 0, 0, width, height };
+		FillSolidRect(hdcMem, rect, clr);
+
+		BLENDFUNCTION blendFunc{};
+		blendFunc.BlendOp = AC_SRC_OVER;
+		blendFunc.SourceConstantAlpha = alpha;
+
+		AlphaBlend(hdc, left, top, width, height, hdcMem, 0, 0, width, height, blendFunc);
+
+		DeleteDC(hdcMem);
+		DeleteObject(hBitmap);
+	}
+
+	std::pair<double, double> CalcScalingFactor(const RECT& rc) const
+	{
+		float maxPaneWidth = 0, maxPaneHeight = 0;
+		const int width = rc.right - rc.left;
+		const int height = rc.bottom - rc.top;
+		const int paneCount = m_pWebDiffWindow->GetPaneCount(); 
+		for (int pane = 0; pane < paneCount; ++pane)
+		{
+			if (!m_containerRects[pane].empty())
+			{
+				if (maxPaneWidth < m_containerRects[pane][0].scrollWidth)
+					maxPaneWidth = m_containerRects[pane][0].scrollWidth;
+				if (maxPaneHeight < m_containerRects[pane][0].scrollHeight)
+					maxPaneHeight = m_containerRects[pane][0].scrollHeight;
+			}
+		}
+		double scaleX = static_cast<double>(width - MARGIN * (paneCount * 2)) / (maxPaneWidth * paneCount);
+		double scaleY = static_cast<double>(height - MARGIN * 2) / maxPaneHeight;
+		return { scaleX, scaleY };
+	}
+
+	RECT GetContainerRect(int pane, int i, const RECT& rcDiffMap, double scaleX, double scaleY) const
+	{
+		RECT rc{};
+		if (m_containerRects[pane].empty())
+			return rc;
+		const int left = rcDiffMap.left;
+		const int top = rcDiffMap.top;
+		const int width = rcDiffMap.right - rcDiffMap.left;
+		const int height = rcDiffMap.bottom - rcDiffMap.top;
+		const int paneCount = m_pWebDiffWindow->GetPaneCount(); 
+		if (i == 0)
+		{
+			rc.left = left + MARGIN + width * pane / paneCount;
+			rc.top = top + MARGIN;
+			rc.right = rc.left + static_cast<int>(m_containerRects[pane][i].scrollWidth * scaleX);
+			rc.bottom = rc.top + static_cast<int>(m_containerRects[pane][i].scrollHeight * scaleY);
+		}
+		else
+		{
+			rc.left = left + MARGIN + width * pane / paneCount + static_cast<int>(m_containerRects[pane][i].left * scaleX);
+			rc.top = top + MARGIN + static_cast<int>(m_containerRects[pane][i].top * scaleY);
+			rc.right = rc.left + static_cast<int>(m_containerRects[pane][i].width * scaleX);
+			rc.bottom = rc.top + static_cast<int>(m_containerRects[pane][i].height * scaleY);
+		}
+		return rc;
+	};
+
+	void DrawDiffMap(HDC hdcMem, const RECT& rc)
+	{
+		FillSolidRect(hdcMem, { 0, 0, rc.right, rc.bottom }, RGB(255, 255, 255));
+
+		const int paneCount = m_pWebDiffWindow->GetPaneCount(); 
+		if (!m_pWebDiffWindow || paneCount == 0)
+			return;
+		for (int pane = 0; pane < paneCount; ++pane)
+		{
+			m_containerRects[pane] = static_cast<CWebDiffWindow*>(m_pWebDiffWindow)->GetContainerRectArray(pane);
+			m_rects[pane] = static_cast<CWebDiffWindow*>(m_pWebDiffWindow)->GetDiffRectArray(pane);
+		}
+		for (int pane = 0; pane < paneCount; ++pane)
+		{
+			if (m_containerRects[pane].size() == 0)
+				return;
+		}
+
+		IWebDiffWindow::ColorSettings colors;
+		m_pWebDiffWindow->GetDiffColorSettings(colors);
+		auto [scaleX, scaleY] = CalcScalingFactor(rc);
+
+		const int curDiff = m_pWebDiffWindow->GetCurrentDiffIndex();
+		for (int pane = 0; pane < paneCount; ++pane)
+		{
+			if (m_rects[pane].size() > 0)
+			{
+				const RECT rcContainer = GetContainerRect(pane, 0, rc, scaleX, scaleY);
+				for (int i = 0; i < m_rects[pane].size(); ++i)
+				{
+					if (m_rects[pane][i].left != -99999.9f || m_rects[pane][i].top != -99999.9f)
+					{
+						const int diffLeft = rcContainer.left + static_cast<int>(m_rects[pane][i].left * scaleX);
+						const int diffTop = rcContainer.top + static_cast<int>(m_rects[pane][i].top * scaleY);
+						const int diffRight = rcContainer.left + static_cast<int>((m_rects[pane][i].left + m_rects[pane][i].width) * scaleX);
+						const int diffBottom = rcContainer.top + static_cast<int>((m_rects[pane][i].top + m_rects[pane][i].height) * scaleY);
+						const RECT rc = { diffLeft, diffTop, diffRight, diffBottom };
+						FillSolidRect(hdcMem, rc, (curDiff == m_rects[pane][i].id) ? colors.clrSelDiff : colors.clrDiff);
+					}
+				}
+			}
+			HBRUSH hOldBrush = SelectBrush(hdcMem, GetStockBrush(NULL_BRUSH));
+			for (int i = 0; i < m_containerRects[pane].size(); ++i)
+			{
+				const RECT rcContainer = GetContainerRect(pane, i, rc, scaleX, scaleY);
+				Rectangle(hdcMem, rcContainer.left, rcContainer.top, rcContainer.right, rcContainer.bottom);
+			}
+
+			RECT rcContainer = GetContainerRect(pane, 0, rc, scaleX, scaleY);
+			auto visibleArea = static_cast<CWebDiffWindow*>(m_pWebDiffWindow)->GetVisibleAreaRect(pane);
+
+			rcContainer.left += static_cast<int>(visibleArea.left * scaleX);
+			rcContainer.right = static_cast<int>(rcContainer.left + visibleArea.width * scaleX);
+			rcContainer.top += static_cast<int>(visibleArea.top * scaleY);
+			rcContainer.bottom = static_cast<int>(rcContainer.top + visibleArea.height * scaleY);
+			DrawTransparentRectangle(hdcMem, 
+				rcContainer.left, rcContainer.top, rcContainer.right, rcContainer.bottom,
+				RGB(96, 96, 255), 64);
+
+			SelectBrush(hdcMem, hOldBrush);
+		}
+	}
+
 	void OnDrawItem(HWND hwnd, const DRAWITEMSTRUCT *pDrawItem)
 	{
-		if (!m_pWebDiffWindow || m_pWebDiffWindow->GetPaneCount() == 0)
-			return;
 		RECT rc;
 		GetClientRect(pDrawItem->hwndItem, &rc);
-		Image *pImage = static_cast<CWebDiffWindow *>(m_pWebDiffWindow)->GetDiffMapImage(rc.right - rc.left, rc.bottom - rc.top);
-		RGBQUAD bkColor = { 0xff, 0xff, 0xff, 0xff };
-		pImage->getFipImage()->drawEx(pDrawItem->hDC, rc, false, &bkColor);
-		HWND hwndLeftPane = m_pWebDiffWindow->GetPaneHWND(0);
 
-		SCROLLINFO sih{ sizeof(sih), SIF_POS | SIF_PAGE | SIF_RANGE };
-		GetScrollInfo(hwndLeftPane, SB_HORZ, &sih);
-		SCROLLINFO siv{ sizeof(siv), SIF_POS | SIF_PAGE | SIF_RANGE };
-		GetScrollInfo(hwndLeftPane, SB_VERT, &siv);
+		HDC hdcMem = CreateCompatibleDC(pDrawItem->hDC);
+		HBITMAP hBitmap = CreateCompatibleBitmap(pDrawItem->hDC, rc.right, rc.bottom);
+		HBITMAP hOldBitmap = SelectBitmap(hdcMem, hBitmap);
 
-		if (static_cast<int>(sih.nPage) < sih.nMax || static_cast<int>(siv.nPage) < siv.nMax)
-		{
-			RECT rcFrame;
-			rcFrame.left = rc.left + (rc.right - rc.left) * sih.nPos / sih.nMax;
-			rcFrame.right = rcFrame.left + (rc.right - rc.left) * sih.nPage / sih.nMax;
-			rcFrame.top = rc.top + (rc.bottom - rc.top) * siv.nPos / siv.nMax;
-			rcFrame.bottom = rcFrame.top + (rc.bottom - rc.top) * siv.nPage / siv.nMax;
-			FrameRect(pDrawItem->hDC, &rcFrame, reinterpret_cast<HBRUSH>(GetStockObject(BLACK_BRUSH)));
-		}
+		DrawDiffMap(hdcMem, rc);
+
+		BitBlt(pDrawItem->hDC, 0, 0, rc.right, rc.bottom, hdcMem, 0, 0, SRCCOPY);
+
+		SelectBitmap(hdcMem, hOldBitmap);
+		DeleteBitmap(hBitmap);
+		DeleteDC(hdcMem);
 	}
 
 	INT_PTR OnWndMsg(HWND hwnd, UINT iMsg, WPARAM wParam, LPARAM lParam)
@@ -363,8 +538,8 @@ private:
 		case WM_COMMAND:
 			HANDLE_WM_COMMAND(hwnd, wParam, lParam, OnCommand);
 			break;
-		case WM_HSCROLL:
-			HANDLE_WM_HSCROLL(hwnd, wParam, lParam, OnHScroll);
+		case WM_NOTIFY:
+			HANDLE_WM_NOTIFY(hwnd, wParam, lParam, OnNotify);
 			break;
 		case WM_SIZE:
 			HANDLE_WM_SIZE(hwnd, wParam, lParam, OnSize);
@@ -387,24 +562,35 @@ private:
 			return FALSE;
 	}
 
-	static void OnEvent(const IWebDiffWindow::Event& evt)
+	HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void** ppvObject) override { return E_NOTIMPL; }
+	ULONG STDMETHODCALLTYPE AddRef(void) override { return ++m_nRef; }
+	ULONG STDMETHODCALLTYPE Release(void) override { if (--m_nRef == 0) { return 0; } return m_nRef; }
+
+	HRESULT Invoke(const WebDiffEvent& event)
 	{
-		switch (evt.eventType)
+		switch (event.type)
 		{
-		case IWebDiffWindow::HSCROLL:
-		case IWebDiffWindow::VSCROLL:
-		case IWebDiffWindow::SIZE:
-		case IWebDiffWindow::MOUSEWHEEL:
-		case IWebDiffWindow::REFRESH:
-		case IWebDiffWindow::SCROLLTODIFF:
-		case IWebDiffWindow::OPEN:
-			reinterpret_cast<CWebToolWindow *>(evt.userdata)->Sync();
+		case WebDiffEvent::ZoomFactorChanged:
+			Sync();
+			RedrawDiffMap();
+			break;
+		case WebDiffEvent::WebMessageReceived:
+		case WebDiffEvent::FrameWebMessageReceived:
+		case WebDiffEvent::DiffSelected:
+			RedrawDiffMap();
 			break;
 		}
+		return S_OK;
 	}
 
 	HWND m_hWnd;
 	HINSTANCE m_hInstance;
+	HMENU m_hComparePopup;
+	HMENU m_hEventSyncPopup;
 	IWebDiffWindow *m_pWebDiffWindow;
+	std::vector<DiffLocation::ContainerRect> m_containerRects[3];
+	std::vector<DiffLocation::DiffRect> m_rects[3];
 	bool m_bInSync;
+	int m_nRef;
+	
 };
