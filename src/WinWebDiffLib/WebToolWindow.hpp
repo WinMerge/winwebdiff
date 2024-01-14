@@ -566,7 +566,7 @@ private:
 	ULONG STDMETHODCALLTYPE AddRef(void) override { return ++m_nRef; }
 	ULONG STDMETHODCALLTYPE Release(void) override { if (--m_nRef == 0) { return 0; } return m_nRef; }
 
-	HRESULT Invoke(const WebDiffEvent& event)
+	HRESULT STDMETHODCALLTYPE Invoke(const WebDiffEvent& event)
 	{
 		switch (event.type)
 		{
