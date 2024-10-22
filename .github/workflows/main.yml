@@ -13,7 +13,7 @@ jobs:
     runs-on: windows-latest
 
     steps:  
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v4
 
     - name: Build
       run: |
@@ -21,7 +21,7 @@ jobs:
         .\BuildArc.cmd
 
     - name: Upload zip
-      uses: actions/upload-artifact@v2-preview
+      uses: actions/upload-artifact@v4
       with:
         name: winwebdiff
         path: Dist/winwebdiff-*.zip
