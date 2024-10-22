@@ -484,7 +484,7 @@ private:
 						const int diffTop = rcContainer.top + static_cast<int>(m_rects[pane][i].top * scaleY);
 						const int diffRight = rcContainer.left + static_cast<int>((m_rects[pane][i].left + m_rects[pane][i].width) * scaleX);
 						const int diffBottom = rcContainer.top + static_cast<int>((m_rects[pane][i].top + m_rects[pane][i].height) * scaleY);
-						const RECT rc = { diffLeft, diffTop, diffRight, diffBottom };
+						const RECT rc = { diffLeft, diffTop, diffRight, (diffBottom == diffTop) ?  diffBottom + 1 : diffBottom };
 						FillSolidRect(hdcMem, rc, (curDiff == m_rects[pane][i].id) ? colors.clrSelDiff : colors.clrDiff);
 					}
 				}
