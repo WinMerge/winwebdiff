@@ -124,7 +124,7 @@ public:
 				rect.top = diffRect.top; 
 				rect.width = diffRect.width;
 				rect.height = diffRect.height;
-				for (int containerId = diffRect.containerId; containerId != -1; )
+				for (int containerId = diffRect.containerId; containerId > 0; )
 				{
 					const ContainerRect& containerRect = m_containerRects[window][containerId];
 					if (containerRect.id == 0 && (containerRect.width == 0 || containerRect.height == 0))
@@ -132,8 +132,11 @@ public:
 					clip(rect, containerRect);
 					containerId = containerRect.containerId;
 				}
-				rect.left += m_scrollX;
-				rect.top += m_scrollY; 
+				if (rect.left != -99999.9f || rect.top != -99999.9f)
+				{
+					rect.left += m_scrollX;
+					rect.top += m_scrollY;
+				}
 				if (!window.empty())
 				{
 					calcGlobalPosition(rect, window);
