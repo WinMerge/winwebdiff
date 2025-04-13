@@ -176,7 +176,7 @@ BEGIN
         MENUITEM "&Scroll",                     ID_WEB_SYNC_SCROLL
         MENUITEM "&Click",                      ID_WEB_SYNC_CLICK
         MENUITEM "&Input",                      ID_WEB_SYNC_INPUT
-        MENUITEM "&GoBack/Forward",             ID_WEB_SYNC_GOBACKFORWARD
+        MENUITEM "&Go Back/Forward",             ID_WEB_SYNC_GOBACKFORWARD
     END
 END
 
@@ -201,7 +201,7 @@ BEGIN
     IDS_WEB_SYNC_SCROLL      "&Scroll"
     IDS_WEB_SYNC_CLICK       "&Click"
     IDS_WEB_SYNC_INPUT       "&Input"
-    IDS_WEB_SYNC_GOBACKFORWARD "&GoBack/Forward"
+    IDS_WEB_SYNC_GOBACKFORWARD "&Go Back/Forward"
 END
 
 #endif    // English (United States) resources

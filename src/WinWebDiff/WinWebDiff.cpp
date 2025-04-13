@@ -178,7 +178,7 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
 
 	if (!m_pWebDiffWindow->IsWebView2Installed())
 	{
-		if (IDYES == MessageBox(nullptr, L"WebView2 runtime is not installed. Do you want to download it?", L"WinWebDiff", MB_YESNO))
+		if (IDYES == MessageBox(nullptr, L"WebView2 runtime not installed. Download it?", L"WinWebDiff", MB_YESNO))
 		{
 			m_pWebDiffWindow->DownloadWebView2();
 		}
@@ -365,7 +365,7 @@ bool GenerateHTMLReport(const wchar_t* filename)
 		Callback<IWebDiffCallback>([](const WebDiffCallbackResult& result) -> HRESULT
 			{
 				if (SUCCEEDED(result.errorCode))
-					AppMsgBox(L"The report has been created successfully.", MB_OK | MB_ICONINFORMATION);
+					AppMsgBox(L"Report created successfully.", MB_OK | MB_ICONINFORMATION);
 				else
 					AppMsgBox(L"Failed to create the report", MB_OK | MB_ICONWARNING);
 				return S_OK;

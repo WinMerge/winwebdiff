@@ -83,6 +83,7 @@ struct IWebDiffWindow
 		int  diffAlgorithm; /**< Diff algorithm -option. */
 		bool indentHeuristic; /**< Ident heuristic -option */
 		bool completelyBlankOutIgnoredChanges;
+		bool ignoreEOLNewlinePresence;
 	};
 	struct ColorSettings
 	{
