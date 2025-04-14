@@ -170,11 +170,27 @@ namespace utils
 		{
 			switch (c)
 			{
+			case '\a': ret += L"\\a"; break;
+			case '\b': ret += L"\\b"; break;
+			case '\f': ret += L"\\f"; break;
 			case '\r': break;
 			case '\n': ret += L"\\n"; break;
+			case '\t': ret += L"\\t"; break;
+			case '\v': ret += L"\\v"; break;
 			case '\"': ret += L"\\\""; break;
 			case '\\': ret += L"\\\\"; break;
-			default:   ret += c;
+			default:
+				if (c < 0x20 || c == 0x7F)
+				{
+					wchar_t buf[5];
+					swprintf(buf, 5, L"\\x%02X", c);
+					ret += buf;
+				}
+				else
+				{
+					ret += c;
+				}
+				break;
 			}
 		}
 		ret += L"\"";
