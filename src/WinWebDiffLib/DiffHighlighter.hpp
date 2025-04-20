@@ -918,7 +918,7 @@ public:
 			if (!h.empty() && std::all_of(h.begin(), h.end(), [](wchar_t ch) { return iswspace(ch); }))
 			{
 				h.pop_back();
-				h += L"&nbsp;";
+				h += L"&nbsp;&#8203;";
 			}
 			html += h;
 			if (tree.HasMember(L"appendedNodes"))
