@@ -878,7 +878,15 @@ public:
 		}
 	}
 
-	static std::wstring modifiedNodesToHTMLs(const WValue& tree, std::list<ModifiedNode>& nodes)
+	struct Context
+	{
+		explicit struct Context(bool inPreElement, std::list<ModifiedNode>& nodes)
+			: inPreElement(inPreElement), nodes(nodes) { }
+		bool inPreElement;
+		std::list<ModifiedNode>& nodes;
+	};
+
+	static std::wstring modifiedNodesToHTMLsInternal(Context& ctxt, const WValue& tree)
 	{
 		std::wstring html;
 		NodeType nodeType = static_cast<NodeType>(tree[L"nodeType"].GetInt());
@@ -896,7 +904,7 @@ public:
 			if (tree.HasMember(L"children"))
 			{
 				for (const auto& child : tree[L"children"].GetArray())
-					html += modifiedNodesToHTMLs(child, nodes);
+					html += modifiedNodesToHTMLsInternal(ctxt, child);
 			}
 			break;
 		}
@@ -912,10 +920,10 @@ public:
 			if (tree.HasMember(L"insertedNodes"))
 			{
 				for (const auto& child : tree[L"insertedNodes"].GetArray())
-					html += modifiedNodesToHTMLs(child, nodes);
+					html += modifiedNodesToHTMLsInternal(ctxt, child);
 			}
 			std::wstring h = utils::EncodeHTMLEntities(tree[L"nodeValue"].GetString());
-			if (!h.empty() && std::all_of(h.begin(), h.end(), [](wchar_t ch) { return iswspace(ch); }))
+			if (!ctxt.inPreElement && !h.empty() && std::all_of(h.begin(), h.end(), [](wchar_t ch) { return iswspace(ch); }))
 			{
 				h.pop_back();
 				h += L"&nbsp;&#8203;";
@@ -924,14 +932,14 @@ public:
 			if (tree.HasMember(L"appendedNodes"))
 			{
 				for (const auto& child : tree[L"appendedNodes"].GetArray())
-					html += modifiedNodesToHTMLs(child, nodes);
+					html += modifiedNodesToHTMLsInternal(ctxt, child);
 			}
 			if (tree.HasMember(L"modified"))
 			{
 				ModifiedNode node;
 				node.nodeId = tree[L"nodeId"].GetInt();
 				node.outerHTML = html;
-				nodes.emplace_back(std::move(node));
+				ctxt.nodes.emplace_back(std::move(node));
 			}
 			break;
 		}
@@ -940,10 +948,11 @@ public:
 			if (tree.HasMember(L"insertedNodes"))
 			{
 				for (const auto& child : tree[L"insertedNodes"].GetArray())
-					html += modifiedNodesToHTMLs(child, nodes);
+					html += modifiedNodesToHTMLsInternal(ctxt, child);
 			}
+			const std::wstring nodeName = tree[L"nodeName"].GetString();
 			html += L'<';
-			html += tree[L"nodeName"].GetString();
+			html += nodeName;
 			if (tree.HasMember(L"attributes"))
 			{
 				const auto& attributes = tree[L"attributes"].GetArray();
@@ -960,18 +969,21 @@ public:
 			html += L'>';
 			if (tree.HasMember(L"children"))
 			{
+				const bool oldInPreElement = ctxt.inPreElement;
+				ctxt.inPreElement = ctxt.inPreElement || (nodeName == L"PRE");
 				for (const auto& child : tree[L"children"].GetArray())
-					html += modifiedNodesToHTMLs(child, nodes);
+					html += modifiedNodesToHTMLsInternal(ctxt, child);
+				ctxt.inPreElement = oldInPreElement;
 			}
 			if (tree.HasMember(L"appendedNodes"))
 			{
 				for (const auto& child : tree[L"appendedNodes"].GetArray())
-					html += modifiedNodesToHTMLs(child, nodes);
+					html += modifiedNodesToHTMLsInternal(ctxt, child);
 			}
 			if (tree.HasMember(L"contentDocument"))
 			{
 				for (const auto& child : tree[L"contentDocument"][L"children"].GetArray())
-					modifiedNodesToHTMLs(child, nodes);
+					modifiedNodesToHTMLsInternal(ctxt, child);
 			}
 			if (!utils::IsVoidElement(tree[L"nodeName"].GetString()))
 			{
@@ -984,12 +996,18 @@ public:
 				ModifiedNode node;
 				node.nodeId = tree[L"nodeId"].GetInt();
 				node.outerHTML = html;
-				nodes.emplace_back(std::move(node));
+				ctxt.nodes.emplace_back(std::move(node));
 			}
 			break;
 		}
 		}
 		return html;
+	}
+
+	static std::wstring modifiedNodesToHTMLs(const WValue& tree, std::list<ModifiedNode>& nodes)
+	{
+		Context ctxt(false, nodes);
+		return modifiedNodesToHTMLsInternal(ctxt, tree);
 	}
 
 	static void getDiffNodes(WValue& tree, std::map<int, int>& nodes)
