@@ -84,7 +84,7 @@ public:
 			{
 				std::wstring userDataFolder = GetUserDataFolderPath(i);
 				ComPtr<IWebDiffCallback> callback2(callback);
-				hr = m_webWindow[i].Create(m_hInstance, m_hWnd, urls[i], userDataFolder.c_str(),
+				hr = m_webWindow[i].Create(this, m_hInstance, m_hWnd, urls[i], userDataFolder.c_str(),
 						m_size, m_fitToWindow, m_zoom, m_userAgent, nullptr,
 						[this, i, callback2](WebDiffEvent::EVENT_TYPE event, IUnknown* sender, IUnknown* args)
 							{
@@ -578,6 +578,16 @@ public:
 					m_webWindow[pane].PostWebMessageAsJsonInAllFrames(L"{\"event\": \"diffRects\"}");
 			}
 		}
+	}
+
+	LogCallback GetLogCallback() const
+	{
+		return m_logCallback;
+	}
+
+	void SetLogCallback(LogCallback logCallback)
+	{
+		m_logCallback = logCallback;
 	}
 
 	int  GetDiffCount() const override
@@ -1543,4 +1553,5 @@ private:
 		RGB(241, 226, 173), RGB(255, 170, 130), RGB(0, 0, 0),
 		RGB(255, 160, 160), RGB(200, 129, 108), RGB(0, 0, 0),
 	};
+	LogCallback m_logCallback;
 };

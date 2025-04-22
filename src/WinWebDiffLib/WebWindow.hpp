@@ -56,7 +56,7 @@ class CWebWindow
 				[this, url2, zoom, userAgent, args, deferral, callback2](HRESULT result, ICoreWebView2Controller* controller) -> HRESULT {
 					if (FAILED(result))
 					{
-						m_parent->SetToolTipText(L"Failed to create WebView2 controller");
+						m_parent->SetErrorToolTipText(L"Failed to create WebView2 controller");
 						m_parent->ShowToolTip(true);
 					}
 
@@ -267,10 +267,11 @@ public:
 		return m_hWnd;
 	}
 
-	HRESULT Create(HINSTANCE hInstance, HWND hWndParent, const wchar_t* url, const wchar_t* userDataFolder,
+	HRESULT Create(IWebDiffWindow* pDiffWindow, HINSTANCE hInstance, HWND hWndParent, const wchar_t* url, const wchar_t* userDataFolder,
 		const SIZE& size, bool fitToWindow, double zoom, std::wstring& userAgent,
 		IWebDiffCallback* callback, std::function<void(WebDiffEvent::EVENT_TYPE, IUnknown*, IUnknown*)> eventHandler)
 	{
+		m_pDiffWindow = pDiffWindow;
 		m_fitToWindow = fitToWindow;
 		m_size = size;
 		m_eventHandler = eventHandler;
@@ -1049,7 +1050,7 @@ public:
 				[this, callback2, msg](HRESULT errorCode, LPCWSTR returnObjectAsJson) -> HRESULT {
 					if (FAILED(errorCode))
 					{
-						SetToolTipText(*msg + returnObjectAsJson);
+						SetErrorToolTipText(*msg + returnObjectAsJson);
 						ShowToolTip(true, TOOLTIP_TIMEOUT);
 					}
 					if (callback2)
@@ -1069,7 +1070,7 @@ public:
 				[this, callback2](HRESULT errorCode, LPCWSTR resultObjectAsJson) -> HRESULT {
 					if (FAILED(errorCode))
 					{
-						SetToolTipText(resultObjectAsJson);
+						SetErrorToolTipText(resultObjectAsJson);
 						ShowToolTip(true, TOOLTIP_TIMEOUT);
 					}
 					if (callback2)
@@ -1092,7 +1093,7 @@ public:
 					[this, callback2](HRESULT errorCode, LPCWSTR resultObjectAsJson) -> HRESULT {
 						if (FAILED(errorCode))
 						{
-							SetToolTipText(resultObjectAsJson);
+							SetErrorToolTipText(resultObjectAsJson);
 							ShowToolTip(true, TOOLTIP_TIMEOUT);
 						}
 						if (callback2)
@@ -1107,7 +1108,7 @@ public:
 					[this, callback2](HRESULT errorCode, LPCWSTR resultObjectAsJson) -> HRESULT {
 						if (FAILED(errorCode))
 						{
-							SetToolTipText(resultObjectAsJson);
+							SetErrorToolTipText(resultObjectAsJson);
 							ShowToolTip(true, TOOLTIP_TIMEOUT);
 						}
 						if (callback2)
@@ -1307,6 +1308,14 @@ public:
 			return E_FAIL;
 		auto webView2Profile2 = webView2Profile.try_query<ICoreWebView2Profile2>();
 		return webView2Profile2->ClearBrowsingData(static_cast<COREWEBVIEW2_BROWSING_DATA_KINDS>(dataKinds), nullptr);
+	}
+
+	HRESULT SetErrorToolTipText(const std::wstring& text)
+	{
+		IWebDiffWindow::LogCallback logCallback = m_pDiffWindow->GetLogCallback();
+		if (logCallback)
+			logCallback(IWebDiffWindow::LogLevel::ERR, text.c_str());
+		return SetToolTipText(text);
 	}
 
 	HRESULT SetToolTipText(const std::wstring& text)
@@ -2089,5 +2098,6 @@ private:
 		return reinterpret_cast<decltype(&::GetDpiForWindow)>(
 			::GetProcAddress(hUser32, "GetDpiForWindow"));
 	}();
+	IWebDiffWindow* m_pDiffWindow = nullptr;
 };
 
