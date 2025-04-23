@@ -1569,7 +1569,7 @@ private:
 		return path2;
 	}
 
-	static void WriteToErrorLog(const std::wstring& dirname, const std::wstring& url, HRESULT hr)
+	void WriteToErrorLog(const std::wstring& dirname, const std::wstring& url, HRESULT hr)
 	{
 		std::wstring msg;
 		LPTSTR errorText = nullptr;
@@ -1585,7 +1585,12 @@ private:
 		std::filesystem::path path(dirname);
 		path /= L"[Error].log";
 		_wfopen_s(&fp, path.c_str(), L"at,ccs=UTF-8");
-		fwprintf(fp.get(), L"url=%s hr=%08x: %s", url.c_str(), hr, msg.c_str());
+		std::wstring text = L"url=" + url + L" hr=" + std::to_wstring(hr) + L": " + msg;
+		fwprintf(fp.get(), text.c_str());
+
+		auto logCallback = m_pDiffWindow->GetLogCallback();
+		if (logCallback)
+			logCallback(IWebDiffWindow::LogLevel::ERR, text.c_str());
 	}
 
 	static HRESULT WriteToTextFile(const std::wstring& path, const std::wstring& data)
