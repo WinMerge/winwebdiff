@@ -450,7 +450,8 @@ private:
 
 	void DrawDiffMap(HDC hdcMem, const RECT& rc)
 	{
-		FillSolidRect(hdcMem, { 0, 0, rc.right, rc.bottom }, RGB(255, 255, 255));
+		const bool dark = m_pWebDiffWindow->IsDarkBackgroundEnabled();
+		FillSolidRect(hdcMem, { 0, 0, rc.right, rc.bottom }, dark ? RGB(0, 0, 0) : RGB(255, 255, 255));
 
 		const int paneCount = m_pWebDiffWindow->GetPaneCount(); 
 		if (!m_pWebDiffWindow || paneCount == 0)
@@ -489,6 +490,7 @@ private:
 					}
 				}
 			}
+			HPEN hOldPen = SelectPen(hdcMem, GetStockPen(dark ? WHITE_PEN : BLACK_PEN));
 			HBRUSH hOldBrush = SelectBrush(hdcMem, GetStockBrush(NULL_BRUSH));
 			for (int i = 0; i < m_containerRects[pane].size(); ++i)
 			{
@@ -504,10 +506,10 @@ private:
 			rcContainer.top += static_cast<int>(visibleArea.top * scaleY);
 			rcContainer.bottom = static_cast<int>(rcContainer.top + visibleArea.height * scaleY);
 			DrawTransparentRectangle(hdcMem, 
-				rcContainer.left, rcContainer.top, rcContainer.right, rcContainer.bottom,
-				RGB(96, 96, 255), 64);
+				rcContainer.left, rcContainer.top, rcContainer.right, rcContainer.bottom, RGB(96, 96, 255), 64);
 
 			SelectBrush(hdcMem, hOldBrush);
+			SelectPen(hdcMem, hOldPen);
 		}
 	}
 

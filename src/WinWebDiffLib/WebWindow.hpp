@@ -72,8 +72,26 @@ class CWebWindow
 						return result;
 					}
 
-					m_webviewController->put_ZoomFactor(zoom);
+					auto webView2_13 = m_webview.try_query<ICoreWebView2_13>();
+					if (webView2_13)
+					{
+						wil::com_ptr<ICoreWebView2Profile> webView2Profile;
+						webView2_13->get_Profile(&webView2Profile);
+						if (webView2Profile)
+						{
+							auto webView2Profile2 = webView2Profile.try_query<ICoreWebView2Profile2>();
+							webView2Profile2->put_PreferredColorScheme(
+								m_parent->m_bDarkBackgroundEnabled ? COREWEBVIEW2_PREFERRED_COLOR_SCHEME_DARK : COREWEBVIEW2_PREFERRED_COLOR_SCHEME_LIGHT);
+						}
+					}
 
+					wil::com_ptr<ICoreWebView2Controller2> controller2 = m_webviewController.query<ICoreWebView2Controller2>();
+					if (controller2)
+					{
+						const COREWEBVIEW2_COLOR bg = { 255, 255, 255, 255 };
+						controller2->put_DefaultBackgroundColor(bg);
+					}
+					m_webviewController->put_ZoomFactor(zoom);
 					m_webviewController->add_AcceleratorKeyPressed(
 						Callback<ICoreWebView2AcceleratorKeyPressedEventHandler>(
 							[this](ICoreWebView2Controller* sender, ICoreWebView2AcceleratorKeyPressedEventArgs* args) {
@@ -268,12 +286,13 @@ public:
 	}
 
 	HRESULT Create(IWebDiffWindow* pDiffWindow, HINSTANCE hInstance, HWND hWndParent, const wchar_t* url, const wchar_t* userDataFolder,
-		const SIZE& size, bool fitToWindow, double zoom, std::wstring& userAgent,
+		const SIZE& size, bool fitToWindow, double zoom, bool darkBackgroundEnabled, std::wstring& userAgent,
 		IWebDiffCallback* callback, std::function<void(WebDiffEvent::EVENT_TYPE, IUnknown*, IUnknown*)> eventHandler)
 	{
 		m_pDiffWindow = pDiffWindow;
 		m_fitToWindow = fitToWindow;
 		m_size = size;
+		m_bDarkBackgroundEnabled = darkBackgroundEnabled;
 		m_eventHandler = eventHandler;
 		MyRegisterClass(hInstance);
 		m_hWnd = CreateWindowExW(0, L"WinWebWindowClass", nullptr,
@@ -1357,6 +1376,20 @@ public:
 		return m_webmessage;
 	}
 
+	bool IsDarkBackgroundEnabled() const
+	{
+		return m_bDarkBackgroundEnabled;
+	}
+
+	void SetDarkBackgroundEnabled(bool enabled)
+	{
+		m_bDarkBackgroundEnabled = enabled;
+		DeleteObject(s_hbrBackground);
+		s_hbrBackground = CreateSolidBrush(m_bDarkBackgroundEnabled ? RGB(40, 40, 60) : RGB(206, 215, 230));
+		SetClassLongPtr(m_hWebViewParent, GCLP_HBRBACKGROUND, (LONG_PTR)s_hbrBackground);
+		InvalidateRect(m_hWebViewParent, NULL, TRUE);
+	}
+
 private:
 
 	HRESULT InitializeWebView(const wchar_t* url, double zoom, const std::wstring& userAgent, const wchar_t* userDataFolder, IWebDiffCallback* callback)
@@ -1661,7 +1694,7 @@ private:
 			wcex.cbWndExtra = 0;
 			wcex.hInstance = hInstance;
 			wcex.hCursor = LoadCursor(nullptr, IDC_ARROW);
-			wcex.hbrBackground = CreateSolidBrush(RGB(206, 215, 230));
+			wcex.hbrBackground = s_hbrBackground;
 			wcex.lpszClassName = L"WebViewParentClass";
 		}
 		return RegisterClassExW(&wcex) != 0;
@@ -2083,6 +2116,7 @@ private:
 	HWND m_hWebViewParent = nullptr;
 	HFONT m_hToolbarFont = nullptr;
 	HFONT m_hEditFont = nullptr;
+	inline static HBRUSH s_hbrBackground = CreateSolidBrush(RGB(206, 215, 230));
 	WNDPROC m_oldTabCtrlWndProc = nullptr;
 	WNDPROC m_oldEditWndProc = nullptr;
 	TOOLINFO m_toolItem{};
@@ -2097,6 +2131,7 @@ private:
 	std::wstring m_currentUrl;
 	std::wstring m_toolTipText = L"test";
 	bool m_showToolTip = false;
+	bool m_bDarkBackgroundEnabled = false;
 	std::wstring m_webmessage;
 	inline static const auto GetDpiForWindowFunc = []() {
 		HMODULE hUser32 = GetModuleHandle(L"user32.dll");
