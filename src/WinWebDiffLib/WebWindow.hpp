@@ -81,7 +81,7 @@ class CWebWindow
 						{
 							auto webView2Profile2 = webView2Profile.try_query<ICoreWebView2Profile2>();
 							webView2Profile2->put_PreferredColorScheme(
-								m_parent->m_bDarkBackgroundEnabled ? COREWEBVIEW2_PREFERRED_COLOR_SCHEME_DARK : COREWEBVIEW2_PREFERRED_COLOR_SCHEME_LIGHT);
+								m_parent->s_bDarkBackgroundEnabled ? COREWEBVIEW2_PREFERRED_COLOR_SCHEME_DARK : COREWEBVIEW2_PREFERRED_COLOR_SCHEME_LIGHT);
 						}
 					}
 
@@ -292,7 +292,12 @@ public:
 		m_pDiffWindow = pDiffWindow;
 		m_fitToWindow = fitToWindow;
 		m_size = size;
-		m_bDarkBackgroundEnabled = darkBackgroundEnabled;
+		if (s_bDarkBackgroundEnabled != darkBackgroundEnabled)
+		{
+			s_bDarkBackgroundEnabled = darkBackgroundEnabled;
+			DeleteObject(s_hbrBackground);
+			s_hbrBackground = CreateSolidBrush(s_bDarkBackgroundEnabled ? RGB(40, 40, 60) : RGB(206, 215, 230));
+		}
 		m_eventHandler = eventHandler;
 		MyRegisterClass(hInstance);
 		m_hWnd = CreateWindowExW(0, L"WinWebWindowClass", nullptr,
@@ -1378,16 +1383,21 @@ public:
 
 	bool IsDarkBackgroundEnabled() const
 	{
-		return m_bDarkBackgroundEnabled;
+		return s_bDarkBackgroundEnabled;
 	}
 
 	void SetDarkBackgroundEnabled(bool enabled)
 	{
-		m_bDarkBackgroundEnabled = enabled;
+		if (s_bDarkBackgroundEnabled == enabled)
+			return;
+		s_bDarkBackgroundEnabled = enabled;
 		DeleteObject(s_hbrBackground);
-		s_hbrBackground = CreateSolidBrush(m_bDarkBackgroundEnabled ? RGB(40, 40, 60) : RGB(206, 215, 230));
-		SetClassLongPtr(m_hWebViewParent, GCLP_HBRBACKGROUND, (LONG_PTR)s_hbrBackground);
-		InvalidateRect(m_hWebViewParent, NULL, TRUE);
+		s_hbrBackground = CreateSolidBrush(s_bDarkBackgroundEnabled ? RGB(40, 40, 60) : RGB(206, 215, 230));
+		if (m_hWebViewParent)
+		{
+			SetClassLongPtr(m_hWebViewParent, GCLP_HBRBACKGROUND, (LONG_PTR)s_hbrBackground);
+			InvalidateRect(m_hWebViewParent, NULL, TRUE);
+		}
 	}
 
 private:
@@ -2131,7 +2141,7 @@ private:
 	std::wstring m_currentUrl;
 	std::wstring m_toolTipText = L"test";
 	bool m_showToolTip = false;
-	bool m_bDarkBackgroundEnabled = false;
+	inline static bool s_bDarkBackgroundEnabled = false;
 	std::wstring m_webmessage;
 	inline static const auto GetDpiForWindowFunc = []() {
 		HMODULE hUser32 = GetModuleHandle(L"user32.dll");

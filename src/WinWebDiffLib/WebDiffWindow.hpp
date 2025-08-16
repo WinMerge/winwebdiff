@@ -12,13 +12,10 @@ class CWebDiffWindow : public IWebDiffWindow
 public:
 	CWebDiffWindow()
 	{
-		s_hbrBackground = CreateSolidBrush(m_bDarkBackgroundEnabled ? RGB(0, 0, 0) : GetSysColor(COLOR_3DFACE));
 	}
 
 	~CWebDiffWindow()
 	{
-		if (s_hbrBackground)
-			DeleteObject(s_hbrBackground);
 	}
 
 	bool Create(HINSTANCE hInstance, HWND hWndParent, int nID, const RECT& rc)
@@ -92,7 +89,7 @@ public:
 				std::wstring userDataFolder = GetUserDataFolderPath(i);
 				ComPtr<IWebDiffCallback> callback2(callback);
 				hr = m_webWindow[i].Create(this, m_hInstance, m_hWnd, urls[i], userDataFolder.c_str(),
-						m_size, m_fitToWindow, m_zoom, m_bDarkBackgroundEnabled, m_userAgent, nullptr,
+						m_size, m_fitToWindow, m_zoom, s_bDarkBackgroundEnabled, m_userAgent, nullptr,
 						[this, i, callback2](WebDiffEvent::EVENT_TYPE event, IUnknown* sender, IUnknown* args)
 							{
 								WebDiffEvent ev{};
@@ -442,20 +439,22 @@ public:
 
 	bool IsDarkBackgroundEnabled() const
 	{
-		return m_bDarkBackgroundEnabled;
+		return s_bDarkBackgroundEnabled;
 	}
 
 	void SetDarkBackgroundEnabled(bool enabled)
 	{
-		m_bDarkBackgroundEnabled = enabled;
+		if (s_bDarkBackgroundEnabled == enabled)
+			return;
+		s_bDarkBackgroundEnabled = enabled;
+		DeleteObject(s_hbrBackground);
+		s_hbrBackground = CreateSolidBrush(s_bDarkBackgroundEnabled ? RGB(0, 0, 0) : GetSysColor(COLOR_3DFACE));
 		if (m_hWnd)
 		{
-			for (int pane = 0; pane < m_nPanes; ++pane)
-				m_webWindow[pane].SetDarkBackgroundEnabled(m_bDarkBackgroundEnabled);
-			DeleteObject(s_hbrBackground);
-			s_hbrBackground = CreateSolidBrush(m_bDarkBackgroundEnabled ? RGB(0, 0, 0) : GetSysColor(COLOR_3DFACE));
 			SetClassLongPtr(m_hWnd, GCLP_HBRBACKGROUND, (LONG_PTR)s_hbrBackground);
 			InvalidateRect(m_hWnd, NULL, TRUE);
+			for (int pane = 0; pane < m_nPanes; ++pane)
+				m_webWindow[pane].SetDarkBackgroundEnabled(s_bDarkBackgroundEnabled);
 		}
 	}
 
@@ -1544,7 +1543,7 @@ private:
 	int m_nPanes = 0;
 	HWND m_hWnd = nullptr;
 	HINSTANCE m_hInstance = nullptr;
-	HBRUSH s_hbrBackground = nullptr;
+	inline static HBRUSH s_hbrBackground = CreateSolidBrush(GetSysColor(COLOR_3DFACE));
 	CWebWindow m_webWindow[3];
 	int m_nDraggingSplitter = -1;
 	bool m_bHorizontalSplit = false;
@@ -1562,7 +1561,7 @@ private:
 	std::vector<DiffInfo> m_diffInfos;
 	DiffLocation m_diffLocation[3];
 	DiffOptions m_diffOptions{};
-	bool m_bDarkBackgroundEnabled;
+	inline static bool s_bDarkBackgroundEnabled = false;
 	bool m_bShowDifferences = true;
 	bool m_bShowWordDifferences = true;
 	bool m_bSynchronizeEvents = true;
