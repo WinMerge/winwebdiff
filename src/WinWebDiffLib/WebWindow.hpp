@@ -1721,15 +1721,15 @@ private:
 		if (kind == COREWEBVIEW2_KEY_EVENT_KIND_KEY_DOWN || kind == COREWEBVIEW2_KEY_EVENT_KIND_SYSTEM_KEY_DOWN)
 		{
 			bool handled = false;
-			short vkmenu = GetAsyncKeyState(VK_MENU);
-			short vkctrl = GetAsyncKeyState(VK_CONTROL);
+			bool vkmenu = GetAsyncKeyState(VK_MENU) < 0;
+			bool vkctrl = GetAsyncKeyState(VK_CONTROL) < 0;
 			if (virtualKey == VK_F6 ||
-			    virtualKey == VK_ESCAPE ||
-			    (vkctrl && virtualKey == 'O') ||
-			    (vkctrl && virtualKey == 'J') ||
-			    (vkctrl && virtualKey == 'W') ||
-			    (vkmenu && virtualKey == VK_UP) ||
-			    (vkmenu && virtualKey == VK_DOWN))
+				virtualKey == VK_ESCAPE ||
+				(vkctrl && virtualKey == 'O') ||
+				(vkctrl && virtualKey == 'J') ||
+				(vkctrl && virtualKey == 'W') ||
+				(vkmenu && virtualKey == VK_UP) ||
+				(vkmenu && virtualKey == VK_DOWN))
 			{
 				PostMessage(GetParent(m_hWnd), WM_KEYDOWN, virtualKey, lParam);
 				handled = true;
@@ -2060,8 +2060,8 @@ private:
 			}
 			else if (iMsg == WM_KEYDOWN || iMsg == WM_SYSKEYDOWN)
 			{
-				short vkctrl = GetAsyncKeyState(VK_CONTROL);
-				short vkmenu = GetAsyncKeyState(VK_MENU);
+				bool vkctrl = GetAsyncKeyState(VK_CONTROL) < 0;
+				bool vkmenu = GetAsyncKeyState(VK_MENU) < 0;
 				if ((vkctrl && (wParam == 'E' || wParam == 'K')) || (vkmenu && wParam == 'D'))
 				{
 					SendMessage(m_hEdit, EM_SETSEL, 0, -1);
