@@ -1493,7 +1493,8 @@ private:
 
 			for (int i = 0; i < m_nPanes - 1; ++i)
 			{
-				int paneWidth = m_webWindow[i].GetWindowRect().right - m_webWindow[i].GetWindowRect().left;
+				RECT paneRc = m_webWindow[i].GetWindowRect();
+				int paneWidth = paneRc.right - paneRc.left;
 				m_splitterRatios[i] = static_cast<double>(paneWidth) / totalWidth;
 			}
 		}
@@ -1505,7 +1506,8 @@ private:
 
 			for (int i = 0; i < m_nPanes - 1; ++i)
 			{
-				int paneHeight = m_webWindow[i].GetWindowRect().bottom - m_webWindow[i].GetWindowRect().top;
+				RECT paneRc = m_webWindow[i].GetWindowRect();
+				int paneHeight = paneRc.bottom - paneRc.top;
 				m_splitterRatios[i] = static_cast<double>(paneHeight) / totalHeight;
 			}
 		}
