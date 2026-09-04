@@ -81,6 +81,8 @@ public:
 	{
 		HRESULT hr = S_OK;
 		m_nPanes = nPanes;
+		for (int i = 0; i < nPanes - 1; ++i)
+			m_splitterRatios[i] = (m_requestedSplitterRatios[i] < 0) ? 1.0 / nPanes : m_requestedSplitterRatios[i];
 		if (m_hWnd)
 		{
 			Close();
@@ -215,7 +217,7 @@ public:
 								RaiseEvent(ev);
 							});
 			}
-			std::vector<RECT> rects = CalcChildWebWindowRect(m_hWnd, m_nPanes, m_bHorizontalSplit);
+			std::vector<RECT> rects = CalcChildWebWindowRect(m_hWnd, m_nPanes, m_bHorizontalSplit, m_splitterRatios);
 			for (int i = 0; i < m_nPanes; ++i)
 				m_webWindow[i].SetWindowRect(rects[i]);
 		}
@@ -422,9 +424,43 @@ public:
 		if (!m_hWnd)
 			return;
 		m_bHorizontalSplit = horizontalSplit;
-		std::vector<RECT> rects = CalcChildWebWindowRect(m_hWnd, m_nPanes, m_bHorizontalSplit);
+		std::vector<RECT> rects = CalcChildWebWindowRect(m_hWnd, m_nPanes, m_bHorizontalSplit, m_splitterRatios);
 		for (int i = 0; i < m_nPanes; ++i)
 			m_webWindow[i].SetWindowRect(rects[i]);
+	}
+
+	double GetSplitterRatio(int pane) const override
+	{
+		if (pane < 0 || pane >= std::size(m_splitterRatios))
+			return -1.0;
+		return m_splitterRatios[pane];
+	}
+
+	void SetSplitterRatios(const double* ratios, int count) override
+	{
+		if (count > std::size(m_splitterRatios) || !ratios || count < 1)
+			return;
+		for (int i = 0; i < count; ++i)
+		{
+			if (ratios[i] >= 0.0 && ratios[i] <= 1.0)
+			{
+				m_splitterRatios[i] = ratios[i];
+				m_requestedSplitterRatios[i] = ratios[i];
+			}
+		}
+		ApplySplitterRatios();
+	}
+
+	void ResetSplitterRatios() override
+	{
+		if (m_nPanes < 2)
+			return;
+		for (int i = 0; i < m_nPanes - 1; ++i)
+		{
+			m_splitterRatios[i] = 1.0 / m_nPanes;
+			m_requestedSplitterRatios[i] = -1.0;
+		}
+		ApplySplitterRatios();
 	}
 
 	void GetDiffColorSettings(IWebDiffWindow::ColorSettings& settings) const override
@@ -1306,48 +1342,85 @@ private:
 		return path;
 	}
 
-	std::vector<RECT> CalcChildWebWindowRect(HWND hWnd, int nPanes, bool bHorizontalSplit)
+	std::vector<RECT> CalcChildWebWindowRect(HWND hWnd, int nPanes, bool bHorizontalSplit, const double* ratios)
 	{
-		std::vector<RECT> childrects;
+		std::vector<RECT> rects;
 		RECT rcParent;
 		GetClientRect(hWnd, &rcParent);
-		RECT rc = rcParent;
-		if (nPanes > 0)
+
+		if (nPanes < 1)
+			return rects;
+
+		rects.resize(nPanes);
+
+		if (!bHorizontalSplit)
 		{
-			if (!bHorizontalSplit)
+			// Vertical split
+			int cx = 0;
+			int totalWidth = rcParent.right - rcParent.left - cx;
+			int accumulatedWidth = 0;
+
+			// Ratio-based division
+			for (int i = 0; i < nPanes; ++i)
 			{
-				int cx = 0; //GetSystemMetrics(SM_CXVSCROLL);
-				int width = (rcParent.left + rcParent.right - cx) / nPanes - 2;
-				rc.left = 0;
-				rc.right = rc.left + width;
-				for (int i = 0; i < nPanes - 1; ++i)
+				rects[i].top = rcParent.top;
+				rects[i].bottom = rcParent.bottom;
+
+				if (i < nPanes - 1)
 				{
-					childrects.push_back(rc);
-					rc.left = rc.right + 2 * 2;
-					rc.right = rc.left + width;
+					int paneWidth = static_cast<int>(totalWidth * ratios[i]);
+					rects[i].left = accumulatedWidth;
+					rects[i].right = accumulatedWidth + paneWidth;
+					accumulatedWidth = rects[i].right + 4; // 4 pixels for splitter
 				}
-				rc.right = rcParent.right;
-				rc.left = rc.right - width - cx;
-				childrects.push_back(rc);
-			}
-			else
-			{
-				int cy = 0; // GetSystemMetrics(SM_CXVSCROLL);
-				int height = (rcParent.top + rcParent.bottom - cy) / nPanes - 2;
-				rc.top = 0;
-				rc.bottom = rc.top + height;
-				for (int i = 0; i < nPanes - 1; ++i)
+				else
 				{
-					childrects.push_back(rc);
-					rc.top = rc.bottom + 2 * 2;
-					rc.bottom = rc.top + height;
+					// Last pane takes remaining width
+					rects[i].left = accumulatedWidth;
+					rects[i].right = rcParent.right;
 				}
-				rc.bottom = rcParent.bottom;
-				rc.top = rc.bottom - height - cy;
-				childrects.push_back(rc);
 			}
 		}
-		return childrects;
+		else
+		{
+			// Horizontal split
+			int cy = 0;
+			int totalHeight = rcParent.bottom - rcParent.top - cy;
+			int accumulatedHeight = 0;
+
+			// Ratio-based division
+			for (int i = 0; i < nPanes; ++i)
+			{
+				rects[i].left = rcParent.left;
+				rects[i].right = rcParent.right;
+
+				if (i < nPanes - 1)
+				{
+					int paneHeight = static_cast<int>(totalHeight * ratios[i]);
+					rects[i].top = accumulatedHeight;
+					rects[i].bottom = accumulatedHeight + paneHeight;
+					accumulatedHeight = rects[i].bottom + 4; // 4 pixels for splitter
+				}
+				else
+				{
+					// Last pane takes remaining height
+					rects[i].top = accumulatedHeight;
+					rects[i].bottom = rcParent.bottom;
+				}
+			}
+		}
+
+		return rects;
+	}
+
+	void ApplySplitterRatios()
+	{
+		if (!m_hWnd || m_nPanes < 2)
+			return;
+
+		std::vector<RECT> rects = CalcChildWebWindowRect(m_hWnd, m_nPanes, m_bHorizontalSplit, m_splitterRatios);
+		for (int i = 0; i < m_nPanes; ++i)
+			m_webWindow[i].SetWindowRect(rects[i]);
 	}
 
 	void MoveSplitter(int x, int y)
@@ -1399,6 +1472,45 @@ private:
 
 		for (int i = 0; i < m_nPanes; ++i)
 			m_webWindow[i].SetWindowRect(rc[i]);
+
+		// Update ratios based on new positions
+		UpdateSplitterRatios();
+	}
+
+	void UpdateSplitterRatios()
+	{
+		if (m_nPanes < 2)
+			return;
+
+		RECT rcParent;
+		GetClientRect(m_hWnd, &rcParent);
+
+		if (!m_bHorizontalSplit)
+		{
+			// Vertical split: calculate width ratios
+			int cx = 0;
+			int totalWidth = rcParent.right - rcParent.left - cx;
+
+			for (int i = 0; i < m_nPanes - 1; ++i)
+			{
+				RECT paneRc = m_webWindow[i].GetWindowRect();
+				int paneWidth = paneRc.right - paneRc.left;
+				m_splitterRatios[i] = static_cast<double>(paneWidth) / totalWidth;
+			}
+		}
+		else
+		{
+			// Horizontal split: calculate height ratios
+			int cy = 0;
+			int totalHeight = rcParent.bottom - rcParent.top - cy;
+
+			for (int i = 0; i < m_nPanes - 1; ++i)
+			{
+				RECT paneRc = m_webWindow[i].GetWindowRect();
+				int paneHeight = paneRc.bottom - paneRc.top;
+				m_splitterRatios[i] = static_cast<double>(paneHeight) / totalHeight;
+			}
+		}
 	}
 
 	void OnCreate(HWND hWnd, LPCREATESTRUCT lpCreateStruct)
@@ -1407,9 +1519,7 @@ private:
 
 	void OnSize(UINT nType, int cx, int cy)
 	{
-		std::vector<RECT> rects = CalcChildWebWindowRect(m_hWnd, m_nPanes, m_bHorizontalSplit);
-		for (int i = 0; i < m_nPanes; ++i)
-			m_webWindow[i].SetWindowRect(rects[i]);
+		ApplySplitterRatios();
 	}
 
 	void OnKeyDown(UINT nChar, UINT nRepCnt, UINT nFlags)
@@ -1581,4 +1691,6 @@ private:
 		RGB(255, 160, 160), RGB(200, 129, 108), RGB(0, 0, 0),
 	};
 	LogCallback m_logCallback;
+	double m_splitterRatios[2] = { -1.0, -1.0 };
+	double m_requestedSplitterRatios[2] = { -1.0, -1.0 };
 };
